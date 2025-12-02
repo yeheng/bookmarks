@@ -6,7 +6,7 @@ use axum::{
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::middleware::AuthenticatedUser;
@@ -36,7 +36,7 @@ pub struct BookmarkListQuery {
 }
 
 pub async fn get_bookmarks(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Query(query): Query<BookmarkListQuery>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -65,7 +65,7 @@ pub async fn get_bookmarks(
 }
 
 pub async fn get_bookmark(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(bookmark_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -75,7 +75,7 @@ pub async fn get_bookmark(
 }
 
 pub async fn create_bookmark(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(bookmark_data): Json<CreateBookmark>,
 ) -> Result<Response, AppError> {
@@ -85,7 +85,7 @@ pub async fn create_bookmark(
 }
 
 pub async fn update_bookmark(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(bookmark_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(update_data): Json<UpdateBookmark>,
@@ -97,7 +97,7 @@ pub async fn update_bookmark(
 }
 
 pub async fn delete_bookmark(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(bookmark_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -111,7 +111,7 @@ pub async fn delete_bookmark(
 }
 
 pub async fn increment_visit_count(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(bookmark_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -121,7 +121,7 @@ pub async fn increment_visit_count(
 }
 
 pub async fn import_bookmarks(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
@@ -204,7 +204,7 @@ pub async fn import_bookmarks(
 }
 
 pub async fn batch_update_bookmarks(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(payload): Json<BookmarkBatchRequest>,
 ) -> Result<Response, AppError> {
@@ -233,7 +233,7 @@ pub struct BookmarkExportQuery {
 }
 
 pub async fn export_bookmarks(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Query(query): Query<BookmarkExportQuery>,
 ) -> Result<Response, AppError> {

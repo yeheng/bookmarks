@@ -62,9 +62,17 @@ pub struct BookmarkWithTags {
     pub collection_color: Option<String>,
 }
 
-// 手动实现 FromRow，因为使用了 flatten
-impl<'r> FromRow<'r, sqlx::postgres::PgRow> for BookmarkWithTags {
-    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+// SQLite compatible FromRow implementation
+impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for BookmarkWithTags {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        // Parse tags from JSON string (SQLite doesn't have array_agg)
+        let tags_json: Option<String> = row.try_get("tags")?;
+        let tags: Vec<String> = if let Some(tags_json) = tags_json {
+            serde_json::from_str(&tags_json).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         Ok(BookmarkWithTags {
             bookmark: Bookmark {
                 id: row.try_get("id")?,
@@ -88,7 +96,7 @@ impl<'r> FromRow<'r, sqlx::postgres::PgRow> for BookmarkWithTags {
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
             },
-            tags: row.try_get("tags")?,
+            tags,
             collection_name: row.try_get("collection_name")?,
             collection_color: row.try_get("collection_color")?,
         })

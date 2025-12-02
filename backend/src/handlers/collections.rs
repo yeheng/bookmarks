@@ -3,7 +3,7 @@ use axum::{
     response::Response,
 };
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::middleware::AuthenticatedUser;
@@ -21,7 +21,7 @@ pub struct CollectionListQuery {
 }
 
 pub async fn get_collections(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Query(query): Query<CollectionListQuery>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -39,7 +39,7 @@ pub async fn get_collections(
 }
 
 pub async fn get_collection(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(collection_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -51,7 +51,7 @@ pub async fn get_collection(
 }
 
 pub async fn create_collection(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(collection_data): Json<CreateCollection>,
 ) -> Result<Response, AppError> {
@@ -62,7 +62,7 @@ pub async fn create_collection(
 }
 
 pub async fn update_collection(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(collection_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(update_data): Json<UpdateCollection>,
@@ -76,7 +76,7 @@ pub async fn update_collection(
 }
 
 pub async fn delete_collection(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(collection_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {

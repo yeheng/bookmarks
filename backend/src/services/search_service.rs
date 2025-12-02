@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use sqlx::{PgPool, Row};
+use sqlx::{SqlitePool, Row};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -14,7 +14,7 @@ impl SearchService {
     pub async fn search_bookmarks(
         user_id: Uuid,
         filters: SearchFilters,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<SearchResponse> {
         let start = Instant::now();
 
@@ -45,10 +45,7 @@ impl SearchService {
                 b.metadata,
                 b.created_at,
                 b.updated_at,
-                COALESCE(
-                    array_agg(t.name) FILTER (WHERE t.name IS NOT NULL),
-                    ARRAY[]::VARCHAR[]
-                ) as tags,
+                '[' || GROUP_CONCAT(t.name, '","') || ']' as tags,
                 c.name as collection_name,
                 c.color as collection_color
             FROM bookmarks b
@@ -58,8 +55,9 @@ impl SearchService {
             {filter_sql}
             GROUP BY b.id, c.name, c.color
             ORDER BY b.created_at DESC
-            LIMIT ${limit_param} OFFSET ${offset_param}
-            "#
+            LIMIT ${} OFFSET ${}
+            "#,
+            limit_param, offset_param
         );
 
         let mut query_builder = sqlx::query_as::<_, BookmarkWithTags>(&search_sql).bind(user_id);
@@ -67,7 +65,6 @@ impl SearchService {
             query_builder = match bind {
                 BindValue::Uuid(value) => query_builder.bind(*value),
                 BindValue::Text(value) => query_builder.bind(value.clone()),
-                BindValue::TextArray(value) => query_builder.bind(value.clone()),
                 BindValue::Date(value) => query_builder.bind(*value),
             };
         }
@@ -84,7 +81,6 @@ impl SearchService {
             count_query = match bind {
                 BindValue::Uuid(value) => count_query.bind(*value),
                 BindValue::Text(value) => count_query.bind(value.clone()),
-                BindValue::TextArray(value) => count_query.bind(value.clone()),
                 BindValue::Date(value) => count_query.bind(*value),
             };
         }
@@ -117,7 +113,7 @@ impl SearchService {
         user_id: Uuid,
         query: &str,
         limit: Option<i64>,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Vec<SearchSuggestion>> {
         let limit = limit.unwrap_or(10);
 
@@ -126,8 +122,8 @@ impl SearchService {
             SELECT suggestion, suggestion_type, usage_count, last_used_at
             FROM (
                 SELECT b.title as suggestion,
-                       'bookmark'::text as suggestion_type,
-                       COUNT(*)::bigint as usage_count,
+                       'bookmark' as suggestion_type,
+                       COUNT(*) as usage_count,
                        MAX(b.updated_at) as last_used_at
                 FROM bookmarks b
                 WHERE b.user_id = $1
@@ -137,8 +133,8 @@ impl SearchService {
                 UNION ALL
 
                 SELECT t.name as suggestion,
-                       'tag'::text as suggestion_type,
-                       COUNT(bt.bookmark_id)::bigint as usage_count,
+                       'tag' as suggestion_type,
+                       COUNT(bt.bookmark_id) as usage_count,
                        MAX(t.updated_at) as last_used_at
                 FROM tags t
                 LEFT JOIN bookmark_tags bt ON t.id = bt.tag_id
@@ -185,34 +181,39 @@ impl SearchService {
         if !filters.tags.is_empty() {
             param_index += 1;
             let tag_user_param = param_index;
-            param_index += 1;
-            let tag_list_param = param_index;
+            let tag_placeholders = filters.tags.iter().enumerate()
+                .map(|(i, _)| format!("${}", param_index + 1 + i))
+                .collect::<Vec<_>>().join(",");
+            param_index += filters.tags.len();
+            
             sql.push_str(&format!(
                 " AND b.id IN (
                     SELECT bt.bookmark_id
                     FROM bookmark_tags bt
                     JOIN tags t2 ON bt.tag_id = t2.id
-                    WHERE t2.user_id = ${} AND t2.name = ANY(${})
+                    WHERE t2.user_id = ${} AND t2.name IN ({})
                     GROUP BY bt.bookmark_id
                     HAVING COUNT(DISTINCT t2.name) = {}
                 )",
                 tag_user_param,
-                tag_list_param,
+                tag_placeholders,
                 filters.tags.len()
             ));
             binds.push(BindValue::Uuid(user_id));
-            binds.push(BindValue::TextArray(filters.tags.clone()));
+            for tag in &filters.tags {
+                binds.push(BindValue::Text(tag.clone()));
+            }
         }
 
         if let Some(date_from) = filters.date_from {
             param_index += 1;
-            sql.push_str(&format!(" AND b.created_at::date >= ${}", param_index));
+            sql.push_str(&format!(" AND date(b.created_at) >= ${}", param_index));
             binds.push(BindValue::Date(date_from));
         }
 
         if let Some(date_to) = filters.date_to {
             param_index += 1;
-            sql.push_str(&format!(" AND b.created_at::date <= ${}", param_index));
+            sql.push_str(&format!(" AND date(b.created_at) <= ${}", param_index));
             binds.push(BindValue::Date(date_to));
         }
 
@@ -222,27 +223,27 @@ impl SearchService {
 
         match filters.search_type {
             SearchType::Title => {
-                sql.push_str(&format!(" AND b.title ILIKE ${}", placeholder));
+                sql.push_str(&format!(" AND lower(b.title) LIKE lower(${})", placeholder));
             }
             SearchType::Content => {
                 sql.push_str(&format!(
-                    " AND COALESCE(b.description, '') ILIKE ${}",
+                    " AND lower(COALESCE(b.description, '')) LIKE lower(${})",
                     placeholder
                 ));
             }
             SearchType::Url => {
-                sql.push_str(&format!(" AND b.url ILIKE ${}", placeholder));
+                sql.push_str(&format!(" AND lower(b.url) LIKE lower(${})", placeholder));
             }
             SearchType::All => {
                 sql.push_str(&format!(
-                    " AND (b.title ILIKE ${} OR COALESCE(b.description, '') ILIKE ${} OR b.url ILIKE ${})",
+                    " AND (lower(b.title) LIKE lower(${}) OR lower(COALESCE(b.description, '')) LIKE lower(${}) OR lower(b.url) LIKE lower(${}))",
                     placeholder, placeholder, placeholder
                 ));
             }
         }
         binds.push(BindValue::Text(pattern));
 
-        (sql, binds, param_index)
+        (sql, binds, param_index as i32)
     }
 }
 
@@ -250,6 +251,5 @@ impl SearchService {
 enum BindValue {
     Uuid(Uuid),
     Text(String),
-    TextArray(Vec<String>),
     Date(NaiveDate),
 }

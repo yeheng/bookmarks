@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::models::{CreateTag, Tag, TagQuery, UpdateTag};
@@ -10,7 +10,7 @@ impl TagService {
     pub async fn create_tag(
         user_id: Uuid,
         tag_data: CreateTag,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Tag> {
         let tag = sqlx::query_as::<_, Tag>(
             r#"
@@ -37,7 +37,7 @@ impl TagService {
         Ok(tag)
     }
 
-    pub async fn get_tags(user_id: Uuid, query: TagQuery, db_pool: &PgPool) -> AppResult<Vec<Tag>> {
+    pub async fn get_tags(user_id: Uuid, query: TagQuery, db_pool: &SqlitePool) -> AppResult<Vec<Tag>> {
         let limit = query.limit.unwrap_or(50);
         let offset = query.offset.unwrap_or(0);
 
@@ -58,7 +58,7 @@ impl TagService {
 
         if query.search.is_some() {
             param_count += 1;
-            sql.push_str(&format!(" AND name ILIKE ${}", param_count));
+            sql.push_str(&format!(" AND lower(name) LIKE lower(${})", param_count));
         }
 
         sql.push_str(" ORDER BY usage_count DESC, name");
@@ -81,7 +81,7 @@ impl TagService {
     pub async fn get_tag_by_id(
         user_id: Uuid,
         tag_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Option<Tag>> {
         let tag = sqlx::query_as::<_, Tag>(
             r#"
@@ -110,7 +110,7 @@ impl TagService {
         user_id: Uuid,
         tag_id: Uuid,
         update_data: UpdateTag,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Option<Tag>> {
         // 检查是否有更新字段
         if update_data.name.is_none()
@@ -127,7 +127,7 @@ impl TagService {
                 name = COALESCE($1, name),
                 color = COALESCE($2, color),
                 description = COALESCE($3, description),
-                updated_at = NOW()
+                updated_at = datetime('now')
             WHERE id = $4 AND user_id = $5
             RETURNING id, user_id, name, color,
                       description, usage_count,
@@ -145,7 +145,7 @@ impl TagService {
         Ok(tag)
     }
 
-    pub async fn delete_tag(user_id: Uuid, tag_id: Uuid, db_pool: &PgPool) -> AppResult<bool> {
+    pub async fn delete_tag(user_id: Uuid, tag_id: Uuid, db_pool: &SqlitePool) -> AppResult<bool> {
         let result = sqlx::query("DELETE FROM tags WHERE id = $1 AND user_id = $2")
             .bind(tag_id)
             .bind(user_id)
@@ -158,7 +158,7 @@ impl TagService {
     pub async fn get_popular_tags(
         user_id: Uuid,
         limit: Option<i64>,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Vec<Tag>> {
         let limit = limit.unwrap_or(20);
 

@@ -3,7 +3,7 @@ use axum::{
     response::Response,
 };
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use crate::services::AuthService;
 use crate::utils::error::AppError;
@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub async fn register(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Json(user_data): Json<CreateUser>,
 ) -> Result<Response, AppError> {
     let jwt_secret = std::env::var("JWT_SECRET")
@@ -36,7 +36,7 @@ pub async fn register(
 }
 
 pub async fn login(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Json(login_data): Json<LoginUser>,
 ) -> Result<Response, AppError> {
     let jwt_secret = std::env::var("JWT_SECRET")
@@ -56,7 +56,7 @@ pub async fn login(
 }
 
 pub async fn refresh_token(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Json(body): Json<Value>,
 ) -> Result<Response, AppError> {
     let refresh_token = body
@@ -84,7 +84,7 @@ pub async fn refresh_token(
 }
 
 pub async fn get_current_user(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let jwt_secret = std::env::var("JWT_SECRET")
@@ -102,7 +102,7 @@ pub async fn get_current_user(
 }
 
 pub async fn change_password(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(password_data): Json<ChangePassword>,
 ) -> Result<Response, AppError> {

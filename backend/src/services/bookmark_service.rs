@@ -1,4 +1,4 @@
-use sqlx::{PgPool, Row};
+use sqlx::{SqlitePool, Row};
 use uuid::Uuid;
 
 use crate::models::{
@@ -15,7 +15,7 @@ impl BookmarkService {
     pub async fn create_bookmark(
         user_id: Uuid,
         bookmark_data: CreateBookmark,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Bookmark> {
         // Validate URL
         validate_url(&bookmark_data.url)
@@ -48,13 +48,12 @@ impl BookmarkService {
         // Handle tags
         if let Some(tags) = bookmark_data.tags {
             for tag_name in tags {
-                // Ensure tag exists
+                // Ensure tag exists (SQLite compatible)
                 let tag_row = sqlx::query(
                     r#"
-                    INSERT INTO tags (user_id, name)
-                    VALUES ($1, $2)
-                    ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
-                    RETURNING id
+                    INSERT OR IGNORE INTO tags (user_id, name)
+                    VALUES ($1, $2);
+                    SELECT id FROM tags WHERE user_id = $1 AND name = $2
                     "#,
                 )
                 .bind(user_id)
@@ -64,7 +63,7 @@ impl BookmarkService {
                 let tag_id: Uuid = tag_row.get("id");
 
                 // Associate bookmark with tag
-                sqlx::query("INSERT INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
+                sqlx::query("INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
                     .bind(bookmark.id)
                     .bind(tag_id)
                     .execute(&mut *tx)
@@ -81,7 +80,7 @@ impl BookmarkService {
     pub async fn get_bookmarks(
         user_id: Uuid,
         query: BookmarkQuery,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Vec<BookmarkWithTags>> {
         let limit = query.limit.unwrap_or(50);
         let offset = query.offset.unwrap_or(0);
@@ -113,10 +112,7 @@ impl BookmarkService {
                 b.is_favorite, b.is_archived, b.is_private, b.is_read,
                 b.visit_count, b.last_visited, b.reading_time, b.difficulty_level,
                 b.metadata, b.created_at, b.updated_at,
-                COALESCE(
-                    array_agg(t.name) FILTER (WHERE t.name IS NOT NULL),
-                    ARRAY[]::VARCHAR[]
-                ) as tags,
+                '[' || GROUP_CONCAT(t.name, '","') || ']' as tags,
                 c.name as collection_name,
                 c.color as collection_color
             FROM bookmarks b
@@ -158,24 +154,29 @@ impl BookmarkService {
         if let Some(ref _search_term) = query.search {
             param_count += 1;
             sql.push_str(&format!(
-                " AND (to_tsvector('english', b.title || ' ' || COALESCE(b.description, '')) @@ plainto_tsquery('english', ${}))",
-                param_count
+                " AND (b.title LIKE '%' || ${} || '%' OR COALESCE(b.description, '') LIKE '%' || ${} || '%')",
+                param_count, param_count
             ));
         }
 
         if let Some(ref tags) = query.tags {
             if !tags.is_empty() {
                 param_count += 1;
+                let tag_placeholders = tags.iter().enumerate()
+                    .map(|(i, _)| format!("${}", param_count + 1 + i))
+                    .collect::<Vec<_>>().join(",");
+                param_count += tags.len();
+                
                 sql.push_str(&format!(
                     " AND b.id IN (
                         SELECT bookmark_id
                         FROM bookmark_tags
                         JOIN tags ON bookmark_tags.tag_id = tags.id
-                        WHERE tags.name = ANY(${})
+                        WHERE tags.name IN ({})
                         GROUP BY bookmark_id
                         HAVING COUNT(DISTINCT tags.id) = {}
                     )",
-                    param_count,
+                    tag_placeholders,
                     tags.len()
                 ));
             }
@@ -212,7 +213,9 @@ impl BookmarkService {
             query_builder = query_builder.bind(search_term);
         }
         if let Some(tags) = query.tags {
-            query_builder = query_builder.bind(tags);
+            for tag in tags {
+                query_builder = query_builder.bind(tag);
+            }
         }
 
         let bookmarks = query_builder
@@ -227,7 +230,7 @@ impl BookmarkService {
     pub async fn get_bookmark_by_id(
         user_id: Uuid,
         bookmark_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Option<BookmarkWithTags>> {
         let bookmark = sqlx::query_as::<_, BookmarkWithTags>(
             r#"
@@ -237,10 +240,7 @@ impl BookmarkService {
                 b.is_favorite, b.is_archived, b.is_private, b.is_read,
                 b.visit_count, b.last_visited, b.reading_time, b.difficulty_level,
                 b.metadata, b.created_at, b.updated_at,
-                COALESCE(
-                    array_agg(t.name) FILTER (WHERE t.name IS NOT NULL),
-                    ARRAY[]::VARCHAR[]
-                ) as tags,
+                '[' || GROUP_CONCAT(t.name, '","') || ']' as tags,
                 c.name as collection_name,
                 c.color as collection_color
             FROM bookmarks b
@@ -263,7 +263,7 @@ impl BookmarkService {
         user_id: Uuid,
         bookmark_id: Uuid,
         update_data: UpdateBookmark,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Option<Bookmark>> {
         // Validate URL if provided
         if let Some(ref url) = update_data.url {
@@ -294,14 +294,14 @@ impl BookmarkService {
                     title = COALESCE($1, title),
                     url = COALESCE($2, url),
                     description = COALESCE($3, description),
-                    collection_id = CASE WHEN $4::boolean THEN $5 ELSE collection_id END,
+                    collection_id = CASE WHEN $4 THEN $5 ELSE collection_id END,
                     is_favorite = COALESCE($6, is_favorite),
                     is_archived = COALESCE($7, is_archived),
                     is_private = COALESCE($8, is_private),
                     is_read = COALESCE($9, is_read),
                     reading_time = COALESCE($10, reading_time),
                     difficulty_level = COALESCE($11, difficulty_level),
-                    updated_at = NOW()
+                    updated_at = datetime('now')
                 WHERE id = $12 AND user_id = $13
                 RETURNING id, user_id, collection_id, title, url, description, favicon_url,
                           screenshot_url, thumbnail_url, is_favorite,
@@ -340,10 +340,9 @@ impl BookmarkService {
             for tag_name in tags {
                 let tag_row = sqlx::query(
                     r#"
-                    INSERT INTO tags (user_id, name)
-                    VALUES ($1, $2)
-                    ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
-                    RETURNING id
+                    INSERT OR IGNORE INTO tags (user_id, name)
+                    VALUES ($1, $2);
+                    SELECT id FROM tags WHERE user_id = $1 AND name = $2
                     "#,
                 )
                 .bind(user_id)
@@ -352,7 +351,7 @@ impl BookmarkService {
                 .await?;
                 let tag_id: Uuid = tag_row.get("id");
 
-                sqlx::query("INSERT INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
+                sqlx::query("INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
                     .bind(bookmark_id)
                     .bind(tag_id)
                     .execute(&mut *tx)
@@ -369,7 +368,7 @@ impl BookmarkService {
     pub async fn delete_bookmark(
         user_id: Uuid,
         bookmark_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<bool> {
         let result = sqlx::query("DELETE FROM bookmarks WHERE id = $1 AND user_id = $2")
             .bind(bookmark_id)
@@ -383,12 +382,12 @@ impl BookmarkService {
     pub async fn increment_visit_count(
         user_id: Uuid,
         bookmark_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<BookmarkVisitInfo> {
         let record = sqlx::query(
             r#"
             UPDATE bookmarks
-            SET visit_count = visit_count + 1, last_visited = NOW()
+            SET visit_count = visit_count + 1, last_visited = datetime('now')
             WHERE id = $1 AND user_id = $2
             RETURNING visit_count, last_visited
             "#,
@@ -408,7 +407,7 @@ impl BookmarkService {
         })
     }
 
-    pub async fn bookmark_exists(user_id: Uuid, url: &str, db_pool: &PgPool) -> AppResult<bool> {
+    pub async fn bookmark_exists(user_id: Uuid, url: &str, db_pool: &SqlitePool) -> AppResult<bool> {
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM bookmarks WHERE user_id = $1 AND url = $2)",
         )
@@ -423,7 +422,7 @@ impl BookmarkService {
     pub async fn batch_process(
         user_id: Uuid,
         request: BookmarkBatchRequest,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<BookmarkBatchResult> {
         let BookmarkBatchRequest {
             action,
@@ -509,7 +508,7 @@ impl BookmarkService {
     pub async fn export_bookmarks(
         user_id: Uuid,
         options: BookmarkExportOptions,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<BookmarkExportPayload> {
         let query = BookmarkQuery {
             collection_id: options.collection_id,
@@ -580,12 +579,12 @@ impl BookmarkService {
         user_id: Uuid,
         bookmark_id: Uuid,
         collection_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<bool> {
         let result = sqlx::query(
             r#"
             UPDATE bookmarks
-            SET collection_id = $1, updated_at = NOW()
+            SET collection_id = $1, updated_at = datetime('now')
             WHERE id = $2 AND user_id = $3
             "#,
         )
@@ -602,17 +601,16 @@ impl BookmarkService {
         user_id: Uuid,
         bookmark_id: Uuid,
         tags: Vec<String>,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<bool> {
         let mut tx = db_pool.begin().await?;
 
         for tag_name in tags {
             let tag_row = sqlx::query(
                 r#"
-                INSERT INTO tags (user_id, name)
-                VALUES ($1, $2)
-                ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
-                RETURNING id
+                INSERT OR IGNORE INTO tags (user_id, name)
+                VALUES ($1, $2);
+                SELECT id FROM tags WHERE user_id = $1 AND name = $2
                 "#,
             )
             .bind(user_id)
@@ -621,17 +619,11 @@ impl BookmarkService {
             .await?;
             let tag_id: Uuid = tag_row.get("id");
 
-            sqlx::query(
-                r#"
-                INSERT INTO bookmark_tags (bookmark_id, tag_id)
-                VALUES ($1, $2)
-                ON CONFLICT DO NOTHING
-                "#,
-            )
-            .bind(bookmark_id)
-            .bind(tag_id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
+                .bind(bookmark_id)
+                .bind(tag_id)
+                .execute(&mut *tx)
+                .await?;
         }
 
         tx.commit().await?;
@@ -643,24 +635,28 @@ impl BookmarkService {
         user_id: Uuid,
         bookmark_id: Uuid,
         tags: Vec<String>,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<bool> {
-        let result = sqlx::query(
-            r#"
-            DELETE FROM bookmark_tags
-            USING tags
-            WHERE bookmark_tags.tag_id = tags.id
-              AND bookmark_tags.bookmark_id = $1
-              AND tags.user_id = $2
-              AND tags.name = ANY($3)
-            "#,
-        )
-        .bind(bookmark_id)
-        .bind(user_id)
-        .bind(tags)
-        .execute(db_pool)
-        .await?;
+        // SQLite doesn't support USING with DELETE, so we need a subquery
+        let mut result = 0;
+        for tag_name in tags {
+            let delete_result = sqlx::query(
+                r#"
+                DELETE FROM bookmark_tags
+                WHERE bookmark_id = $1
+                  AND tag_id IN (
+                    SELECT id FROM tags WHERE user_id = $2 AND name = $3
+                  )
+                "#,
+            )
+            .bind(bookmark_id)
+            .bind(user_id)
+            .bind(&tag_name)
+            .execute(db_pool)
+            .await?;
+            result += delete_result.rows_affected();
+        }
 
-        Ok(result.rows_affected() > 0)
+        Ok(result > 0)
     }
 }

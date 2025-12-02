@@ -3,10 +3,10 @@ host = "0.0.0.0"
 port = 3000
 
 [database]
-url = ""
+url = "sqlite:bookmarks.db"
 max_connections = 10
 
 [auth]
-jwt_secret = ""
+jwt_secret = "xwxv8QR/eluWo/BThhXWJ4+67XU8IOMMlYHcLoiuEihCZ3Vq3xYHDw1ZeDqtg/koeXnoWS+e/Q0TZeKZKHx+Tw=="
 jwt_expires_in = 15  # minutes
 refresh_token_expires_in = 10080  # minutes (7 days)

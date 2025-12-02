@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::models::{Collection, CollectionQuery, CreateCollection, UpdateCollection};
@@ -10,7 +10,7 @@ impl CollectionService {
     pub async fn create_collection(
         user_id: Uuid,
         collection_data: CreateCollection,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Collection> {
         let collection = sqlx::query_as::<_, Collection>(
             r#"
@@ -40,7 +40,7 @@ impl CollectionService {
     pub async fn get_collections(
         user_id: Uuid,
         query: CollectionQuery,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Vec<Collection>> {
         let limit = query.limit.unwrap_or(50);
         let offset = query.offset.unwrap_or(0);
@@ -81,7 +81,7 @@ impl CollectionService {
     pub async fn get_collection_by_id(
         user_id: Uuid,
         collection_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Option<Collection>> {
         let collection = sqlx::query_as::<_, Collection>(
             r#"
@@ -106,7 +106,7 @@ impl CollectionService {
         user_id: Uuid,
         collection_id: Uuid,
         update_data: UpdateCollection,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Option<Collection>> {
         // 检查是否有更新字段
         if update_data.name.is_none()
@@ -127,9 +127,9 @@ impl CollectionService {
                 description = COALESCE($2, description),
                 color = COALESCE($3, color),
                 icon = COALESCE($4, icon),
-                parent_id = CASE WHEN $5::boolean THEN $6 ELSE parent_id END,
+                parent_id = CASE WHEN $5 THEN $6 ELSE parent_id END,
                 sort_order = COALESCE($7, sort_order),
-                updated_at = NOW()
+                updated_at = datetime('now')
             WHERE id = $8 AND user_id = $9
             RETURNING id, user_id, name, description,
                       color, icon, sort_order,
@@ -156,7 +156,7 @@ impl CollectionService {
     pub async fn delete_collection(
         user_id: Uuid,
         collection_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<bool> {
         // Check if collection is default
         let is_default = sqlx::query_scalar::<_, bool>(

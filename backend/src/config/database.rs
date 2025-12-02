@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
@@ -8,8 +8,8 @@ pub struct DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    pub async fn create_pool(&self) -> anyhow::Result<PgPool> {
-        let pool = PgPool::connect(&self.url).await?;
+    pub async fn create_pool(&self) -> anyhow::Result<SqlitePool> {
+        let pool = SqlitePool::connect(&self.url).await?;
         Ok(pool)
     }
 }

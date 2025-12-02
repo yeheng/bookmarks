@@ -1,8 +1,8 @@
 -- Create bookmark_tags junction table
 CREATE TABLE bookmark_tags (
-    bookmark_id UUID NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
-    tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    bookmark_id TEXT NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     
     PRIMARY KEY (bookmark_id, tag_id)
 );

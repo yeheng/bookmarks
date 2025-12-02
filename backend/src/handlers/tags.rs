@@ -3,7 +3,7 @@ use axum::{
     response::Response,
 };
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::middleware::AuthenticatedUser;
@@ -20,7 +20,7 @@ pub struct TagListQuery {
 }
 
 pub async fn get_tags(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Query(query): Query<TagListQuery>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -36,7 +36,7 @@ pub async fn get_tags(
 }
 
 pub async fn get_popular_tags(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Query(params): Query<std::collections::HashMap<String, String>>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -48,7 +48,7 @@ pub async fn get_popular_tags(
 }
 
 pub async fn get_tag(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(tag_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -60,7 +60,7 @@ pub async fn get_tag(
 }
 
 pub async fn create_tag(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(tag_data): Json<CreateTag>,
 ) -> Result<Response, AppError> {
@@ -70,7 +70,7 @@ pub async fn create_tag(
 }
 
 pub async fn update_tag(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(tag_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(update_data): Json<UpdateTag>,
@@ -83,7 +83,7 @@ pub async fn update_tag(
 }
 
 pub async fn delete_tag(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     Path(tag_id): Path<Uuid>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {

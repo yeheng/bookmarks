@@ -1,5 +1,5 @@
 use chrono::{Duration, NaiveDate, Utc};
-use sqlx::{PgPool, Row};
+use sqlx::{SqlitePool, Row};
 use uuid::Uuid;
 
 use crate::models::{RecentActivityEntry, StatsPeriod, TopDomainEntry, TopTagEntry, UserStats};
@@ -11,17 +11,17 @@ impl StatsService {
     pub async fn get_user_stats(
         user_id: Uuid,
         period: StatsPeriod,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<UserStats> {
         let summary = sqlx::query(
             r#"
             SELECT
-                COUNT(*)::bigint as total_bookmarks,
-                COUNT(*) FILTER (WHERE is_favorite = TRUE)::bigint as favorite_bookmarks,
-                COUNT(*) FILTER (WHERE is_archived = TRUE)::bigint as archived_bookmarks,
-                COALESCE(SUM(visit_count), 0)::bigint as total_visits,
-                (SELECT COUNT(*)::bigint FROM collections WHERE user_id = $1) as total_collections,
-                (SELECT COUNT(*)::bigint FROM tags WHERE user_id = $1) as total_tags
+                COUNT(*) as total_bookmarks,
+                SUM(CASE WHEN is_favorite = 1 THEN 1 ELSE 0 END) as favorite_bookmarks,
+                SUM(CASE WHEN is_archived = 1 THEN 1 ELSE 0 END) as archived_bookmarks,
+                SUM(CASE WHEN is_private = 1 THEN 1 ELSE 0 END) as private_bookmarks,
+                SUM(CASE WHEN is_read = 1 THEN 1 ELSE 0 END) as read_bookmarks,
+                SUM(visit_count) as total_visits
             FROM bookmarks
             WHERE user_id = $1
             "#,
@@ -67,33 +67,24 @@ impl StatsService {
     async fn recent_activity(
         user_id: Uuid,
         start_date: NaiveDate,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> AppResult<Vec<RecentActivityEntry>> {
+        // SQLite doesn't have generate_series, so we'll get the actual data and fill gaps in code
         let rows = sqlx::query(
             r#"
-            WITH date_series AS (
-                SELECT generate_series($2::date, CURRENT_DATE, '1 day')::date AS activity_date
-            ),
-            added AS (
-                SELECT DATE(created_at) AS activity_date, COUNT(*)::bigint AS bookmarks_added
-                FROM bookmarks
-                WHERE user_id = $1 AND created_at::date >= $2
-                GROUP BY DATE(created_at)
-            ),
-            visited AS (
-                SELECT DATE(last_visited) AS activity_date, COUNT(*)::bigint AS bookmarks_visited
-                FROM bookmarks
-                WHERE user_id = $1 AND last_visited IS NOT NULL AND last_visited::date >= $2
-                GROUP BY DATE(last_visited)
-            )
-            SELECT ds.activity_date,
-                   COALESCE(a.bookmarks_added, 0) AS bookmarks_added,
-                   COALESCE(v.bookmarks_visited, 0) AS bookmarks_visited
-            FROM date_series ds
-            LEFT JOIN added a ON a.activity_date = ds.activity_date
-            LEFT JOIN visited v ON v.activity_date = ds.activity_date
-            ORDER BY ds.activity_date DESC
-            LIMIT 30
+            SELECT DATE(created_at) AS activity_date, COUNT(*) AS bookmarks_added
+            FROM bookmarks
+            WHERE user_id = $1 AND DATE(created_at) >= DATE($2)
+            GROUP BY DATE(created_at)
+            
+            UNION ALL
+            
+            SELECT DATE(last_visited) AS activity_date, COUNT(*) AS bookmarks_visited
+            FROM bookmarks
+            WHERE user_id = $1 AND last_visited IS NOT NULL AND DATE(last_visited) >= DATE($2)
+            GROUP BY DATE(last_visited)
+            ORDER BY activity_date DESC
+            LIMIT 60
             "#,
         )
         .bind(user_id)
@@ -101,22 +92,40 @@ impl StatsService {
         .fetch_all(db_pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| RecentActivityEntry {
-                date: row
-                    .get::<Option<NaiveDate>, _>("activity_date")
-                    .unwrap_or(start_date),
-                bookmarks_added: row.get::<Option<i64>, _>("bookmarks_added").unwrap_or(0),
-                bookmarks_visited: row.get::<Option<i64>, _>("bookmarks_visited").unwrap_or(0),
-            })
-            .collect())
+        {
+            let mut activities = std::collections::HashMap::new();
+            
+            // Process the rows and aggregate by date
+            for row in rows {
+                let date: NaiveDate = row.get("activity_date");
+                let bookmarks_added: Option<i64> = row.get("bookmarks_added");
+                let bookmarks_visited: Option<i64> = row.get("bookmarks_visited");
+                
+                let entry = activities.entry(date).or_insert(RecentActivityEntry {
+                    date,
+                    bookmarks_added: 0,
+                    bookmarks_visited: 0,
+                });
+                
+                if bookmarks_added.is_some() {
+                    entry.bookmarks_added += bookmarks_added.unwrap_or(0);
+                } else if bookmarks_visited.is_some() {
+                    entry.bookmarks_visited += bookmarks_visited.unwrap_or(0);
+                }
+            }
+            
+            // Convert to sorted vector
+            let mut result: Vec<RecentActivityEntry> = activities.into_values().collect();
+            result.sort_by(|a, b| b.date.cmp(&a.date));
+            result.truncate(30);
+            Ok(result)
+        }
     }
 
-    async fn top_tags(user_id: Uuid, db_pool: &PgPool) -> AppResult<Vec<TopTagEntry>> {
+    async fn top_tags(user_id: Uuid, db_pool: &SqlitePool) -> AppResult<Vec<TopTagEntry>> {
         let rows = sqlx::query(
             r#"
-            SELECT t.name, COUNT(bt.bookmark_id)::bigint AS usage_count
+            SELECT t.name, COUNT(bt.bookmark_id) AS usage_count
             FROM tags t
             LEFT JOIN bookmark_tags bt ON t.id = bt.tag_id
             WHERE t.user_id = $1
@@ -141,12 +150,12 @@ impl StatsService {
             .collect())
     }
 
-    async fn top_domains(user_id: Uuid, db_pool: &PgPool) -> AppResult<Vec<TopDomainEntry>> {
+    async fn top_domains(user_id: Uuid, db_pool: &SqlitePool) -> AppResult<Vec<TopDomainEntry>> {
         let rows = sqlx::query(
             r#"
-            SELECT domain, COUNT(*)::bigint AS domain_count
+            SELECT domain, COUNT(*) AS domain_count
             FROM (
-                SELECT regexp_replace(url, '^https?://([^/]+).*', '\1') AS domain
+                SELECT substr(url, instr(url, '://') + 3, instr(substr(url, instr(url, '://') + 3), '/') - 1) AS domain
                 FROM bookmarks
                 WHERE user_id = $1
             ) d

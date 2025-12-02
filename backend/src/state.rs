@@ -1,17 +1,17 @@
 use axum::extract::FromRef;
 use axum_jwt_auth::Decoder;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use crate::utils::jwt::JwtClaims;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db_pool: PgPool,
+    pub db_pool: SqlitePool,
     pub jwt_decoder: Decoder<JwtClaims>,
 }
 
 impl AppState {
-    pub fn new(db_pool: PgPool, jwt_decoder: Decoder<JwtClaims>) -> Self {
+    pub fn new(db_pool: SqlitePool, jwt_decoder: Decoder<JwtClaims>) -> Self {
         Self {
             db_pool,
             jwt_decoder,
@@ -19,7 +19,7 @@ impl AppState {
     }
 }
 
-impl FromRef<AppState> for PgPool {
+impl FromRef<AppState> for SqlitePool {
     fn from_ref(state: &AppState) -> Self {
         state.db_pool.clone()
     }

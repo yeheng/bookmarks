@@ -1,13 +1,13 @@
 -- Create tags table
 CREATE TABLE tags (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(50) NOT NULL,
-    color VARCHAR(7) DEFAULT '#64748b',
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6)))),
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    color TEXT DEFAULT '#64748b',
     description TEXT,
     usage_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT tags_user_name_unique UNIQUE(user_id, name)
 );
@@ -20,4 +20,6 @@ CREATE INDEX idx_tags_created_at ON tags(created_at DESC);
 
 -- Create trigger to update updated_at timestamp
 CREATE TRIGGER update_tags_updated_at BEFORE UPDATE ON tags
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    FOR EACH ROW BEGIN
+        UPDATE tags SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    END;
