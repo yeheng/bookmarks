@@ -1,0 +1,101 @@
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { apiService } from '@/services/api'
+import type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
+
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref<User | null>(null)
+  const token = ref<string | null>(null)
+  const isLoading = ref(false)
+  const error = ref<string | null>(null)
+
+  const isAuthenticated = computed(() => !!token.value && !!user.value)
+
+  const initializeAuth = () => {
+    const savedToken = localStorage.getItem('auth_token')
+    if (savedToken) {
+      token.value = savedToken
+      apiService.setToken(savedToken)
+      // Verify token validity by fetching current user
+      fetchCurrentUser()
+    }
+  }
+
+  const login = async (credentials: LoginRequest): Promise<void> => {
+    isLoading.value = true
+    error.value = null
+    
+    try {
+      const response: AuthResponse = await apiService.login(credentials)
+      user.value = response.user
+      token.value = response.token
+      apiService.setToken(response.token)
+    } catch (err: any) {
+      error.value = err.message || 'Login failed'
+      throw err
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  const register = async (userData: RegisterRequest): Promise<void> => {
+    isLoading.value = true
+    error.value = null
+    
+    try {
+      const response: AuthResponse = await apiService.register(userData)
+      user.value = response.user
+      token.value = response.token
+      apiService.setToken(response.token)
+    } catch (err: any) {
+      error.value = err.message || 'Registration failed'
+      throw err
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  const logout = async (): Promise<void> => {
+    isLoading.value = true
+    error.value = null
+    
+    try {
+      await apiService.logout()
+    } catch (err: any) {
+      error.value = err.message || 'Logout failed'
+    } finally {
+      user.value = null
+      token.value = null
+      apiService.setToken(null)
+      isLoading.value = false
+    }
+  }
+
+  const fetchCurrentUser = async (): Promise<void> => {
+    if (!token.value) return
+    
+    try {
+      const currentUser = await apiService.getCurrentUser()
+      user.value = currentUser
+    } catch (err: any) {
+      // Token might be invalid, clear auth state
+      user.value = null
+      token.value = null
+      apiService.setToken(null)
+      error.value = err.message || 'Failed to fetch user'
+    }
+  }
+
+  return {
+    user,
+    token,
+    isLoading,
+    error,
+    isAuthenticated,
+    initializeAuth,
+    login,
+    register,
+    logout,
+    fetchCurrentUser
+  }
+})

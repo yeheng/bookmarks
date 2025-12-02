@@ -1,0 +1,255 @@
+import type {
+  ApiErrorResponse,
+  AuthResponse,
+  Bookmark,
+  Collection,
+  CreateBookmarkRequest,
+  CreateCollectionRequest,
+  CreateTagRequest,
+  LoginRequest,
+  PaginatedResponse,
+  RegisterRequest,
+  SearchQuery,
+  Stats,
+  Tag,
+  UpdateBookmarkRequest,
+  UpdateCollectionRequest,
+  UpdateTagRequest,
+  User
+} from '@/types';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+
+class ApiError extends Error {
+  constructor(
+    message: string,
+    public status?: number,
+    public code?: string,
+    public details?: any
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+class ApiService {
+  private token: string | null = null;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      this.token = localStorage.getItem('auth_token');
+    }
+  }
+
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${API_BASE_URL}${endpoint}`;
+    const headers = new Headers(options.headers ?? {});
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+    if (this.token) {
+      headers.set('Authorization', `Bearer ${this.token}`);
+    }
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+
+      if (!response.ok) {
+        let errorData: ApiErrorResponse | null = null;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = null;
+        }
+
+        throw new ApiError(
+          errorData?.message || response.statusText || 'Request failed',
+          response.status,
+          errorData?.code,
+          errorData?.details
+        );
+      }
+
+      if (response.status === 204) {
+        return {} as T;
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError(error instanceof Error ? error.message : 'Network error');
+    }
+  }
+
+  setToken(token: string | null) {
+    this.token = token;
+    if (typeof window !== 'undefined') {
+      if (token) {
+        localStorage.setItem('auth_token', token);
+      } else {
+        localStorage.removeItem('auth_token');
+      }
+    }
+  }
+
+  // Auth endpoints
+  async login(data: LoginRequest): Promise<AuthResponse> {
+    const apiResponse: any = await this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+
+    // Handle the actual API response format
+    const authResponse: AuthResponse = {
+      user: apiResponse.data.user,
+      token: apiResponse.data.access_token
+    };
+
+    this.setToken(authResponse.token);
+    return authResponse;
+  }
+
+  async register(data: RegisterRequest): Promise<AuthResponse> {
+    const apiResponse: any = await this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+
+    // Handle the actual API response format
+    const authResponse: AuthResponse = {
+      user: apiResponse.data.user,
+      token: apiResponse.data.access_token
+    };
+
+    this.setToken(authResponse.token);
+    return authResponse;
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.request('/auth/logout', { method: 'POST' });
+    } finally {
+      this.setToken(null);
+    }
+  }
+
+  async getCurrentUser(): Promise<User> {
+    return this.request('/auth/me');
+  }
+
+  // Bookmark endpoints
+  async getBookmarks(params?: SearchQuery): Promise<PaginatedResponse<Bookmark>> {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          searchParams.append(key, value.toString());
+        }
+      });
+    }
+    const query = searchParams.toString();
+    return this.request(`/bookmarks${query ? `?${query}` : ''}`);
+  }
+
+  async getBookmark(id: number): Promise<Bookmark> {
+    return this.request(`/bookmarks/${id}`);
+  }
+
+  async createBookmark(data: CreateBookmarkRequest): Promise<Bookmark> {
+    return this.request('/bookmarks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateBookmark(id: number, data: UpdateBookmarkRequest): Promise<Bookmark> {
+    return this.request(`/bookmarks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteBookmark(id: number): Promise<void> {
+    return this.request(`/bookmarks/${id}`, { method: 'DELETE' });
+  }
+
+  // Collection endpoints
+  async getCollections(): Promise<Collection[]> {
+    return this.request('/collections');
+  }
+
+  async getCollection(id: number): Promise<Collection> {
+    return this.request(`/collections/${id}`);
+  }
+
+  async createCollection(data: CreateCollectionRequest): Promise<Collection> {
+    return this.request('/collections', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCollection(id: number, data: UpdateCollectionRequest): Promise<Collection> {
+    return this.request(`/collections/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCollection(id: number): Promise<void> {
+    return this.request(`/collections/${id}`, { method: 'DELETE' });
+  }
+
+  // Tag endpoints
+  async getTags(): Promise<Tag[]> {
+    return this.request('/tags');
+  }
+
+  async getTag(id: number): Promise<Tag> {
+    return this.request(`/tags/${id}`);
+  }
+
+  async createTag(data: CreateTagRequest): Promise<Tag> {
+    return this.request('/tags', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateTag(id: number, data: UpdateTagRequest): Promise<Tag> {
+    return this.request(`/tags/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteTag(id: number): Promise<void> {
+    return this.request(`/tags/${id}`, { method: 'DELETE' });
+  }
+
+  // Search endpoints
+  async search(params: SearchQuery): Promise<PaginatedResponse<Bookmark>> {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, value.toString());
+      }
+    });
+    return this.request(`/search?${searchParams.toString()}`);
+  }
+
+  // Stats endpoints
+  async getStats(): Promise<Stats> {
+    return this.request('/stats');
+  }
+}
+
+export const apiService = new ApiService();
