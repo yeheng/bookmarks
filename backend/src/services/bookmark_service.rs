@@ -1,0 +1,666 @@
+use sqlx::{PgPool, Row};
+use uuid::Uuid;
+
+use crate::models::{
+    Bookmark, BookmarkBatchAction, BookmarkBatchError, BookmarkBatchRequest, BookmarkBatchResult,
+    BookmarkExportFormat, BookmarkExportOptions, BookmarkExportPayload, BookmarkQuery,
+    BookmarkVisitInfo, BookmarkWithTags, CreateBookmark, UpdateBookmark,
+};
+use crate::utils::error::{AppError, AppResult};
+use crate::utils::validation::validate_url;
+
+pub struct BookmarkService;
+
+impl BookmarkService {
+    pub async fn create_bookmark(
+        user_id: Uuid,
+        bookmark_data: CreateBookmark,
+        db_pool: &PgPool,
+    ) -> AppResult<Bookmark> {
+        // Validate URL
+        validate_url(&bookmark_data.url)
+            .then_some(())
+            .ok_or_else(|| AppError::BadRequest("Invalid URL format".to_string()))?;
+
+        // Start transaction
+        let mut tx = db_pool.begin().await?;
+
+        // Create bookmark
+        let bookmark = sqlx::query_as::<_, Bookmark>(
+            r#"
+            INSERT INTO bookmarks (user_id, collection_id, title, url, description, is_favorite, is_private)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, user_id, collection_id, title, url, description, favicon_url, screenshot_url,
+                      thumbnail_url, is_favorite, is_archived, is_private, is_read, visit_count,
+                      last_visited, reading_time, difficulty_level, metadata, created_at, updated_at
+            "#,
+        )
+        .bind(user_id)
+        .bind(bookmark_data.collection_id)
+        .bind(&bookmark_data.title)
+        .bind(&bookmark_data.url)
+        .bind(&bookmark_data.description)
+        .bind(bookmark_data.is_favorite.unwrap_or(false))
+        .bind(bookmark_data.is_private.unwrap_or(false))
+        .fetch_one(&mut *tx)
+        .await?;
+
+        // Handle tags
+        if let Some(tags) = bookmark_data.tags {
+            for tag_name in tags {
+                // Ensure tag exists
+                let tag_row = sqlx::query(
+                    r#"
+                    INSERT INTO tags (user_id, name)
+                    VALUES ($1, $2)
+                    ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING id
+                    "#,
+                )
+                .bind(user_id)
+                .bind(&tag_name)
+                .fetch_one(&mut *tx)
+                .await?;
+                let tag_id: Uuid = tag_row.get("id");
+
+                // Associate bookmark with tag
+                sqlx::query("INSERT INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
+                    .bind(bookmark.id)
+                    .bind(tag_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+
+        // Commit transaction
+        tx.commit().await?;
+
+        Ok(bookmark)
+    }
+
+    pub async fn get_bookmarks(
+        user_id: Uuid,
+        query: BookmarkQuery,
+        db_pool: &PgPool,
+    ) -> AppResult<Vec<BookmarkWithTags>> {
+        let limit = query.limit.unwrap_or(50);
+        let offset = query.offset.unwrap_or(0);
+        let sort_by = query.sort_by.as_deref().unwrap_or("created_at");
+        let sort_order = query.sort_order.as_deref().unwrap_or("desc");
+
+        // Validate sort_by and sort_order
+        let valid_sort_fields = [
+            "created_at",
+            "updated_at",
+            "title",
+            "visit_count",
+            "last_visited",
+        ];
+        let valid_sort_orders = ["asc", "desc"];
+
+        if !valid_sort_fields.contains(&sort_by) {
+            return Err(AppError::BadRequest("Invalid sort field".to_string()).into());
+        }
+
+        if !valid_sort_orders.contains(&sort_order) {
+            return Err(AppError::BadRequest("Invalid sort order".to_string()).into());
+        }
+
+        let mut sql = r#"
+            SELECT
+                b.id, b.user_id, b.collection_id, b.title, b.url, b.description,
+                b.favicon_url, b.screenshot_url, b.thumbnail_url,
+                b.is_favorite, b.is_archived, b.is_private, b.is_read,
+                b.visit_count, b.last_visited, b.reading_time, b.difficulty_level,
+                b.metadata, b.created_at, b.updated_at,
+                COALESCE(
+                    array_agg(t.name) FILTER (WHERE t.name IS NOT NULL),
+                    ARRAY[]::VARCHAR[]
+                ) as tags,
+                c.name as collection_name,
+                c.color as collection_color
+            FROM bookmarks b
+            LEFT JOIN collections c ON b.collection_id = c.id
+            LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+            LEFT JOIN tags t ON bt.tag_id = t.id
+            WHERE b.user_id = $1
+        "#
+        .to_string();
+
+        let mut param_count = 1;
+
+        // Add filter conditions
+        if let Some(_collection_id) = query.collection_id {
+            param_count += 1;
+            sql.push_str(&format!(" AND b.collection_id = ${}", param_count));
+        }
+
+        if let Some(_is_favorite) = query.is_favorite {
+            param_count += 1;
+            sql.push_str(&format!(" AND b.is_favorite = ${}", param_count));
+        }
+
+        if let Some(_is_archived) = query.is_archived {
+            param_count += 1;
+            sql.push_str(&format!(" AND b.is_archived = ${}", param_count));
+        }
+
+        if let Some(_is_private) = query.is_private {
+            param_count += 1;
+            sql.push_str(&format!(" AND b.is_private = ${}", param_count));
+        }
+
+        if let Some(_is_read) = query.is_read {
+            param_count += 1;
+            sql.push_str(&format!(" AND b.is_read = ${}", param_count));
+        }
+
+        if let Some(ref _search_term) = query.search {
+            param_count += 1;
+            sql.push_str(&format!(
+                " AND (to_tsvector('english', b.title || ' ' || COALESCE(b.description, '')) @@ plainto_tsquery('english', ${}))",
+                param_count
+            ));
+        }
+
+        if let Some(ref tags) = query.tags {
+            if !tags.is_empty() {
+                param_count += 1;
+                sql.push_str(&format!(
+                    " AND b.id IN (
+                        SELECT bookmark_id
+                        FROM bookmark_tags
+                        JOIN tags ON bookmark_tags.tag_id = tags.id
+                        WHERE tags.name = ANY(${})
+                        GROUP BY bookmark_id
+                        HAVING COUNT(DISTINCT tags.id) = {}
+                    )",
+                    param_count,
+                    tags.len()
+                ));
+            }
+        }
+
+        // Add ordering
+        sql.push_str(&format!(
+            " GROUP BY b.id, c.name, c.color ORDER BY b.{} {} LIMIT ${} OFFSET ${}",
+            sort_by,
+            sort_order,
+            param_count + 1,
+            param_count + 2
+        ));
+
+        let mut query_builder = sqlx::query_as::<_, BookmarkWithTags>(&sql).bind(user_id);
+
+        // Bind parameters
+        if let Some(collection_id) = query.collection_id {
+            query_builder = query_builder.bind(collection_id);
+        }
+        if let Some(is_favorite) = query.is_favorite {
+            query_builder = query_builder.bind(is_favorite);
+        }
+        if let Some(is_archived) = query.is_archived {
+            query_builder = query_builder.bind(is_archived);
+        }
+        if let Some(is_private) = query.is_private {
+            query_builder = query_builder.bind(is_private);
+        }
+        if let Some(is_read) = query.is_read {
+            query_builder = query_builder.bind(is_read);
+        }
+        if let Some(search_term) = query.search {
+            query_builder = query_builder.bind(search_term);
+        }
+        if let Some(tags) = query.tags {
+            query_builder = query_builder.bind(tags);
+        }
+
+        let bookmarks = query_builder
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(db_pool)
+            .await?;
+
+        Ok(bookmarks)
+    }
+
+    pub async fn get_bookmark_by_id(
+        user_id: Uuid,
+        bookmark_id: Uuid,
+        db_pool: &PgPool,
+    ) -> AppResult<Option<BookmarkWithTags>> {
+        let bookmark = sqlx::query_as::<_, BookmarkWithTags>(
+            r#"
+            SELECT
+                b.id, b.user_id, b.collection_id, b.title, b.url, b.description,
+                b.favicon_url, b.screenshot_url, b.thumbnail_url,
+                b.is_favorite, b.is_archived, b.is_private, b.is_read,
+                b.visit_count, b.last_visited, b.reading_time, b.difficulty_level,
+                b.metadata, b.created_at, b.updated_at,
+                COALESCE(
+                    array_agg(t.name) FILTER (WHERE t.name IS NOT NULL),
+                    ARRAY[]::VARCHAR[]
+                ) as tags,
+                c.name as collection_name,
+                c.color as collection_color
+            FROM bookmarks b
+            LEFT JOIN collections c ON b.collection_id = c.id
+            LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+            LEFT JOIN tags t ON bt.tag_id = t.id
+            WHERE b.id = $1 AND b.user_id = $2
+            GROUP BY b.id, c.name, c.color
+            "#,
+        )
+        .bind(bookmark_id)
+        .bind(user_id)
+        .fetch_optional(db_pool)
+        .await?;
+
+        Ok(bookmark)
+    }
+
+    pub async fn update_bookmark(
+        user_id: Uuid,
+        bookmark_id: Uuid,
+        update_data: UpdateBookmark,
+        db_pool: &PgPool,
+    ) -> AppResult<Option<Bookmark>> {
+        // Validate URL if provided
+        if let Some(ref url) = update_data.url {
+            validate_url(url)
+                .then_some(())
+                .ok_or_else(|| AppError::BadRequest("Invalid URL format".to_string()))?;
+        }
+
+        // Start transaction
+        let mut tx = db_pool.begin().await?;
+
+        // 构建更新查询 - 使用Option字段逐个更新
+        let bookmark = if update_data.title.is_some()
+            || update_data.url.is_some()
+            || update_data.description.is_some()
+            || update_data.collection_id.is_some()
+            || update_data.is_favorite.is_some()
+            || update_data.is_archived.is_some()
+            || update_data.is_private.is_some()
+            || update_data.is_read.is_some()
+            || update_data.reading_time.is_some()
+            || update_data.difficulty_level.is_some()
+        {
+            // 使用 COALESCE 来只更新提供的字段
+            sqlx::query_as::<_, Bookmark>(
+                r#"
+                UPDATE bookmarks SET
+                    title = COALESCE($1, title),
+                    url = COALESCE($2, url),
+                    description = COALESCE($3, description),
+                    collection_id = CASE WHEN $4::boolean THEN $5 ELSE collection_id END,
+                    is_favorite = COALESCE($6, is_favorite),
+                    is_archived = COALESCE($7, is_archived),
+                    is_private = COALESCE($8, is_private),
+                    is_read = COALESCE($9, is_read),
+                    reading_time = COALESCE($10, reading_time),
+                    difficulty_level = COALESCE($11, difficulty_level),
+                    updated_at = NOW()
+                WHERE id = $12 AND user_id = $13
+                RETURNING id, user_id, collection_id, title, url, description, favicon_url,
+                          screenshot_url, thumbnail_url, is_favorite,
+                          is_archived, is_private, is_read, visit_count, last_visited,
+                          reading_time, difficulty_level, metadata, created_at, updated_at
+                "#,
+            )
+            .bind(update_data.title)
+            .bind(update_data.url)
+            .bind(update_data.description)
+            .bind(update_data.collection_id.is_some())
+            .bind(update_data.collection_id.flatten())
+            .bind(update_data.is_favorite)
+            .bind(update_data.is_archived)
+            .bind(update_data.is_private)
+            .bind(update_data.is_read)
+            .bind(update_data.reading_time)
+            .bind(update_data.difficulty_level)
+            .bind(bookmark_id)
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            return Err(AppError::BadRequest("No update fields provided".to_string()).into());
+        };
+
+        // Handle tags update
+        if let Some(tags) = update_data.tags {
+            // Delete existing tag associations
+            sqlx::query("DELETE FROM bookmark_tags WHERE bookmark_id = $1")
+                .bind(bookmark_id)
+                .execute(&mut *tx)
+                .await?;
+
+            // Add new tag associations
+            for tag_name in tags {
+                let tag_row = sqlx::query(
+                    r#"
+                    INSERT INTO tags (user_id, name)
+                    VALUES ($1, $2)
+                    ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING id
+                    "#,
+                )
+                .bind(user_id)
+                .bind(&tag_name)
+                .fetch_one(&mut *tx)
+                .await?;
+                let tag_id: Uuid = tag_row.get("id");
+
+                sqlx::query("INSERT INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
+                    .bind(bookmark_id)
+                    .bind(tag_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+
+        // Commit transaction
+        tx.commit().await?;
+
+        Ok(bookmark)
+    }
+
+    pub async fn delete_bookmark(
+        user_id: Uuid,
+        bookmark_id: Uuid,
+        db_pool: &PgPool,
+    ) -> AppResult<bool> {
+        let result = sqlx::query("DELETE FROM bookmarks WHERE id = $1 AND user_id = $2")
+            .bind(bookmark_id)
+            .bind(user_id)
+            .execute(db_pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn increment_visit_count(
+        user_id: Uuid,
+        bookmark_id: Uuid,
+        db_pool: &PgPool,
+    ) -> AppResult<BookmarkVisitInfo> {
+        let record = sqlx::query(
+            r#"
+            UPDATE bookmarks
+            SET visit_count = visit_count + 1, last_visited = NOW()
+            WHERE id = $1 AND user_id = $2
+            RETURNING visit_count, last_visited
+            "#,
+        )
+        .bind(bookmark_id)
+        .bind(user_id)
+        .fetch_optional(db_pool)
+        .await?;
+
+        let record = record.ok_or_else(|| AppError::NotFound("Bookmark not found".to_string()))?;
+        let visit_count: i32 = record.get("visit_count");
+        let last_visited = record.get("last_visited");
+
+        Ok(BookmarkVisitInfo {
+            visit_count: visit_count as i64,
+            last_visited,
+        })
+    }
+
+    pub async fn bookmark_exists(user_id: Uuid, url: &str, db_pool: &PgPool) -> AppResult<bool> {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM bookmarks WHERE user_id = $1 AND url = $2)",
+        )
+        .bind(user_id)
+        .bind(url)
+        .fetch_one(db_pool)
+        .await?;
+
+        Ok(exists)
+    }
+
+    pub async fn batch_process(
+        user_id: Uuid,
+        request: BookmarkBatchRequest,
+        db_pool: &PgPool,
+    ) -> AppResult<BookmarkBatchResult> {
+        let BookmarkBatchRequest {
+            action,
+            bookmark_ids,
+            data,
+        } = request;
+
+        let mut result = BookmarkBatchResult {
+            processed: 0,
+            failed: 0,
+            errors: Vec::new(),
+        };
+
+        for bookmark_id in bookmark_ids {
+            let operation = match action {
+                BookmarkBatchAction::Delete => {
+                    Self::delete_bookmark(user_id, bookmark_id, db_pool).await
+                }
+                BookmarkBatchAction::Move => {
+                    let collection_id = data
+                        .as_ref()
+                        .and_then(|data| data.collection_id)
+                        .ok_or_else(|| {
+                            AppError::BadRequest(
+                                "Batch move operation requires collection_id".to_string(),
+                            )
+                        })?;
+
+                    Self::move_bookmark(user_id, bookmark_id, collection_id, db_pool).await
+                }
+                BookmarkBatchAction::AddTags => {
+                    let tags = data
+                        .as_ref()
+                        .and_then(|data| data.tags.clone())
+                        .filter(|tags| !tags.is_empty())
+                        .ok_or_else(|| {
+                            AppError::BadRequest(
+                                "Batch add_tags operation requires a non-empty tags list"
+                                    .to_string(),
+                            )
+                        })?;
+
+                    Self::add_tags(user_id, bookmark_id, tags, db_pool).await
+                }
+                BookmarkBatchAction::RemoveTags => {
+                    let tags = data
+                        .as_ref()
+                        .and_then(|data| data.tags.clone())
+                        .filter(|tags| !tags.is_empty())
+                        .ok_or_else(|| {
+                            AppError::BadRequest(
+                                "Batch remove_tags operation requires a non-empty tags list"
+                                    .to_string(),
+                            )
+                        })?;
+
+                    Self::remove_tags(user_id, bookmark_id, tags, db_pool).await
+                }
+            };
+
+            match operation {
+                Ok(true) => result.processed += 1,
+                Ok(false) => {
+                    result.failed += 1;
+                    result.errors.push(BookmarkBatchError {
+                        bookmark_id,
+                        reason: "Bookmark not found".to_string(),
+                    });
+                }
+                Err(err) => {
+                    result.failed += 1;
+                    result.errors.push(BookmarkBatchError {
+                        bookmark_id,
+                        reason: err.to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn export_bookmarks(
+        user_id: Uuid,
+        options: BookmarkExportOptions,
+        db_pool: &PgPool,
+    ) -> AppResult<BookmarkExportPayload> {
+        let query = BookmarkQuery {
+            collection_id: options.collection_id,
+            tags: None,
+            is_favorite: None,
+            is_archived: if options.include_archived {
+                None
+            } else {
+                Some(false)
+            },
+            is_private: None,
+            is_read: None,
+            search: None,
+            limit: Some(5000),
+            offset: Some(0),
+            sort_by: Some("created_at".to_string()),
+            sort_order: Some("desc".to_string()),
+        };
+
+        let bookmarks = Self::get_bookmarks(user_id, query, db_pool).await?;
+        let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
+
+        match options.format {
+            BookmarkExportFormat::Json => {
+                let body = serde_json::to_vec(&bookmarks)?;
+                Ok(BookmarkExportPayload {
+                    filename: format!("bookmarks-{}.json", timestamp),
+                    content_type: "application/json".to_string(),
+                    body,
+                })
+            }
+            BookmarkExportFormat::Html | BookmarkExportFormat::Netscape => {
+                let mut body = String::from(
+                    "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n",
+                );
+
+                for bookmark in bookmarks {
+                    let tags = if bookmark.tags.is_empty() {
+                        "".to_string()
+                    } else {
+                        bookmark.tags.join(",")
+                    };
+                    body.push_str(&format!(
+                        r#"<DT><A HREF="{url}" ADD_DATE="{ts}" TAGS="{tags}">{title}</A>"#,
+                        url = bookmark.bookmark.url,
+                        ts = bookmark.bookmark.created_at.timestamp(),
+                        tags = tags,
+                        title = bookmark.bookmark.title
+                    ));
+                    body.push('\n');
+                    if let Some(description) = bookmark.bookmark.description {
+                        body.push_str(&format!("<DD>{}\n", description));
+                    }
+                }
+
+                body.push_str("</DL><p>");
+
+                Ok(BookmarkExportPayload {
+                    filename: format!("bookmarks-{}.html", timestamp),
+                    content_type: "text/html; charset=utf-8".to_string(),
+                    body: body.into_bytes(),
+                })
+            }
+        }
+    }
+
+    async fn move_bookmark(
+        user_id: Uuid,
+        bookmark_id: Uuid,
+        collection_id: Uuid,
+        db_pool: &PgPool,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE bookmarks
+            SET collection_id = $1, updated_at = NOW()
+            WHERE id = $2 AND user_id = $3
+            "#,
+        )
+        .bind(collection_id)
+        .bind(bookmark_id)
+        .bind(user_id)
+        .execute(db_pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn add_tags(
+        user_id: Uuid,
+        bookmark_id: Uuid,
+        tags: Vec<String>,
+        db_pool: &PgPool,
+    ) -> AppResult<bool> {
+        let mut tx = db_pool.begin().await?;
+
+        for tag_name in tags {
+            let tag_row = sqlx::query(
+                r#"
+                INSERT INTO tags (user_id, name)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+                RETURNING id
+                "#,
+            )
+            .bind(user_id)
+            .bind(&tag_name)
+            .fetch_one(&mut *tx)
+            .await?;
+            let tag_id: Uuid = tag_row.get("id");
+
+            sqlx::query(
+                r#"
+                INSERT INTO bookmark_tags (bookmark_id, tag_id)
+                VALUES ($1, $2)
+                ON CONFLICT DO NOTHING
+                "#,
+            )
+            .bind(bookmark_id)
+            .bind(tag_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(true)
+    }
+
+    async fn remove_tags(
+        user_id: Uuid,
+        bookmark_id: Uuid,
+        tags: Vec<String>,
+        db_pool: &PgPool,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM bookmark_tags
+            USING tags
+            WHERE bookmark_tags.tag_id = tags.id
+              AND bookmark_tags.bookmark_id = $1
+              AND tags.user_id = $2
+              AND tags.name = ANY($3)
+            "#,
+        )
+        .bind(bookmark_id)
+        .bind(user_id)
+        .bind(tags)
+        .execute(db_pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+}
