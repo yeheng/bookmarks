@@ -28,8 +28,66 @@
           </nav>
         </div>
 
-        <!-- User actions -->
+        <!-- Center: Search and Quick Add -->
+        <div class="flex-1 max-w-md mx-6">
+          <div class="relative">
+            <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              <svg class="w-4 h-4 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <input
+              ref="searchInput"
+              v-model="searchQuery"
+              type="text"
+              placeholder="搜索书签... (⌘K)"
+              class="w-full h-9 pl-10 pr-4 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+              @input="handleSearchInput"
+              @keydown="handleSearchKeydown"
+              @focus="showSearchResults = true"
+              @blur="hideSearchResults"
+            />
+            <!-- Search results dropdown -->
+            <div
+              v-if="showSearchResults && (searchQuery || searchResults.length > 0)"
+              class="absolute top-full left-0 right-0 mt-1 bg-background border border-input rounded-md shadow-lg max-h-80 overflow-y-auto z-50"
+            >
+              <div v-if="isSearching" class="p-4 text-center text-muted-foreground">
+                搜索中...
+              </div>
+              <div v-else-if="searchResults.length === 0 && searchQuery" class="p-4 text-center text-muted-foreground">
+                未找到相关书签
+              </div>
+              <div v-else>
+                <div
+                  v-for="result in searchResults"
+                  :key="result.id"
+                  class="p-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
+                  @click="goToBookmark(result.id)"
+                >
+                  <div class="font-medium text-sm">{{ result.title }}</div>
+                  <div class="text-xs text-muted-foreground truncate">{{ result.url }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Quick Add and User actions -->
         <div class="flex items-center gap-2">
+          <Button
+            v-if="authStore.isAuthenticated"
+            variant="outline"
+            size="sm"
+            @click="showAddBookmarkModal = true"
+            class="h-9"
+          >
+            <svg class="w-4 h-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            添加
+          </Button>
+          
           <template v-if="authStore.isAuthenticated">
             <div class="hidden sm:flex items-center gap-2">
               <div class="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
@@ -57,9 +115,54 @@
       </div>
     </div>
   </nav>
+
+  <!-- Add Bookmark Modal -->
+  <div v-if="showAddBookmarkModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div class="bg-background rounded-lg p-6 w-full max-w-md">
+      <h3 class="text-lg font-semibold mb-4">添加书签</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="text-sm font-medium">标题</label>
+          <input
+            v-model="newBookmark.title"
+            type="text"
+            class="w-full mt-1 px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="输入书签标题"
+          />
+        </div>
+        <div>
+          <label class="text-sm font-medium">URL</label>
+          <input
+            v-model="newBookmark.url"
+            type="url"
+            class="w-full mt-1 px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="https://example.com"
+          />
+        </div>
+        <div>
+          <label class="text-sm font-medium">描述（可选）</label>
+          <textarea
+            v-model="newBookmark.description"
+            class="w-full mt-1 px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+            rows="3"
+            placeholder="输入书签描述"
+          />
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6">
+        <Button variant="outline" @click="showAddBookmarkModal = false">
+          取消
+        </Button>
+        <Button @click="handleAddBookmark" :disabled="!newBookmark.title || !newBookmark.url">
+          添加
+        </Button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth'
 import { RouterLink, useRouter } from 'vue-router'
@@ -67,12 +170,26 @@ import { RouterLink, useRouter } from 'vue-router'
 const authStore = useAuthStore()
 const router = useRouter()
 
-// 导航项配置
+// 搜索相关状态
+const searchQuery = ref('')
+const searchResults = ref<any[]>([])
+const showSearchResults = ref(false)
+const isSearching = ref(false)
+const searchInput = ref<HTMLInputElement>()
+
+// 添加书签相关状态
+const showAddBookmarkModal = ref(false)
+const newBookmark = ref({
+  title: '',
+  url: '',
+  description: ''
+})
+
+// 导航项配置（移除搜索页面，因为现在有全局搜索）
 const navigationItems = [
   { to: '/bookmarks', label: '书签' },
   { to: '/collections', label: '收藏夹' },
-  { to: '/tags', label: '标签' },
-  { to: '/search', label: '搜索' }
+  { to: '/tags', label: '标签' }
 ]
 
 // 获取用户首字母（用于头像显示）
@@ -88,8 +205,101 @@ const getUserInitials = () => {
   return username.substring(0, 2).toUpperCase()
 }
 
+// 搜索功能
+const handleSearchInput = async () => {
+  if (!searchQuery.value.trim()) {
+    searchResults.value = []
+    return
+  }
+
+  isSearching.value = true
+  try {
+    // 这里应该调用搜索API，暂时使用模拟数据
+    await new Promise(resolve => setTimeout(resolve, 300))
+    
+    // 模拟搜索结果
+    searchResults.value = [
+      { id: 1, title: 'Vue.js 官方文档', url: 'https://vuejs.org' },
+      { id: 2, title: 'Tailwind CSS', url: 'https://tailwindcss.com' },
+      { id: 3, title: 'TypeScript Handbook', url: 'https://www.typescriptlang.org/docs/' }
+    ].filter(item => 
+      item.title.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+      item.url.toLowerCase().includes(searchQuery.value.toLowerCase())
+    )
+  } catch (error) {
+    console.error('搜索失败:', error)
+  } finally {
+    isSearching.value = false
+  }
+}
+
+const handleSearchKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter' && searchResults.value.length > 0) {
+    goToBookmark(searchResults.value[0].id)
+  }
+}
+
+const goToBookmark = (bookmarkId: number) => {
+  showSearchResults.value = false
+  searchQuery.value = ''
+  router.push(`/bookmarks/${bookmarkId}`)
+}
+
+const hideSearchResults = () => {
+  setTimeout(() => {
+    showSearchResults.value = false
+  }, 200)
+}
+
+// 添加书签功能
+const handleAddBookmark = async () => {
+  if (!newBookmark.value.title || !newBookmark.value.url) return
+
+  try {
+    // 这里应该调用添加书签API
+    console.log('添加书签:', newBookmark.value)
+    
+    // 重置表单
+    newBookmark.value = {
+      title: '',
+      url: '',
+      description: ''
+    }
+    showAddBookmarkModal.value = false
+    
+    // 显示成功提示
+    // 这里可以添加toast通知
+  } catch (error) {
+    console.error('添加书签失败:', error)
+  }
+}
+
+// 键盘快捷键支持
+const handleKeydown = (event: KeyboardEvent) => {
+  // Cmd/Ctrl + K 聚焦搜索框
+  if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+    event.preventDefault()
+    searchInput.value?.focus()
+  }
+  
+  // Escape 关闭搜索结果
+  if (event.key === 'Escape') {
+    showSearchResults.value = false
+    showAddBookmarkModal.value = false
+  }
+}
+
 const handleLogout = async () => {
   await authStore.logout()
   router.push('/auth/login')
 }
+
+// 生命周期
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
+})
 </script>

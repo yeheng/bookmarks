@@ -110,6 +110,7 @@ pub struct BookmarkQuery {
     pub sort_order: Option<String>, // "asc", "desc"
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ImportBookmarks {
     pub bookmarks: Vec<CreateBookmark>,

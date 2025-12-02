@@ -7,33 +7,28 @@
           <h1 class="text-3xl font-bold tracking-tight">收藏夹</h1>
           <p class="text-muted-foreground mt-2">按主题整理您的书签</p>
         </div>
-        <Button>
-          <span class="mr-2">+</span>
-          创建收藏夹
-        </Button>
       </div>
     </div>
 
     <!-- Content area -->
     <div class="bg-card rounded-xl border border-border/50">
       <div class="p-8">
-        <div class="text-center py-12">
-          <div class="mx-auto h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-            <span class="text-2xl">📂</span>
-          </div>
-          <h3 class="text-xl font-semibold mb-2">暂无收藏夹</h3>
-          <p class="text-muted-foreground mb-6">开始创建您的第一个收藏夹</p>
-          <Button>
-            <span class="mr-2">+</span>
-            创建收藏夹
-          </Button>
-        </div>
+        <EmptyState
+          title="暂无收藏夹"
+          description="创建收藏夹来按主题组织您的书签"
+          action-text="创建收藏夹"
+          icon-type="folder"
+          @action="handleCreateCollection"
+        />
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Button } from '@/components/ui/button'
-// Collections page logic will be implemented later
+import { EmptyState } from '@/components/ui/empty-state'
+
+const handleCreateCollection = () => {
+  // 创建收藏夹逻辑
+}
 </script>

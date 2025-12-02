@@ -1,82 +1,111 @@
 <template>
-  <div class="container mx-auto px-4 py-12">
-    <!-- Hero section -->
-    <div class="max-w-3xl mx-auto text-center mb-16">
-      <h1 class="text-4xl font-bold tracking-tight mb-4">Bookmarks</h1>
-      <p class="text-lg text-muted-foreground">
-        简洁高效的书签管理工具，助您整理和发现网络资源
+  <div class="container mx-auto px-4 py-8">
+    <!-- 简化的标题区域 -->
+    <div class="max-w-2xl mx-auto text-center mb-8">
+      <h1 class="text-3xl font-bold tracking-tight mb-2">Bookmarks</h1>
+      <p class="text-muted-foreground">
+        使用 ⌘K 快速搜索，点击 + 添加书签
       </p>
     </div>
 
-    <!-- Stats overview -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-      <div class="bg-card rounded-xl p-6 border border-border/50">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold">书签总数</h3>
-          <div class="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <span class="text-sm font-medium text-primary">📚</span>
-          </div>
+    <!-- 简化的统计信息 -->
+    <div class="max-w-4xl mx-auto mb-8">
+      <div class="grid grid-cols-3 gap-4 text-center">
+        <div class="py-4">
+          <p class="text-2xl font-bold">{{ stats.bookmarks }}</p>
+          <p class="text-sm text-muted-foreground">书签</p>
         </div>
-        <p class="text-3xl font-bold mb-2">0</p>
-        <p class="text-sm text-muted-foreground">尚未添加书签</p>
-      </div>
-
-      <div class="bg-card rounded-xl p-6 border border-border/50">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold">收藏夹</h3>
-          <div class="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <span class="text-sm font-medium text-primary">📁</span>
-          </div>
+        <div class="py-4">
+          <p class="text-2xl font-bold">{{ stats.collections }}</p>
+          <p class="text-sm text-muted-foreground">收藏夹</p>
         </div>
-        <p class="text-3xl font-bold mb-2">0</p>
-        <p class="text-sm text-muted-foreground">尚未创建收藏夹</p>
-      </div>
-
-      <div class="bg-card rounded-xl p-6 border border-border/50">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold">标签</h3>
-          <div class="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <span class="text-sm font-medium text-primary">🏷️</span>
-          </div>
+        <div class="py-4">
+          <p class="text-2xl font-bold">{{ stats.tags }}</p>
+          <p class="text-sm text-muted-foreground">标签</p>
         </div>
-        <p class="text-3xl font-bold mb-2">0</p>
-        <p class="text-sm text-muted-foreground">尚未添加标签</p>
       </div>
     </div>
 
-    <!-- Quick actions -->
-    <div class="max-w-2xl mx-auto">
-      <h2 class="text-2xl font-semibold mb-6 text-center">快速开始</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <RouterLink to="/bookmarks" class="block">
-          <div class="bg-card rounded-xl p-6 border border-border/50 hover:border-primary/50 transition-colors">
-            <div class="flex items-center gap-3 mb-3">
-              <div class="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <span class="text-sm font-medium text-primary">+</span>
-              </div>
-              <h3 class="text-lg font-medium">添加书签</h3>
-            </div>
-            <p class="text-sm text-muted-foreground">保存您喜欢的网页链接</p>
+    <!-- 最近书签（如果有）-->
+    <div v-if="recentBookmarks.length > 0" class="max-w-4xl mx-auto mb-8">
+      <h2 class="text-lg font-semibold mb-4">最近添加</h2>
+      <div class="space-y-2">
+        <div
+          v-for="bookmark in recentBookmarks"
+          :key="bookmark.id"
+          class="flex items-center justify-between p-3 bg-card rounded-lg border border-border/50 hover:bg-accent transition-colors cursor-pointer"
+          @click="openBookmark(bookmark.url)"
+        >
+          <div class="flex-1 min-w-0">
+            <p class="font-medium truncate">{{ bookmark.title }}</p>
+            <p class="text-sm text-muted-foreground truncate">{{ bookmark.url }}</p>
           </div>
-        </RouterLink>
+          <div class="flex items-center gap-2">
+            <span v-if="bookmark.tags" class="text-xs text-muted-foreground">
+              {{ bookmark.tags.join(', ') }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
 
-        <RouterLink to="/collections" class="block">
-          <div class="bg-card rounded-xl p-6 border border-border/50 hover:border-primary/50 transition-colors">
-            <div class="flex items-center gap-3 mb-3">
-              <div class="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <span class="text-sm font-medium text-primary">📂</span>
-              </div>
-              <h3 class="text-lg font-medium">创建收藏夹</h3>
-            </div>
-            <p class="text-sm text-muted-foreground">按主题整理您的书签</p>
-          </div>
-        </RouterLink>
+    <!-- 空状态（简化版）-->
+    <div v-else class="max-w-md mx-auto text-center py-12">
+      <div class="mb-6">
+        <svg class="w-16 h-16 mx-auto text-muted-foreground/50" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+        </svg>
+      </div>
+      <h3 class="text-lg font-medium mb-2">开始添加书签</h3>
+      <p class="text-muted-foreground mb-6">
+        使用顶部的 + 按钮添加第一个书签
+      </p>
+      <div class="text-sm text-muted-foreground">
+        <p>快捷键提示：</p>
+        <p>⌘K - 搜索书签</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from 'vue-router'
-// Home page logic will be implemented later
+import { ref, onMounted } from 'vue'
+
+// 统计数据
+const stats = ref({
+  bookmarks: 0,
+  collections: 0,
+  tags: 0
+})
+
+// 最近书签
+const recentBookmarks = ref<any[]>([])
+
+// 打开书签
+const openBookmark = (url: string) => {
+  window.open(url, '_blank')
+}
+
+// 加载数据
+const loadData = async () => {
+  try {
+    // 这里应该调用API获取真实数据
+    // 暂时使用模拟数据
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    stats.value = {
+      bookmarks: 0,
+      collections: 0,
+      tags: 0
+    }
+    
+    recentBookmarks.value = []
+  } catch (error) {
+    console.error('加载数据失败:', error)
+  }
+}
+
+onMounted(() => {
+  loadData()
+})
 </script>

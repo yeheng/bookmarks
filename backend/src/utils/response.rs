@@ -30,6 +30,7 @@ pub fn success_response_with_message<T: serde::Serialize>(data: T, message: &str
     .into_response()
 }
 
+#[allow(dead_code)]
 pub fn error_response(status: StatusCode, message: &str) -> Response {
     (
         status,
@@ -41,6 +42,7 @@ pub fn error_response(status: StatusCode, message: &str) -> Response {
         .into_response()
 }
 
+#[allow(dead_code)]
 pub fn validation_error_response(errors: Vec<String>) -> Response {
     (
         StatusCode::BAD_REQUEST,

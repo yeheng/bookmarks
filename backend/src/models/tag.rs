@@ -29,6 +29,7 @@ pub struct UpdateTag {
     pub description: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 pub struct TagWithUsage {
     #[serde(flatten)]

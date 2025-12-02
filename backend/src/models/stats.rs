@@ -12,6 +12,7 @@ pub enum StatsPeriod {
 }
 
 impl StatsPeriod {
+    #[allow(dead_code)]
     pub fn default_days() -> i64 {
         Self::Week.days()
     }

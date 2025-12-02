@@ -39,6 +39,7 @@ pub struct UpdateCollection {
     pub sort_order: Option<i32>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 pub struct CollectionWithBookmarkCount {
     #[serde(flatten)]

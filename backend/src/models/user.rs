@@ -61,6 +61,7 @@ impl From<User> for UserResponse {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct UpdateUser {
     pub username: Option<String>,
