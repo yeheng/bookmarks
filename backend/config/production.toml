@@ -4,9 +4,9 @@ port = 3000
 
 [database]
 url = "sqlite:bookmarks.db"
-max_connections = 10
+max_connections = 20
 
 [auth]
-jwt_secret = ""
+jwt_secret = ""  # Should be set via environment variable
 jwt_expires_in = 15
 refresh_token_expires_in = 10080

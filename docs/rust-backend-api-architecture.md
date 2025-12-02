@@ -128,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
 
 ```rust
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -167,8 +167,8 @@ impl AppConfig {
 }
 
 impl DatabaseConfig {
-    pub async fn create_pool(&self) -> anyhow::Result<PgPool> {
-        let pool = PgPool::connect(&self.url).await?;
+    pub async fn create_pool(&self) -> anyhow::Result<SqlitePool> {
+        let pool = SqlitePool::connect(&self.url).await?;
         Ok(pool)
     }
 }
@@ -325,7 +325,7 @@ impl AuthService {
         Self { config }
     }
 
-    pub async fn register(&self, user_data: CreateUser, db_pool: &sqlx::PgPool) -> Result<User> {
+    pub async fn register(&self, user_data: CreateUser, db_pool: &sqlx::SqlitePool) -> Result<User> {
         // 检查用户名和邮箱是否已存在
         let existing = sqlx::query!(
             "SELECT id FROM users WHERE username = $1 OR email = $2",
@@ -360,7 +360,7 @@ impl AuthService {
         Ok(user)
     }
 
-    pub async fn login(&self, login_data: LoginUser, db_pool: &sqlx::PgPool) -> Result<User> {
+    pub async fn login(&self, login_data: LoginUser, db_pool: &sqlx::SqlitePool) -> Result<User> {
         // 查找用户
         let user = sqlx::query_as!(
             User,
@@ -438,7 +438,7 @@ impl AuthService {
 ```rust
 use anyhow::Result;
 use uuid::Uuid;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use crate::models::{
     Bookmark, CreateBookmark, UpdateBookmark, BookmarkWithTags, BookmarkQuery
@@ -451,7 +451,7 @@ impl BookmarkService {
     pub async fn create_bookmark(
         user_id: Uuid,
         bookmark_data: CreateBookmark,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> Result<Bookmark> {
         // 开始事务
         let mut tx = db_pool.begin().await?;
@@ -511,7 +511,7 @@ impl BookmarkService {
     pub async fn get_bookmarks(
         user_id: Uuid,
         query: BookmarkQuery,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> Result<Vec<BookmarkWithTags>> {
         let limit = query.limit.unwrap_or(50);
         let offset = query.offset.unwrap_or(0);
@@ -579,7 +579,7 @@ impl BookmarkService {
     pub async fn get_bookmark_by_id(
         user_id: Uuid,
         bookmark_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> Result<Option<BookmarkWithTags>> {
         let bookmark = sqlx::query_as!(
             BookmarkWithTags,
@@ -609,7 +609,7 @@ impl BookmarkService {
         user_id: Uuid,
         bookmark_id: Uuid,
         update_data: UpdateBookmark,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> Result<Option<Bookmark>> {
         // 构建动态更新查询
         let mut updates = Vec::new();
@@ -711,7 +711,7 @@ impl BookmarkService {
     pub async fn delete_bookmark(
         user_id: Uuid,
         bookmark_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> Result<bool> {
         let result = sqlx::query!(
             "DELETE FROM bookmarks WHERE id = $1 AND user_id = $2",
@@ -726,7 +726,7 @@ impl BookmarkService {
 
     pub async fn increment_visit_count(
         bookmark_id: Uuid,
-        db_pool: &PgPool,
+        db_pool: &SqlitePool,
     ) -> Result<()> {
         sqlx::query!(
             "UPDATE bookmarks SET visit_count = visit_count + 1, last_visited = NOW() WHERE id = $1",
@@ -751,7 +751,7 @@ use axum::{
     response::Json as ResponseJson,
 };
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use crate::models::{CreateUser, LoginUser, UserResponse};
 use crate::services::auth_service::AuthService;
@@ -759,7 +759,7 @@ use crate::utils::error::AppError;
 use crate::config::AuthConfig;
 
 pub async fn register(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     State(auth_config): State<AuthConfig>,
     Json(user_data): Json<CreateUser>,
 ) -> Result<ResponseJson<Value>, AppError> {
@@ -777,7 +777,7 @@ pub async fn register(
 }
 
 pub async fn login(
-    State(db_pool): State<PgPool>,
+    State(db_pool): State<SqlitePool>,
     State(auth_config): State<AuthConfig>,
     Json(login_data): Json<LoginUser>,
 ) -> Result<ResponseJson<Value>, AppError> {
@@ -989,7 +989,7 @@ pub fn extract_user_id(request: &Request) -> Result<Uuid, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
+    use sqlx::SqlitePool;
 
     #[tokio::test]
     async fn test_user_registration() {
@@ -1009,7 +1009,7 @@ mod tests {
         assert_eq!(user.email, "test@example.com");
     }
 
-    async fn setup_test_db() -> PgPool {
+    async fn setup_test_db() -> SqlitePool {
         // 创建测试数据库连接池
         todo!()
     }

@@ -7,6 +7,18 @@ pub struct AuthConfig {
     pub refresh_token_expires_in: u64,
 }
 
+impl AuthConfig {
+
+    #[allow(dead_code)]
+    pub fn new(jwt_secret: String) -> Self {
+        Self {
+            jwt_secret,
+            jwt_expires_in: 15,                    // 15 minutes
+            refresh_token_expires_in: 7 * 24 * 60, // 7 days in minutes
+        }
+    }
+}
+
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {

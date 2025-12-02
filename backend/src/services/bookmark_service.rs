@@ -182,11 +182,26 @@ impl BookmarkService {
             }
         }
 
-        // Add ordering
+        // Add ordering with validated sort field
+        let sort_field = match sort_by.as_str() {
+            "title" => "b.title",
+            "created_at" => "b.created_at", 
+            "updated_at" => "b.updated_at",
+            "visit_count" => "b.visit_count",
+            "last_visited" => "b.last_visited",
+            _ => "b.created_at", // Default safe fallback
+        };
+        
+        let sort_direction = match sort_order.as_str() {
+            "ASC" | "asc" => "ASC",
+            "DESC" | "desc" => "DESC", 
+            _ => "DESC", // Default safe fallback
+        };
+
         sql.push_str(&format!(
-            " GROUP BY b.id, c.name, c.color ORDER BY b.{} {} LIMIT ${} OFFSET ${}",
-            sort_by,
-            sort_order,
+            " GROUP BY b.id, c.name, c.color ORDER BY {} {} LIMIT ${} OFFSET ${}",
+            sort_field,
+            sort_direction,
             param_count + 1,
             param_count + 2
         ));

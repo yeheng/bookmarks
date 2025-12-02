@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档定义了书签应用的 RESTful API 接口规范，包括请求格式、响应格式、错误处理和认证机制。API 遵循 REST 设计原则，使用 JSON 格式进行数据交换。该 API 专为 SvelteKit + shadcn/ui 前端架构设计，提供高效的数据交互和良好的开发体验。
+本文档定义了书签应用的 RESTful API 接口规范，包括请求格式、响应格式、错误处理和认证机制。API 遵循 REST 设计原则，使用 JSON 格式进行数据交换。该 API 专为 Vuejs + shadcn-vue 前端架构设计，提供高效的数据交互和良好的开发体验。
 
 ## 基础信息
 
@@ -11,8 +11,9 @@
 - **Content-Type**: `application/json`
 - **字符编码**: UTF-8
 - **认证方式**: Bearer Token (JWT)
-- **前端框架**: SvelteKit 2.0+
-- **UI 组件库**: shadcn/ui
+- **前端框架**: Vue.js 3.4+
+- **UI 组件库**: shadcn-vue
+- **数据库**: SQLite
 
 ## 通用响应格式
 
@@ -50,23 +51,15 @@
 ```json
 {
   "success": true,
-  "data": {
-    "items": [
-      // 数据项列表
-    ],
-    "pagination": {
-      "page": 1,
-      "limit": 20,
-      "total": 100,
-      "total_pages": 5,
-      "has_next": true,
-      "has_prev": false
-    }
-  },
+  "data": [
+    // 数据项列表
+  ],
   "message": "获取成功",
   "timestamp": "2025-11-30T10:00:00Z"
 }
 ```
+
+注意：当前版本使用简化的分页，通过查询参数 `limit` 和 `offset` 控制。
 
 ## 认证接口
 
@@ -101,14 +94,12 @@
   "success": true,
   "data": {
     "user": {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "id": 1,
       "username": "testuser",
       "email": "test@example.com",
       "created_at": "2025-11-30T10:00:00Z"
     },
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expires_in": 900
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
   },
   "message": "注册成功"
 }
@@ -149,14 +140,12 @@
   "success": true,
   "data": {
     "user": {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "id": 1,
       "username": "testuser",
       "email": "test@example.com",
       "last_login_at": "2025-11-30T10:00:00Z"
     },
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expires_in": 900
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
   },
   "message": "登录成功"
 }
@@ -246,14 +235,11 @@ Authorization: Bearer <access_token>
 {
   "success": true,
   "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "id": 1,
     "username": "testuser",
     "email": "test@example.com",
-    "avatar_url": "https://example.com/avatar.jpg",
-    "is_active": true,
-    "email_verified": true,
     "created_at": "2025-11-30T10:00:00Z",
-    "last_login_at": "2025-11-30T10:00:00Z"
+    "updated_at": "2025-11-30T10:00:00Z"
   },
   "message": "获取成功"
 }
@@ -277,57 +263,38 @@ Authorization: Bearer <access_token>
 
 | 参数 | 类型 | 必需 | 默认值 | 描述 |
 |------|------|------|--------|------|
-| page | integer | 否 | 1 | 页码 |
 | limit | integer | 否 | 20 | 每页数量，最大100 |
-| collection_id | string | 否 | - | 收藏夹ID |
-| tags | string | 否 | - | 标签列表，逗号分隔 |
-| is_favorite | boolean | 否 | - | 是否收藏 |
-| is_archived | boolean | 否 | - | 是否归档 |
-| is_read | boolean | 否 | - | 是否已读 |
-| search | string | 否 | - | 搜索关键词 |
-| sort | string | 否 | created_at | 排序字段 |
-| order | string | 否 | desc | 排序方向 (asc/desc) |
+| offset | integer | 否 | 0 | 偏移量 |
+| collection_id | number | 否 | - | 收藏夹ID |
+| tag_id | number | 否 | - | 标签ID |
+| q | string | 否 | - | 搜索关键词 |
 
 **响应**:
 
 ```json
 {
   "success": true,
-  "data": {
-    "items": [
-      {
-        "id": "550e8400-e29b-41d4-a716-446655440000",
-        "title": "示例网站",
-        "url": "https://example.com",
-        "description": "这是一个示例网站",
-        "favicon_url": "https://example.com/favicon.ico",
-        "screenshot_url": "https://example.com/screenshot.png",
-        "is_favorite": true,
-        "is_archived": false,
-        "is_read": false,
-        "visit_count": 5,
-        "last_visited": "2025-11-30T09:00:00Z",
-        "reading_time": 3,
-        "difficulty_level": 2,
-        "tags": ["技术", "前端"],
-        "collection": {
-          "id": "550e8400-e29b-41d4-a716-446655440001",
-          "name": "技术文档",
-          "color": "#3b82f6"
-        },
-        "created_at": "2025-11-30T08:00:00Z",
-        "updated_at": "2025-11-30T08:00:00Z"
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "limit": 20,
-      "total": 50,
-      "total_pages": 3,
-      "has_next": true,
-      "has_prev": false
+  "data": [
+    {
+      "id": 1,
+      "title": "示例网站",
+      "url": "https://example.com",
+      "description": "这是一个示例网站",
+      "user_id": 1,
+      "collection_id": 1,
+      "created_at": "2025-11-30T08:00:00Z",
+      "updated_at": "2025-11-30T08:00:00Z",
+      "tags": [
+        {
+          "id": 1,
+          "name": "技术",
+          "user_id": 1,
+          "created_at": "2025-11-30T07:00:00Z",
+          "updated_at": "2025-11-30T07:00:00Z"
+        }
+      ]
     }
-  },
+  ],
   "message": "获取成功"
 }
 ```

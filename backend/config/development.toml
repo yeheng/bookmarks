@@ -1,0 +1,12 @@
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[database]
+url = "sqlite:bookmarks_dev.db"
+max_connections = 5
+
+[auth]
+jwt_secret = "dev-secret-key-change-in-production"
+jwt_expires_in = 15
+refresh_token_expires_in = 10080

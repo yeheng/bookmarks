@@ -33,8 +33,8 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(env_filter)
         .init();
 
-    // Load configuration
-    let config = AppConfig::from_env()?;
+    // Load configuration with support for config files and environment variables
+    let config = AppConfig::load()?;
 
     // Initialize database connection pool
     let db_pool = config.database.create_pool().await?;

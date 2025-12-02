@@ -41,6 +41,93 @@ class ApiService {
     }
   }
 
+  private sanitizeErrorMessage(message: string | undefined, status: number): string {
+    if (!message) {
+      return this.getDefaultErrorMessage(status);
+    }
+
+    // For server errors (5xx), don't expose detailed error messages
+    if (status >= 500) {
+      return 'Server error occurred. Please try again later.';
+    }
+
+    // For client errors (4xx), provide sanitized messages
+    if (status >= 400) {
+      // Remove potential sensitive information from error messages
+      const sanitized = message
+        .replace(/database|sql|query|table|column/gi, 'data')
+        .replace(/password|token|secret|key/gi, 'credential')
+        .replace(/\/[a-zA-Z0-9\/_\-\.]+/g, '/path')
+        .replace(/localhost|127\.0\.0\.1|internal|private/gi, 'server');
+
+      // Check if sanitized message is still meaningful
+      if (sanitized.length < 10) {
+        return this.getDefaultErrorMessage(status);
+      }
+
+      return sanitized;
+    }
+
+    return message;
+  }
+
+  private sanitizeErrorDetails(details: any, status: number): any {
+    // For server errors, don't expose any details
+    if (status >= 500) {
+      return undefined;
+    }
+
+    // For client errors, sanitize details if present
+    if (details && typeof details === 'object') {
+      const sanitized: any = {};
+      for (const [key, value] of Object.entries(details)) {
+        // Skip sensitive keys
+        if (key.toLowerCase().match(/password|token|secret|key|database|sql/)) {
+          continue;
+        }
+        
+        // Sanitize string values
+        if (typeof value === 'string') {
+          sanitized[key] = value
+            .replace(/\/[a-zA-Z0-9\/_\-\.]+/g, '/path')
+            .replace(/localhost|127\.0\.0\.1/gi, 'server');
+        } else {
+          sanitized[key] = value;
+        }
+      }
+      return sanitized;
+    }
+
+    return details;
+  }
+
+  private getDefaultErrorMessage(status: number): string {
+    switch (status) {
+      case 400:
+        return 'Invalid request. Please check your input.';
+      case 401:
+        return 'Authentication required. Please login.';
+      case 403:
+        return 'Access denied. You do not have permission to perform this action.';
+      case 404:
+        return 'The requested resource was not found.';
+      case 409:
+        return 'Conflict with existing data. Please check and try again.';
+      case 422:
+        return 'Invalid data provided. Please check your input.';
+      case 429:
+        return 'Too many requests. Please try again later.';
+      case 500:
+        return 'Server error occurred. Please try again later.';
+      case 502:
+        return 'Service temporarily unavailable. Please try again later.';
+      case 503:
+        return 'Service maintenance in progress. Please try again later.';
+      default:
+        return 'An error occurred. Please try again.';
+    }
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
@@ -68,11 +155,17 @@ class ApiService {
           errorData = null;
         }
 
+        // Sanitize error messages to prevent exposing sensitive information
+        let sanitizedMessage = this.sanitizeErrorMessage(
+          errorData?.message,
+          response.status
+        );
+
         throw new ApiError(
-          errorData?.message || response.statusText || 'Request failed',
+          sanitizedMessage,
           response.status,
           errorData?.code,
-          errorData?.details
+          this.sanitizeErrorDetails(errorData?.details, response.status)
         );
       }
 
@@ -85,7 +178,21 @@ class ApiService {
       if (error instanceof ApiError) {
         throw error;
       }
-      throw new ApiError(error instanceof Error ? error.message : 'Network error');
+      
+      // Handle network errors without exposing sensitive information
+      if (error instanceof Error) {
+        // Check for common network error patterns
+        if (error.message.includes('fetch')) {
+          throw new ApiError('Network connection failed. Please check your internet connection.');
+        } else if (error.message.includes('timeout')) {
+          throw new ApiError('Request timed out. Please try again.');
+        } else {
+          // Generic error without exposing technical details
+          throw new ApiError('Network error occurred. Please try again.');
+        }
+      }
+      
+      throw new ApiError('An unexpected error occurred. Please try again.');
     }
   }
 
