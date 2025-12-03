@@ -30,7 +30,6 @@ chrono = { version = "0.4", features = ["serde"] }
 jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
 bcrypt = "0.17"
 axum-jwt-auth = "0.6"
-rsa = "=0.10.0-rc.10"
 
 # Configuration
 config = "0.15"
