@@ -1,7 +1,5 @@
-use chrono::NaiveDate;
-use sqlx::{SqlitePool, Row};
+use sqlx::{Row, SqlitePool};
 use std::time::Instant;
-use uuid::Uuid;
 
 use crate::models::{
     BookmarkWithTags, SearchFilters, SearchPagination, SearchResponse, SearchSuggestion, SearchType,
@@ -12,7 +10,7 @@ pub struct SearchService;
 
 impl SearchService {
     pub async fn search_bookmarks(
-        user_id: Uuid,
+        user_id: i64,
         filters: SearchFilters,
         db_pool: &SqlitePool,
     ) -> AppResult<SearchResponse> {
@@ -45,7 +43,14 @@ impl SearchService {
                 b.metadata,
                 b.created_at,
                 b.updated_at,
-                '[' || GROUP_CONCAT(t.name, '","') || ']' as tags,
+                COALESCE(
+                    CASE 
+                        WHEN COUNT(t.name) > 0 
+                        THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
+                        ELSE '[]'
+                    END,
+                    '[]'
+                ) as tags,
                 c.name as collection_name,
                 c.color as collection_color
             FROM bookmarks b
@@ -63,9 +68,8 @@ impl SearchService {
         let mut query_builder = sqlx::query_as::<_, BookmarkWithTags>(&search_sql).bind(user_id);
         for bind in &binds {
             query_builder = match bind {
-                BindValue::Uuid(value) => query_builder.bind(*value),
+                BindValue::I64(value) => query_builder.bind(*value),
                 BindValue::Text(value) => query_builder.bind(value.clone()),
-                BindValue::Date(value) => query_builder.bind(*value),
             };
         }
 
@@ -79,9 +83,8 @@ impl SearchService {
         let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql).bind(user_id);
         for bind in &binds {
             count_query = match bind {
-                BindValue::Uuid(value) => count_query.bind(*value),
+                BindValue::I64(value) => count_query.bind(*value),
                 BindValue::Text(value) => count_query.bind(value.clone()),
-                BindValue::Date(value) => count_query.bind(*value),
             };
         }
 
@@ -110,7 +113,7 @@ impl SearchService {
     }
 
     pub async fn get_search_suggestions(
-        user_id: Uuid,
+        user_id: i64,
         query: &str,
         limit: Option<i64>,
         db_pool: &SqlitePool,
@@ -167,7 +170,7 @@ impl SearchService {
             .collect())
     }
 
-    fn build_filter_sql(user_id: Uuid, filters: &SearchFilters) -> (String, Vec<BindValue>, i32) {
+    fn build_filter_sql(user_id: i64, filters: &SearchFilters) -> (String, Vec<BindValue>, i32) {
         let mut sql = String::from("WHERE b.user_id = $1");
         let mut param_index = 1;
         let mut binds = Vec::new();
@@ -175,17 +178,21 @@ impl SearchService {
         if let Some(collection_id) = filters.collection_id {
             param_index += 1;
             sql.push_str(&format!(" AND b.collection_id = ${}", param_index));
-            binds.push(BindValue::Uuid(collection_id));
+            binds.push(BindValue::I64(collection_id));
         }
 
         if !filters.tags.is_empty() {
             param_index += 1;
             let tag_user_param = param_index;
-            let tag_placeholders = filters.tags.iter().enumerate()
+            let tag_placeholders = filters
+                .tags
+                .iter()
+                .enumerate()
                 .map(|(i, _)| format!("${}", param_index + 1 + i))
-                .collect::<Vec<_>>().join(",");
+                .collect::<Vec<_>>()
+                .join(",");
             param_index += filters.tags.len();
-            
+
             sql.push_str(&format!(
                 " AND b.id IN (
                     SELECT bt.bookmark_id
@@ -199,7 +206,7 @@ impl SearchService {
                 tag_placeholders,
                 filters.tags.len()
             ));
-            binds.push(BindValue::Uuid(user_id));
+            binds.push(BindValue::I64(user_id));
             for tag in &filters.tags {
                 binds.push(BindValue::Text(tag.clone()));
             }
@@ -207,14 +214,14 @@ impl SearchService {
 
         if let Some(date_from) = filters.date_from {
             param_index += 1;
-            sql.push_str(&format!(" AND date(b.created_at) >= ${}", param_index));
-            binds.push(BindValue::Date(date_from));
+            sql.push_str(&format!(" AND b.created_at >= ${}", param_index));
+            binds.push(BindValue::I64(date_from));
         }
 
         if let Some(date_to) = filters.date_to {
             param_index += 1;
-            sql.push_str(&format!(" AND date(b.created_at) <= ${}", param_index));
-            binds.push(BindValue::Date(date_to));
+            sql.push_str(&format!(" AND b.created_at <= ${}", param_index));
+            binds.push(BindValue::I64(date_to));
         }
 
         let pattern = format!("%{}%", filters.query);
@@ -249,7 +256,6 @@ impl SearchService {
 
 #[derive(Clone)]
 enum BindValue {
-    Uuid(Uuid),
+    I64(i64),
     Text(String),
-    Date(NaiveDate),
 }

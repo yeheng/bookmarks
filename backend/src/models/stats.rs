@@ -1,4 +1,3 @@
-use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -19,9 +18,9 @@ impl StatsPeriod {
 
     pub fn days(self) -> i64 {
         match self {
-            StatsPeriod::Week => 7,
-            StatsPeriod::Month => 30,
-            StatsPeriod::Year => 365,
+            StatsPeriod::Week => 7 * 24 * 60 * 60,
+            StatsPeriod::Month => 30 * 24 * 60 * 60,
+            StatsPeriod::Year => 365 * 24 * 60 * 60,
         }
     }
 }
@@ -41,7 +40,7 @@ pub struct UserStats {
 
 #[derive(Debug, Serialize)]
 pub struct RecentActivityEntry {
-    pub date: NaiveDate,
+    pub date: i64,
     pub bookmarks_added: i64,
     pub bookmarks_visited: i64,
 }

@@ -2,10 +2,8 @@ use axum::{
     extract::{Query, State},
     response::Response,
 };
-use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_json::json;
-use uuid::Uuid;
 
 use crate::{
     middleware::AuthenticatedUser,
@@ -21,10 +19,10 @@ pub struct SearchQueryParams {
     pub q: String,
     #[serde(rename = "type")]
     pub search_type: Option<String>,
-    pub collection_id: Option<String>,
+    pub collection_id: Option<i64>,
     pub tags: Option<String>,
-    pub date_from: Option<String>,
-    pub date_to: Option<String>,
+    pub date_from: Option<i64>,
+    pub date_to: Option<i64>,
     pub page: Option<i64>,
     pub limit: Option<i64>,
 }
@@ -95,16 +93,9 @@ fn build_filters(query: &SearchQueryParams) -> Result<SearchFilters, AppError> {
     let page = query.page.unwrap_or(1).max(1);
     let offset = (page - 1) * limit;
 
-    let date_from = parse_date(query.date_from.as_deref())?;
-    let date_to = parse_date(query.date_to.as_deref())?;
-
-    let collection_id = match query.collection_id.as_deref() {
-        Some(id) => Some(
-            Uuid::parse_str(id)
-                .map_err(|_| AppError::BadRequest("Invalid collection_id provided".to_string()))?,
-        ),
-        None => None,
-    };
+    let date_from = query.date_from;
+    let date_to = query.date_to;
+    let collection_id = query.collection_id;
 
     Ok(SearchFilters {
         query: query.q.clone(),
@@ -116,18 +107,4 @@ fn build_filters(query: &SearchQueryParams) -> Result<SearchFilters, AppError> {
         limit,
         offset,
     })
-}
-
-fn parse_date(value: Option<&str>) -> Result<Option<NaiveDate>, AppError> {
-    if let Some(date_str) = value {
-        if date_str.trim().is_empty() {
-            return Ok(None);
-        }
-
-        NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-            .map(Some)
-            .map_err(|_| AppError::BadRequest("Invalid date format (expected YYYY-MM-DD)".into()))
-    } else {
-        Ok(None)
-    }
 }

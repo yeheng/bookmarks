@@ -4,7 +4,6 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, 
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
-use uuid::Uuid;
 
 use crate::utils::error::{AppError, AppResult};
 
@@ -25,7 +24,7 @@ impl JWTService {
         Self { secret }
     }
 
-    pub fn generate_access_token(&self, user_id: Uuid) -> AppResult<String> {
+    pub fn generate_access_token(&self, user_id: i64) -> AppResult<String> {
         let now = Utc::now();
         let exp = now + Duration::minutes(15); // 15 minutes
 
@@ -44,7 +43,7 @@ impl JWTService {
         Ok(token)
     }
 
-    pub fn generate_refresh_token(&self, user_id: Uuid) -> AppResult<String> {
+    pub fn generate_refresh_token(&self, user_id: i64) -> AppResult<String> {
         let now = Utc::now();
         let exp = now + Duration::days(7); // 7 days
 
@@ -63,14 +62,17 @@ impl JWTService {
         Ok(token)
     }
 
-    pub fn verify_token(&self, token: &str) -> AppResult<Uuid> {
+    pub fn verify_token(&self, token: &str) -> AppResult<i64> {
         let token_data = decode::<JwtClaims>(
             token,
             &DecodingKey::from_secret(self.secret.as_ref()),
             &Validation::default(),
         )?;
 
-        let user_id = Uuid::parse_str(&token_data.claims.sub)
+        let user_id = token_data
+            .claims
+            .sub
+            .parse::<i64>()
             .map_err(|_| AppError::Unauthorized("Invalid token format".to_string()))?;
 
         Ok(user_id)

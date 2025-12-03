@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,9 +10,8 @@ pub struct DatabaseConfig {
 
 impl DatabaseConfig {
     pub async fn create_pool(&self) -> anyhow::Result<SqlitePool> {
-        let options = SqliteConnectOptions::from_str(&self.url)?
-            .create_if_missing(true);
-        
+        let options = SqliteConnectOptions::from_str(&self.url)?.create_if_missing(true);
+
         let pool = SqlitePool::connect_with(options).await?;
         Ok(pool)
     }

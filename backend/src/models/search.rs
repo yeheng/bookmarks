@@ -1,6 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use super::BookmarkWithTags;
 
@@ -19,10 +17,10 @@ pub enum SearchType {
 pub struct SearchFilters {
     pub query: String,
     pub search_type: SearchType,
-    pub collection_id: Option<Uuid>,
+    pub collection_id: Option<i64>,
     pub tags: Vec<String>,
-    pub date_from: Option<NaiveDate>,
-    pub date_to: Option<NaiveDate>,
+    pub date_from: Option<i64>,
+    pub date_to: Option<i64>,
     pub limit: i64,
     pub offset: i64,
 }
@@ -49,5 +47,5 @@ pub struct SearchSuggestion {
     pub text: String,
     pub suggestion_type: String,
     pub count: i64,
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<i64>,
 }

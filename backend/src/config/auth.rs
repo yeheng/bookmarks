@@ -8,7 +8,6 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
-
     #[allow(dead_code)]
     pub fn new(jwt_secret: String) -> Self {
         Self {

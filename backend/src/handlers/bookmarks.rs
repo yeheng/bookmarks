@@ -7,7 +7,6 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 use crate::middleware::AuthenticatedUser;
 use crate::models::{
@@ -22,7 +21,7 @@ use crate::utils::response::{
 
 #[derive(Deserialize)]
 pub struct BookmarkListQuery {
-    pub collection_id: Option<Uuid>,
+    pub collection_id: Option<i64>,
     pub tags: Option<String>, // Comma-separated
     pub is_favorite: Option<bool>,
     pub is_archived: Option<bool>,
@@ -66,7 +65,7 @@ pub async fn get_bookmarks(
 
 pub async fn get_bookmark(
     State(db_pool): State<SqlitePool>,
-    Path(bookmark_id): Path<Uuid>,
+    Path(bookmark_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let bookmark = BookmarkService::get_bookmark_by_id(user_id, bookmark_id, &db_pool).await?;
@@ -86,7 +85,7 @@ pub async fn create_bookmark(
 
 pub async fn update_bookmark(
     State(db_pool): State<SqlitePool>,
-    Path(bookmark_id): Path<Uuid>,
+    Path(bookmark_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(update_data): Json<UpdateBookmark>,
 ) -> Result<Response, AppError> {
@@ -98,7 +97,7 @@ pub async fn update_bookmark(
 
 pub async fn delete_bookmark(
     State(db_pool): State<SqlitePool>,
-    Path(bookmark_id): Path<Uuid>,
+    Path(bookmark_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let deleted = BookmarkService::delete_bookmark(user_id, bookmark_id, &db_pool).await?;
@@ -112,7 +111,7 @@ pub async fn delete_bookmark(
 
 pub async fn increment_visit_count(
     State(db_pool): State<SqlitePool>,
-    Path(bookmark_id): Path<Uuid>,
+    Path(bookmark_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let visit_info = BookmarkService::increment_visit_count(user_id, bookmark_id, &db_pool).await?;
@@ -126,7 +125,7 @@ pub async fn import_bookmarks(
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
     let mut format = BookmarkExportFormat::Json;
-    let mut collection_id: Option<Uuid> = None;
+    let mut collection_id: Option<i64> = None;
     let mut file_bytes: Option<Vec<u8>> = None;
 
     while let Some(field) = multipart
@@ -147,8 +146,8 @@ pub async fn import_bookmarks(
                     .text()
                     .await
                     .map_err(|e| AppError::BadRequest(format!("Invalid collection_id: {}", e)))?;
-                collection_id = Some(Uuid::parse_str(value.trim()).map_err(|_| {
-                    AppError::BadRequest("collection_id must be a valid UUID".to_string())
+                collection_id = Some(value.trim().parse::<i64>().map_err(|_| {
+                    AppError::BadRequest("collection_id must be a valid integer".to_string())
                 })?);
             }
             Some("file") => {
@@ -227,7 +226,7 @@ pub async fn batch_update_bookmarks(
 pub struct BookmarkExportQuery {
     #[serde(default)]
     pub format: BookmarkExportFormat,
-    pub collection_id: Option<Uuid>,
+    pub collection_id: Option<i64>,
     #[serde(default)]
     pub include_archived: bool,
 }

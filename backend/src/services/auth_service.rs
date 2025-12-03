@@ -1,6 +1,5 @@
 use bcrypt::{hash, verify, DEFAULT_COST};
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 use crate::models::{CreateUser, LoginUser, User};
 use crate::utils::error::{AppError, AppResult};
@@ -36,7 +35,9 @@ impl AuthService {
             .await?;
 
         if existing.is_some() {
-            return Err(AppError::Conflict("Username or email already exists".to_string()).into());
+            return Err(AppError::Conflict(
+                "Username or email already exists".to_string(),
+            ));
         }
 
         // Hash password
@@ -87,11 +88,13 @@ impl AuthService {
         // Verify password
         let is_valid = verify(&login_data.password, &user.password_hash)?;
         if !is_valid {
-            return Err(AppError::Unauthorized("Invalid email or password".to_string()).into());
+            return Err(AppError::Unauthorized(
+                "Invalid email or password".to_string(),
+            ));
         }
 
         // Update last login
-        sqlx::query("UPDATE users SET last_login_at = datetime('now') WHERE id = $1")
+        sqlx::query("UPDATE users SET last_login_at = CAST(strftime('%s', 'now') AS INTEGER) WHERE id = $1")
             .bind(user.id)
             .execute(db_pool)
             .await?;
@@ -99,19 +102,23 @@ impl AuthService {
         Ok(user)
     }
 
-    pub fn generate_access_token(&self, user_id: Uuid) -> AppResult<String> {
+    pub fn generate_access_token(&self, user_id: i64) -> AppResult<String> {
         self.jwt_service.generate_access_token(user_id)
     }
 
-    pub fn generate_refresh_token(&self, user_id: Uuid) -> AppResult<String> {
+    pub fn generate_refresh_token(&self, user_id: i64) -> AppResult<String> {
         self.jwt_service.generate_refresh_token(user_id)
     }
 
-    pub fn verify_token(&self, token: &str) -> AppResult<Uuid> {
+    pub fn verify_token(&self, token: &str) -> AppResult<i64> {
         self.jwt_service.verify_token(token)
     }
 
-    pub async fn get_user_by_id(&self, user_id: Uuid, db_pool: &SqlitePool) -> AppResult<Option<User>> {
+    pub async fn get_user_by_id(
+        &self,
+        user_id: i64,
+        db_pool: &SqlitePool,
+    ) -> AppResult<Option<User>> {
         let user = sqlx::query_as::<_, User>(
             r#"
             SELECT id, username, email, password_hash, avatar_url,
@@ -131,7 +138,7 @@ impl AuthService {
 
     pub async fn change_password(
         &self,
-        user_id: Uuid,
+        user_id: i64,
         current_password: String,
         new_password: String,
         db_pool: &SqlitePool,
@@ -158,18 +165,22 @@ impl AuthService {
         // Verify current password
         let is_valid = verify(&current_password, &user.password_hash)?;
         if !is_valid {
-            return Err(AppError::Unauthorized("Current password is incorrect".to_string()).into());
+            return Err(AppError::Unauthorized(
+                "Current password is incorrect".to_string(),
+            ));
         }
 
         // Hash new password
         let new_password_hash = hash(&new_password, DEFAULT_COST)?;
 
         // Update password
-        sqlx::query("UPDATE users SET password_hash = $1, updated_at = datetime('now') WHERE id = $2")
-            .bind(new_password_hash)
-            .bind(user_id)
-            .execute(db_pool)
-            .await?;
+        sqlx::query(
+            "UPDATE users SET password_hash = $1, updated_at = CAST(strftime('%s', 'now') AS INTEGER) WHERE id = $2",
+        )
+        .bind(new_password_hash)
+        .bind(user_id)
+        .execute(db_pool)
+        .await?;
 
         Ok(())
     }

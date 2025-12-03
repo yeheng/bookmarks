@@ -4,7 +4,6 @@ use axum::{
 };
 use serde::Deserialize;
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 use crate::middleware::AuthenticatedUser;
 use crate::models::{CollectionQuery, CreateCollection, UpdateCollection};
@@ -14,7 +13,7 @@ use crate::utils::response::{success_message_response, success_response};
 
 #[derive(Deserialize)]
 pub struct CollectionListQuery {
-    pub parent_id: Option<Uuid>,
+    pub parent_id: Option<i64>,
     pub is_public: Option<bool>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
@@ -40,7 +39,7 @@ pub async fn get_collections(
 
 pub async fn get_collection(
     State(db_pool): State<SqlitePool>,
-    Path(collection_id): Path<Uuid>,
+    Path(collection_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let collection = CollectionService::get_collection_by_id(user_id, collection_id, &db_pool)
@@ -63,7 +62,7 @@ pub async fn create_collection(
 
 pub async fn update_collection(
     State(db_pool): State<SqlitePool>,
-    Path(collection_id): Path<Uuid>,
+    Path(collection_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(update_data): Json<UpdateCollection>,
 ) -> Result<Response, AppError> {
@@ -77,7 +76,7 @@ pub async fn update_collection(
 
 pub async fn delete_collection(
     State(db_pool): State<SqlitePool>,
-    Path(collection_id): Path<Uuid>,
+    Path(collection_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let deleted = CollectionService::delete_collection(user_id, collection_id, &db_pool).await?;

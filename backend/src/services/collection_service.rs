@@ -1,5 +1,4 @@
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 use crate::models::{Collection, CollectionQuery, CreateCollection, UpdateCollection};
 use crate::utils::error::{AppError, AppResult};
@@ -8,7 +7,7 @@ pub struct CollectionService;
 
 impl CollectionService {
     pub async fn create_collection(
-        user_id: Uuid,
+        user_id: i64,
         collection_data: CreateCollection,
         db_pool: &SqlitePool,
     ) -> AppResult<Collection> {
@@ -38,7 +37,7 @@ impl CollectionService {
     }
 
     pub async fn get_collections(
-        user_id: Uuid,
+        user_id: i64,
         query: CollectionQuery,
         db_pool: &SqlitePool,
     ) -> AppResult<Vec<Collection>> {
@@ -79,8 +78,8 @@ impl CollectionService {
     }
 
     pub async fn get_collection_by_id(
-        user_id: Uuid,
-        collection_id: Uuid,
+        user_id: i64,
+        collection_id: i64,
         db_pool: &SqlitePool,
     ) -> AppResult<Option<Collection>> {
         let collection = sqlx::query_as::<_, Collection>(
@@ -103,8 +102,8 @@ impl CollectionService {
     }
 
     pub async fn update_collection(
-        user_id: Uuid,
-        collection_id: Uuid,
+        user_id: i64,
+        collection_id: i64,
         update_data: UpdateCollection,
         db_pool: &SqlitePool,
     ) -> AppResult<Option<Collection>> {
@@ -114,9 +113,12 @@ impl CollectionService {
             && update_data.color.is_none()
             && update_data.icon.is_none()
             && update_data.parent_id.is_none()
+            && update_data.clear_parent_id.is_none()
             && update_data.sort_order.is_none()
         {
-            return Err(AppError::BadRequest("No update fields provided".to_string()).into());
+            return Err(AppError::BadRequest(
+                "No update fields provided".to_string(),
+            ));
         }
 
         // 使用 COALESCE 来只更新提供的字段
@@ -127,9 +129,9 @@ impl CollectionService {
                 description = COALESCE($2, description),
                 color = COALESCE($3, color),
                 icon = COALESCE($4, icon),
-                parent_id = CASE WHEN $5 THEN $6 ELSE parent_id END,
+                parent_id = CASE WHEN $5 THEN NULL ELSE COALESCE($6, parent_id) END,
                 sort_order = COALESCE($7, sort_order),
-                updated_at = datetime('now')
+                updated_at = CAST(strftime('%s', 'now') AS INTEGER)
             WHERE id = $8 AND user_id = $9
             RETURNING id, user_id, name, description,
                       color, icon, sort_order,
@@ -142,8 +144,8 @@ impl CollectionService {
         .bind(update_data.description)
         .bind(update_data.color)
         .bind(update_data.icon)
-        .bind(update_data.parent_id.is_some())
-        .bind(update_data.parent_id.flatten())
+        .bind(update_data.clear_parent_id.unwrap_or(false))
+        .bind(update_data.parent_id)
         .bind(update_data.sort_order)
         .bind(collection_id)
         .bind(user_id)
@@ -154,8 +156,8 @@ impl CollectionService {
     }
 
     pub async fn delete_collection(
-        user_id: Uuid,
-        collection_id: Uuid,
+        user_id: i64,
+        collection_id: i64,
         db_pool: &SqlitePool,
     ) -> AppResult<bool> {
         // Check if collection is default
@@ -173,9 +175,9 @@ impl CollectionService {
         .unwrap_or(false);
 
         if is_default {
-            return Err(
-                AppError::BadRequest("Cannot delete default collection".to_string()).into(),
-            );
+            return Err(AppError::BadRequest(
+                "Cannot delete default collection".to_string(),
+            ));
         }
 
         let result = sqlx::query("DELETE FROM collections WHERE id = $1 AND user_id = $2")

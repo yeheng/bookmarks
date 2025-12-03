@@ -5,7 +5,6 @@ use axum::{
     response::Response,
 };
 use axum_jwt_auth::{AuthError, Claims as JwtClaimsExtractor};
-use uuid::Uuid;
 
 use crate::state::AppState;
 use crate::utils::error::AppError;
@@ -22,7 +21,10 @@ pub async fn auth_middleware(
         .await
         .map_err(map_auth_error)?;
 
-    let user_id = Uuid::parse_str(&claims.claims.sub)
+    let user_id = claims
+        .claims
+        .sub
+        .parse::<i64>()
         .map_err(|_| AppError::Unauthorized("Invalid token subject".to_string()))?;
 
     // Verify user exists and is active
@@ -47,7 +49,7 @@ pub async fn auth_middleware(
 
 // 自定义 Extractor：自动从 request extensions 提取 user_id
 #[derive(Debug, Clone, Copy)]
-pub struct AuthenticatedUser(pub Uuid);
+pub struct AuthenticatedUser(pub i64);
 
 impl<S> FromRequestParts<S> for AuthenticatedUser
 where
@@ -58,7 +60,7 @@ where
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         parts
             .extensions
-            .get::<Uuid>()
+            .get::<i64>()
             .copied()
             .map(AuthenticatedUser)
             .ok_or_else(|| AppError::Unauthorized("User not authenticated".to_string()))

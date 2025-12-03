@@ -4,7 +4,6 @@ use axum::{
 };
 use serde::Deserialize;
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 use crate::middleware::AuthenticatedUser;
 use crate::models::{CreateTag, TagQuery, UpdateTag};
@@ -49,7 +48,7 @@ pub async fn get_popular_tags(
 
 pub async fn get_tag(
     State(db_pool): State<SqlitePool>,
-    Path(tag_id): Path<Uuid>,
+    Path(tag_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let tag = TagService::get_tag_by_id(user_id, tag_id, &db_pool)
@@ -71,7 +70,7 @@ pub async fn create_tag(
 
 pub async fn update_tag(
     State(db_pool): State<SqlitePool>,
-    Path(tag_id): Path<Uuid>,
+    Path(tag_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(update_data): Json<UpdateTag>,
 ) -> Result<Response, AppError> {
@@ -84,7 +83,7 @@ pub async fn update_tag(
 
 pub async fn delete_tag(
     State(db_pool): State<SqlitePool>,
-    Path(tag_id): Path<Uuid>,
+    Path(tag_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
     let deleted = TagService::delete_tag(user_id, tag_id, &db_pool).await?;

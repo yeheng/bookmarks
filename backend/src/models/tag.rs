@@ -1,18 +1,16 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Tag {
-    pub id: Uuid,
-    pub user_id: Uuid,
+    pub id: i64,
+    pub user_id: i64,
     pub name: String,
     pub color: String,
     pub description: Option<String>,
     pub usage_count: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Deserialize)]

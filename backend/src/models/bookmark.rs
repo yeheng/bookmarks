@@ -1,13 +1,11 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Bookmark {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub collection_id: Option<Uuid>,
+    pub id: i64,
+    pub user_id: i64,
+    pub collection_id: Option<i64>,
     pub title: String,
     pub url: String,
     pub description: Option<String>,
@@ -18,13 +16,13 @@ pub struct Bookmark {
     pub is_archived: bool,
     pub is_private: bool,
     pub is_read: bool,
-    pub visit_count: i32,
-    pub last_visited: Option<DateTime<Utc>>,
+    pub visit_count: i64,
+    pub last_visited: Option<i64>,
     pub reading_time: Option<i32>,
     pub difficulty_level: Option<i32>,
     pub metadata: serde_json::Value,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,7 +30,7 @@ pub struct CreateBookmark {
     pub title: String,
     pub url: String,
     pub description: Option<String>,
-    pub collection_id: Option<Uuid>,
+    pub collection_id: Option<i64>,
     pub tags: Option<Vec<String>>,
     pub is_favorite: Option<bool>,
     pub is_private: Option<bool>,
@@ -43,7 +41,8 @@ pub struct UpdateBookmark {
     pub title: Option<String>,
     pub url: Option<String>,
     pub description: Option<String>,
-    pub collection_id: Option<Option<Uuid>>,
+    pub collection_id: Option<i64>,
+    pub clear_collection_id: Option<bool>,
     pub tags: Option<Vec<String>>,
     pub is_favorite: Option<bool>,
     pub is_archived: Option<bool>,
@@ -105,7 +104,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for BookmarkWithTags {
 
 #[derive(Debug, Deserialize)]
 pub struct BookmarkQuery {
-    pub collection_id: Option<Uuid>,
+    pub collection_id: Option<i64>,
     pub tags: Option<Vec<String>>,
     pub is_favorite: Option<bool>,
     pub is_archived: Option<bool>,
@@ -122,7 +121,7 @@ pub struct BookmarkQuery {
 #[derive(Debug, Deserialize)]
 pub struct ImportBookmarks {
     pub bookmarks: Vec<CreateBookmark>,
-    pub collection_id: Option<Uuid>,
+    pub collection_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,14 +135,14 @@ pub enum BookmarkBatchAction {
 
 #[derive(Debug, Deserialize)]
 pub struct BookmarkBatchData {
-    pub collection_id: Option<Uuid>,
+    pub collection_id: Option<i64>,
     pub tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct BookmarkBatchRequest {
     pub action: BookmarkBatchAction,
-    pub bookmark_ids: Vec<Uuid>,
+    pub bookmark_ids: Vec<i64>,
     pub data: Option<BookmarkBatchData>,
 }
 
@@ -156,14 +155,14 @@ pub struct BookmarkBatchResult {
 
 #[derive(Debug, Serialize)]
 pub struct BookmarkBatchError {
-    pub bookmark_id: Uuid,
+    pub bookmark_id: i64,
     pub reason: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct BookmarkVisitInfo {
     pub visit_count: i64,
-    pub last_visited: Option<DateTime<Utc>>,
+    pub last_visited: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,7 +179,7 @@ pub enum BookmarkExportFormat {
 pub struct BookmarkExportOptions {
     #[serde(default)]
     pub format: BookmarkExportFormat,
-    pub collection_id: Option<Uuid>,
+    pub collection_id: Option<i64>,
     #[serde(default)]
     pub include_archived: bool,
 }

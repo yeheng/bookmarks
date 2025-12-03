@@ -1,12 +1,10 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Collection {
-    pub id: Uuid,
-    pub user_id: Uuid,
+    pub id: i64,
+    pub user_id: i64,
     pub name: String,
     pub description: Option<String>,
     pub color: String,
@@ -14,10 +12,10 @@ pub struct Collection {
     pub sort_order: i32,
     pub is_default: bool,
     pub is_public: bool,
-    pub parent_id: Option<Uuid>,
+    pub parent_id: Option<i64>,
     pub bookmark_count: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,7 +24,7 @@ pub struct CreateCollection {
     pub description: Option<String>,
     pub color: Option<String>,
     pub icon: Option<String>,
-    pub parent_id: Option<Uuid>,
+    pub parent_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,7 +33,8 @@ pub struct UpdateCollection {
     pub description: Option<String>,
     pub color: Option<String>,
     pub icon: Option<String>,
-    pub parent_id: Option<Option<Uuid>>,
+    pub parent_id: Option<i64>,
+    pub clear_parent_id: Option<bool>,
     pub sort_order: Option<i32>,
 }
 
@@ -49,7 +48,7 @@ pub struct CollectionWithBookmarkCount {
 
 #[derive(Debug, Deserialize)]
 pub struct CollectionQuery {
-    pub parent_id: Option<Uuid>,
+    pub parent_id: Option<i64>,
     pub is_public: Option<bool>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,

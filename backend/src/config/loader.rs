@@ -1,5 +1,5 @@
-use config::{Config, Environment, File};
 use crate::config::AppConfig;
+use config::{Config, Environment, File};
 
 impl AppConfig {
     /// Load configuration from multiple sources in order of precedence:
@@ -8,12 +8,13 @@ impl AppConfig {
     /// 3. config/local.toml (local overrides, should not be committed)
     /// 4. Environment variables with APP_ prefix
     pub fn load_with_env(env: Option<&str>) -> anyhow::Result<Self> {
-        let mut builder = Config::builder()
-            .add_source(File::with_name("config/default").required(false));
+        let mut builder =
+            Config::builder().add_source(File::with_name("config/default").required(false));
 
         // Add environment-specific config if provided
         if let Some(environment) = env {
-            builder = builder.add_source(File::with_name(&format!("config/{}", environment)).required(false));
+            builder = builder
+                .add_source(File::with_name(&format!("config/{}", environment)).required(false));
         }
 
         // Add local overrides (for development)
@@ -33,13 +34,13 @@ impl AppConfig {
 
     /// Load configuration automatically detecting environment
     pub fn load() -> anyhow::Result<Self> {
-        let env = std::env::var("APP_ENV").ok().or_else(|| {
-            match std::env::var("RUST_ENV").ok() {
+        let env = std::env::var("APP_ENV")
+            .ok()
+            .or_else(|| match std::env::var("RUST_ENV").ok() {
                 Some(rust_env) if rust_env == "production" => Some("production".to_string()),
                 Some(rust_env) if rust_env == "development" => Some("development".to_string()),
                 _ => None,
-            }
-        });
+            });
 
         Self::load_with_env(env.as_deref())
     }

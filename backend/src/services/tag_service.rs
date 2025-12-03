@@ -1,5 +1,4 @@
 use sqlx::SqlitePool;
-use uuid::Uuid;
 
 use crate::models::{CreateTag, Tag, TagQuery, UpdateTag};
 use crate::utils::error::{AppError, AppResult};
@@ -8,7 +7,7 @@ pub struct TagService;
 
 impl TagService {
     pub async fn create_tag(
-        user_id: Uuid,
+        user_id: i64,
         tag_data: CreateTag,
         db_pool: &SqlitePool,
     ) -> AppResult<Tag> {
@@ -37,7 +36,11 @@ impl TagService {
         Ok(tag)
     }
 
-    pub async fn get_tags(user_id: Uuid, query: TagQuery, db_pool: &SqlitePool) -> AppResult<Vec<Tag>> {
+    pub async fn get_tags(
+        user_id: i64,
+        query: TagQuery,
+        db_pool: &SqlitePool,
+    ) -> AppResult<Vec<Tag>> {
         let limit = query.limit.unwrap_or(50);
         let offset = query.offset.unwrap_or(0);
 
@@ -79,8 +82,8 @@ impl TagService {
     }
 
     pub async fn get_tag_by_id(
-        user_id: Uuid,
-        tag_id: Uuid,
+        user_id: i64,
+        tag_id: i64,
         db_pool: &SqlitePool,
     ) -> AppResult<Option<Tag>> {
         let tag = sqlx::query_as::<_, Tag>(
@@ -107,8 +110,8 @@ impl TagService {
     }
 
     pub async fn update_tag(
-        user_id: Uuid,
-        tag_id: Uuid,
+        user_id: i64,
+        tag_id: i64,
         update_data: UpdateTag,
         db_pool: &SqlitePool,
     ) -> AppResult<Option<Tag>> {
@@ -117,7 +120,9 @@ impl TagService {
             && update_data.color.is_none()
             && update_data.description.is_none()
         {
-            return Err(AppError::BadRequest("No update fields provided".to_string()).into());
+            return Err(AppError::BadRequest(
+                "No update fields provided".to_string(),
+            ));
         }
 
         // 使用 COALESCE 来只更新提供的字段
@@ -127,7 +132,7 @@ impl TagService {
                 name = COALESCE($1, name),
                 color = COALESCE($2, color),
                 description = COALESCE($3, description),
-                updated_at = datetime('now')
+                updated_at = CAST(strftime('%s', 'now') AS INTEGER)
             WHERE id = $4 AND user_id = $5
             RETURNING id, user_id, name, color,
                       description, usage_count,
@@ -145,7 +150,7 @@ impl TagService {
         Ok(tag)
     }
 
-    pub async fn delete_tag(user_id: Uuid, tag_id: Uuid, db_pool: &SqlitePool) -> AppResult<bool> {
+    pub async fn delete_tag(user_id: i64, tag_id: i64, db_pool: &SqlitePool) -> AppResult<bool> {
         let result = sqlx::query("DELETE FROM tags WHERE id = $1 AND user_id = $2")
             .bind(tag_id)
             .bind(user_id)
@@ -156,7 +161,7 @@ impl TagService {
     }
 
     pub async fn get_popular_tags(
-        user_id: Uuid,
+        user_id: i64,
         limit: Option<i64>,
         db_pool: &SqlitePool,
     ) -> AppResult<Vec<Tag>> {

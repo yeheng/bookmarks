@@ -1,5 +1,4 @@
-use sqlx::{SqlitePool, Row};
-use uuid::Uuid;
+use sqlx::{Row, SqlitePool};
 
 use crate::models::{
     Bookmark, BookmarkBatchAction, BookmarkBatchError, BookmarkBatchRequest, BookmarkBatchResult,
@@ -13,14 +12,16 @@ pub struct BookmarkService;
 
 impl BookmarkService {
     pub async fn create_bookmark(
-        user_id: Uuid,
+        user_id: i64,
         bookmark_data: CreateBookmark,
         db_pool: &SqlitePool,
     ) -> AppResult<Bookmark> {
         // Validate URL
         validate_url(&bookmark_data.url)
             .then_some(())
-            .ok_or_else(|| AppError::BadRequest("Invalid URL format".to_string()))?;
+            .ok_or_else(|| {
+                AppError::BadRequest(format!("Invalid URL format: {}", bookmark_data.url))
+            })?;
 
         // Start transaction
         let mut tx = db_pool.begin().await?;
@@ -60,14 +61,16 @@ impl BookmarkService {
                 .bind(&tag_name)
                 .fetch_one(&mut *tx)
                 .await?;
-                let tag_id: Uuid = tag_row.get("id");
+                let tag_id: i64 = tag_row.get("id");
 
                 // Associate bookmark with tag
-                sqlx::query("INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
-                    .bind(bookmark.id)
-                    .bind(tag_id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)",
+                )
+                .bind(bookmark.id)
+                .bind(tag_id)
+                .execute(&mut *tx)
+                .await?;
             }
         }
 
@@ -78,7 +81,7 @@ impl BookmarkService {
     }
 
     pub async fn get_bookmarks(
-        user_id: Uuid,
+        user_id: i64,
         query: BookmarkQuery,
         db_pool: &SqlitePool,
     ) -> AppResult<Vec<BookmarkWithTags>> {
@@ -98,11 +101,19 @@ impl BookmarkService {
         let valid_sort_orders = ["asc", "desc"];
 
         if !valid_sort_fields.contains(&sort_by) {
-            return Err(AppError::BadRequest("Invalid sort field".to_string()).into());
+            return Err(AppError::BadRequest(format!(
+                "Invalid sort field: '{}'. Valid fields are: {}",
+                sort_by,
+                valid_sort_fields.join(", ")
+            )));
         }
 
         if !valid_sort_orders.contains(&sort_order) {
-            return Err(AppError::BadRequest("Invalid sort order".to_string()).into());
+            return Err(AppError::BadRequest(format!(
+                "Invalid sort order: '{}'. Valid orders are: {}",
+                sort_order,
+                valid_sort_orders.join(", ")
+            )));
         }
 
         let mut sql = r#"
@@ -112,7 +123,14 @@ impl BookmarkService {
                 b.is_favorite, b.is_archived, b.is_private, b.is_read,
                 b.visit_count, b.last_visited, b.reading_time, b.difficulty_level,
                 b.metadata, b.created_at, b.updated_at,
-                '[' || GROUP_CONCAT(t.name, '","') || ']' as tags,
+                COALESCE(
+                    CASE 
+                        WHEN COUNT(t.name) > 0 
+                        THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
+                        ELSE '[]'
+                    END,
+                    '[]'
+                ) as tags,
                 c.name as collection_name,
                 c.color as collection_color
             FROM bookmarks b
@@ -162,11 +180,14 @@ impl BookmarkService {
         if let Some(ref tags) = query.tags {
             if !tags.is_empty() {
                 param_count += 1;
-                let tag_placeholders = tags.iter().enumerate()
+                let tag_placeholders = tags
+                    .iter()
+                    .enumerate()
                     .map(|(i, _)| format!("${}", param_count + 1 + i))
-                    .collect::<Vec<_>>().join(",");
+                    .collect::<Vec<_>>()
+                    .join(",");
                 param_count += tags.len();
-                
+
                 sql.push_str(&format!(
                     " AND b.id IN (
                         SELECT bookmark_id
@@ -183,18 +204,18 @@ impl BookmarkService {
         }
 
         // Add ordering with validated sort field
-        let sort_field = match sort_by.as_str() {
+        let sort_field = match sort_by {
             "title" => "b.title",
-            "created_at" => "b.created_at", 
+            "created_at" => "b.created_at",
             "updated_at" => "b.updated_at",
             "visit_count" => "b.visit_count",
             "last_visited" => "b.last_visited",
             _ => "b.created_at", // Default safe fallback
         };
-        
-        let sort_direction = match sort_order.as_str() {
+
+        let sort_direction = match sort_order {
             "ASC" | "asc" => "ASC",
-            "DESC" | "desc" => "DESC", 
+            "DESC" | "desc" => "DESC",
             _ => "DESC", // Default safe fallback
         };
 
@@ -243,8 +264,8 @@ impl BookmarkService {
     }
 
     pub async fn get_bookmark_by_id(
-        user_id: Uuid,
-        bookmark_id: Uuid,
+        user_id: i64,
+        bookmark_id: i64,
         db_pool: &SqlitePool,
     ) -> AppResult<Option<BookmarkWithTags>> {
         let bookmark = sqlx::query_as::<_, BookmarkWithTags>(
@@ -255,7 +276,14 @@ impl BookmarkService {
                 b.is_favorite, b.is_archived, b.is_private, b.is_read,
                 b.visit_count, b.last_visited, b.reading_time, b.difficulty_level,
                 b.metadata, b.created_at, b.updated_at,
-                '[' || GROUP_CONCAT(t.name, '","') || ']' as tags,
+                COALESCE(
+                    CASE 
+                        WHEN COUNT(t.name) > 0 
+                        THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
+                        ELSE '[]'
+                    END,
+                    '[]'
+                ) as tags,
                 c.name as collection_name,
                 c.color as collection_color
             FROM bookmarks b
@@ -275,8 +303,8 @@ impl BookmarkService {
     }
 
     pub async fn update_bookmark(
-        user_id: Uuid,
-        bookmark_id: Uuid,
+        user_id: i64,
+        bookmark_id: i64,
         update_data: UpdateBookmark,
         db_pool: &SqlitePool,
     ) -> AppResult<Option<Bookmark>> {
@@ -284,7 +312,7 @@ impl BookmarkService {
         if let Some(ref url) = update_data.url {
             validate_url(url)
                 .then_some(())
-                .ok_or_else(|| AppError::BadRequest("Invalid URL format".to_string()))?;
+                .ok_or_else(|| AppError::BadRequest(format!("Invalid URL format: {}", url)))?;
         }
 
         // Start transaction
@@ -295,6 +323,7 @@ impl BookmarkService {
             || update_data.url.is_some()
             || update_data.description.is_some()
             || update_data.collection_id.is_some()
+            || update_data.clear_collection_id.is_some()
             || update_data.is_favorite.is_some()
             || update_data.is_archived.is_some()
             || update_data.is_private.is_some()
@@ -309,14 +338,14 @@ impl BookmarkService {
                     title = COALESCE($1, title),
                     url = COALESCE($2, url),
                     description = COALESCE($3, description),
-                    collection_id = CASE WHEN $4 THEN $5 ELSE collection_id END,
+                    collection_id = CASE WHEN $4 THEN NULL ELSE COALESCE($5, collection_id) END,
                     is_favorite = COALESCE($6, is_favorite),
                     is_archived = COALESCE($7, is_archived),
                     is_private = COALESCE($8, is_private),
                     is_read = COALESCE($9, is_read),
                     reading_time = COALESCE($10, reading_time),
                     difficulty_level = COALESCE($11, difficulty_level),
-                    updated_at = datetime('now')
+                    updated_at = CAST(strftime('%s', 'now') AS INTEGER)
                 WHERE id = $12 AND user_id = $13
                 RETURNING id, user_id, collection_id, title, url, description, favicon_url,
                           screenshot_url, thumbnail_url, is_favorite,
@@ -327,8 +356,8 @@ impl BookmarkService {
             .bind(update_data.title)
             .bind(update_data.url)
             .bind(update_data.description)
-            .bind(update_data.collection_id.is_some())
-            .bind(update_data.collection_id.flatten())
+            .bind(update_data.clear_collection_id.unwrap_or(false))
+            .bind(update_data.collection_id)
             .bind(update_data.is_favorite)
             .bind(update_data.is_archived)
             .bind(update_data.is_private)
@@ -340,7 +369,9 @@ impl BookmarkService {
             .fetch_optional(&mut *tx)
             .await?
         } else {
-            return Err(AppError::BadRequest("No update fields provided".to_string()).into());
+            return Err(AppError::BadRequest(
+                "No update fields provided".to_string(),
+            ));
         };
 
         // Handle tags update
@@ -364,13 +395,15 @@ impl BookmarkService {
                 .bind(&tag_name)
                 .fetch_one(&mut *tx)
                 .await?;
-                let tag_id: Uuid = tag_row.get("id");
+                let tag_id: i64 = tag_row.get("id");
 
-                sqlx::query("INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
-                    .bind(bookmark_id)
-                    .bind(tag_id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)",
+                )
+                .bind(bookmark_id)
+                .bind(tag_id)
+                .execute(&mut *tx)
+                .await?;
             }
         }
 
@@ -381,8 +414,8 @@ impl BookmarkService {
     }
 
     pub async fn delete_bookmark(
-        user_id: Uuid,
-        bookmark_id: Uuid,
+        user_id: i64,
+        bookmark_id: i64,
         db_pool: &SqlitePool,
     ) -> AppResult<bool> {
         let result = sqlx::query("DELETE FROM bookmarks WHERE id = $1 AND user_id = $2")
@@ -395,14 +428,14 @@ impl BookmarkService {
     }
 
     pub async fn increment_visit_count(
-        user_id: Uuid,
-        bookmark_id: Uuid,
+        user_id: i64,
+        bookmark_id: i64,
         db_pool: &SqlitePool,
     ) -> AppResult<BookmarkVisitInfo> {
         let record = sqlx::query(
             r#"
             UPDATE bookmarks
-            SET visit_count = visit_count + 1, last_visited = datetime('now')
+            SET visit_count = visit_count + 1, last_visited = CAST(strftime('%s', 'now') AS INTEGER)
             WHERE id = $1 AND user_id = $2
             RETURNING visit_count, last_visited
             "#,
@@ -413,7 +446,7 @@ impl BookmarkService {
         .await?;
 
         let record = record.ok_or_else(|| AppError::NotFound("Bookmark not found".to_string()))?;
-        let visit_count: i32 = record.get("visit_count");
+        let visit_count: i64 = record.get("visit_count");
         let last_visited = record.get("last_visited");
 
         Ok(BookmarkVisitInfo {
@@ -422,7 +455,7 @@ impl BookmarkService {
         })
     }
 
-    pub async fn bookmark_exists(user_id: Uuid, url: &str, db_pool: &SqlitePool) -> AppResult<bool> {
+    pub async fn bookmark_exists(user_id: i64, url: &str, db_pool: &SqlitePool) -> AppResult<bool> {
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM bookmarks WHERE user_id = $1 AND url = $2)",
         )
@@ -435,7 +468,7 @@ impl BookmarkService {
     }
 
     pub async fn batch_process(
-        user_id: Uuid,
+        user_id: i64,
         request: BookmarkBatchRequest,
         db_pool: &SqlitePool,
     ) -> AppResult<BookmarkBatchResult> {
@@ -521,7 +554,7 @@ impl BookmarkService {
     }
 
     pub async fn export_bookmarks(
-        user_id: Uuid,
+        user_id: i64,
         options: BookmarkExportOptions,
         db_pool: &SqlitePool,
     ) -> AppResult<BookmarkExportPayload> {
@@ -569,7 +602,7 @@ impl BookmarkService {
                     body.push_str(&format!(
                         r#"<DT><A HREF="{url}" ADD_DATE="{ts}" TAGS="{tags}">{title}</A>"#,
                         url = bookmark.bookmark.url,
-                        ts = bookmark.bookmark.created_at.timestamp(),
+                        ts = bookmark.bookmark.created_at,
                         tags = tags,
                         title = bookmark.bookmark.title
                     ));
@@ -591,15 +624,15 @@ impl BookmarkService {
     }
 
     async fn move_bookmark(
-        user_id: Uuid,
-        bookmark_id: Uuid,
-        collection_id: Uuid,
+        user_id: i64,
+        bookmark_id: i64,
+        collection_id: i64,
         db_pool: &SqlitePool,
     ) -> AppResult<bool> {
         let result = sqlx::query(
             r#"
             UPDATE bookmarks
-            SET collection_id = $1, updated_at = datetime('now')
+            SET collection_id = $1, updated_at = CAST(strftime('%s', 'now') AS INTEGER)
             WHERE id = $2 AND user_id = $3
             "#,
         )
@@ -613,8 +646,8 @@ impl BookmarkService {
     }
 
     async fn add_tags(
-        user_id: Uuid,
-        bookmark_id: Uuid,
+        user_id: i64,
+        bookmark_id: i64,
         tags: Vec<String>,
         db_pool: &SqlitePool,
     ) -> AppResult<bool> {
@@ -632,13 +665,15 @@ impl BookmarkService {
             .bind(&tag_name)
             .fetch_one(&mut *tx)
             .await?;
-            let tag_id: Uuid = tag_row.get("id");
+            let tag_id: i64 = tag_row.get("id");
 
-            sqlx::query("INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)")
-                .bind(bookmark_id)
-                .bind(tag_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id) VALUES ($1, $2)",
+            )
+            .bind(bookmark_id)
+            .bind(tag_id)
+            .execute(&mut *tx)
+            .await?;
         }
 
         tx.commit().await?;
@@ -647,8 +682,8 @@ impl BookmarkService {
     }
 
     async fn remove_tags(
-        user_id: Uuid,
-        bookmark_id: Uuid,
+        user_id: i64,
+        bookmark_id: i64,
         tags: Vec<String>,
         db_pool: &SqlitePool,
     ) -> AppResult<bool> {
