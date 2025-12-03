@@ -24,11 +24,13 @@
 ### 软件依赖
 
 #### 后端依赖
+
 - **Rust**: 1.75.0 或更高版本
 - **SQLite**: 3.0 或更高版本
 - **OpenSSL**: 用于加密功能
 
 #### 前端依赖
+
 - **Node.js**: 18.0.0 或更高版本
 - **npm**: 9.0.0 或更高版本
 
@@ -171,9 +173,9 @@ npm run type-check
 
 访问以下地址验证服务运行状态：
 
-- 前端应用: http://localhost:5173
-- 后端 API: http://localhost:3000/api/auth/me
-- API 健康检查: http://localhost:3000/health
+- 前端应用: <http://localhost:5173>
+- 后端 API: <http://localhost:3000/api/auth/me>
+- API 健康检查: <http://localhost:3000/health>
 
 ## 🚀 生产环境部署
 
@@ -608,7 +610,7 @@ docker push your-username/bookmarks
 
 | 变量名 | 必需 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `VITE_API_BASE_URL` | 是 | http://localhost:3000/api | API 基础地址 |
+| `VITE_API_BASE_URL` | 是 | <http://localhost:3000/api> | API 基础地址 |
 | `VITE_APP_NAME` | 否 | Bookmarks | 应用名称 |
 | `VITE_APP_VERSION` | 否 | 1.0.0 | 应用版本 |
 
@@ -647,6 +649,7 @@ PRAGMA foreign_keys = ON;
 **问题**: 服务无法启动
 
 **解决方案**:
+
 ```bash
 # 检查日志
 sudo journalctl -u bookmarks -f
@@ -663,6 +666,7 @@ cat /etc/bookmarks/.env
 **问题**: 无法连接到数据库
 
 **解决方案**:
+
 ```bash
 # 检查数据库文件权限
 ls -la /opt/bookmarks/data/
@@ -679,6 +683,7 @@ sqlite3 /opt/bookmarks/data/bookmarks.db ".tables"
 **问题**: npm 构建错误
 
 **解决方案**:
+
 ```bash
 # 清理缓存
 npm cache clean --force
@@ -695,6 +700,7 @@ npm install
 **问题**: 502 Bad Gateway
 
 **解决方案**:
+
 ```bash
 # 检查 Nginx 配置
 sudo nginx -t

@@ -21,6 +21,7 @@
 ### 环境准备
 
 1. **安装基础工具**
+
 ```bash
 # Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -31,12 +32,14 @@ nvm install 18
 ```
 
 2. **克隆项目**
+
 ```bash
 git clone <repository-url>
 cd bookmarks
 ```
 
 3. **启动开发环境**
+
 ```bash
 # 后端
 cd backend
@@ -162,6 +165,7 @@ npm run dev
 ### Git 工作流
 
 1. **分支策略**
+
 ```bash
 main          # 主分支，生产环境代码
 develop       # 开发分支，集成新功能
@@ -171,6 +175,7 @@ release/*     # 发布分支
 ```
 
 2. **提交规范**
+
 ```bash
 # 功能开发
 git commit -m "feat: add bookmark search functionality"
@@ -188,6 +193,7 @@ git commit -m "refactor: optimize database queries"
 ### 开发步骤
 
 1. **创建功能分支**
+
 ```bash
 git checkout develop
 git pull origin develop
@@ -195,6 +201,7 @@ git checkout -b feature/bookmark-search
 ```
 
 2. **开发和测试**
+
 ```bash
 # 后端开发
 cd backend
@@ -206,6 +213,7 @@ npm run test
 ```
 
 3. **提交代码**
+
 ```bash
 git add .
 git commit -m "feat: implement bookmark search"
@@ -213,6 +221,7 @@ git push origin feature/bookmark-search
 ```
 
 4. **创建 Pull Request**
+
 - 填写详细的 PR 描述
 - 确保所有测试通过
 - 请求代码审查
