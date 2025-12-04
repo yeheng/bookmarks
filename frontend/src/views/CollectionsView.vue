@@ -1,11 +1,11 @@
 <template>
-  <div class="container mx-auto px-4 py-8">
+  <div class="container mx-auto px-4 py-8 h-screen flex flex-col">
     <!-- Page header -->
-    <div class="mb-6 flex items-center justify-between">
+    <div class="mb-6 flex items-center justify-between flex-shrink-0">
       <div>
         <h1 class="text-2xl font-bold tracking-tight">收藏夹</h1>
         <p class="text-muted-foreground">
-          共 {{ collectionsStore.collections.length }} 个收藏夹
+          共 {{ collectionsStore.collections?.length || 0 }} 个收藏夹
         </p>
       </div>
       
@@ -15,90 +15,103 @@
       </Button>
     </div>
 
-    <!-- Collections grid -->
-    <div v-if="!collectionsStore.isLoading && collectionsStore.collections.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <div
-        v-for="collection in collectionsStore.collections"
-        :key="collection.id"
-        class="group bg-card border border-border/50 rounded-lg p-4 hover:shadow-sm transition-all duration-200 cursor-pointer"
-        @click="openCollection(collection)"
+    <!-- Infinite scroll container -->
+    <div class="flex-1 min-h-0">
+      <InfiniteScroll
+        :items="collectionsStore.collections"
+        :is-loading="collectionsStore.isLoading"
+        :is-loading-more="collectionsStore.isLoadingMore"
+        :has-more="collectionsStore.hasMore"
+        @load-more="loadMore"
       >
-        <div class="flex items-start justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <div 
-              class="w-8 h-8 rounded-lg flex items-center justify-center text-white"
-              :style="{ backgroundColor: collection.color }"
-            >
-              {{ getCollectionIcon(collection.icon) }}
-            </div>
-            <div>
-              <h3 class="font-medium group-hover:text-primary transition-colors">
-                {{ collection.name }}
-              </h3>
-              <p v-if="collection.description" class="text-sm text-muted-foreground line-clamp-1">
-                {{ collection.description }}
-              </p>
-            </div>
-          </div>
-          
-          <!-- Actions -->
-          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              @click.stop="editCollection(collection)"
-              class="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
-              title="编辑"
-            >
-              ✏️
-            </button>
-            <button
-              @click.stop="deleteCollection(collection)"
-              class="p-1.5 rounded hover:bg-accent transition-colors text-red-500"
-              title="删除"
-            >
-              🗑️
-            </button>
-          </div>
-        </div>
-        
-        <!-- Stats -->
-        <div class="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{{ collection.bookmark_count || 0 }} 个书签</span>
-          <span>{{ formatDate(collection.created_at) }}</span>
-        </div>
-        
-        <!-- Recent bookmarks preview -->
-        <div v-if="collection.recent_bookmarks && collection.recent_bookmarks.length > 0" class="mt-3 pt-3 border-t border-border/50">
-          <div class="space-y-1">
+        <template #default="{ items, isLoading, isLoadingMore }">
+          <!-- Collections grid -->
+          <div v-if="!isLoading && items.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div
-              v-for="bookmark in collection.recent_bookmarks.slice(0, 3)"
-              :key="bookmark.id"
-              class="text-xs text-muted-foreground truncate hover:text-foreground cursor-pointer"
-              @click.stop="openBookmark(bookmark.url)"
+              v-for="collection in items"
+              :key="collection.id"
+              class="group bg-card border border-border/50 rounded-lg p-4 hover:shadow-sm transition-all duration-200 cursor-pointer"
+              @click="openCollection(collection)"
             >
-              • {{ bookmark.title }}
+              <div class="flex items-start justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <div 
+                    class="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                    :style="{ backgroundColor: collection.color }"
+                  >
+                    {{ getCollectionIcon(collection.icon) }}
+                  </div>
+                  <div>
+                    <h3 class="font-medium group-hover:text-primary transition-colors">
+                      {{ collection.name }}
+                    </h3>
+                    <p v-if="collection.description" class="text-sm text-muted-foreground line-clamp-1">
+                      {{ collection.description }}
+                    </p>
+                  </div>
+                </div>
+                
+                <!-- Actions -->
+                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    @click.stop="editCollection(collection)"
+                    class="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
+                    title="编辑"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    @click.stop="deleteCollection(collection)"
+                    class="p-1.5 rounded hover:bg-accent transition-colors text-red-500"
+                    title="删除"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              
+              <!-- Stats -->
+              <div class="flex items-center justify-between text-sm text-muted-foreground">
+                <span>{{ collection.bookmark_count || 0 }} 个书签</span>
+                <span>{{ formatDate(collection.created_at) }}</span>
+              </div>
+              
+              <!-- Recent bookmarks preview -->
+              <div v-if="collection.recent_bookmarks && collection.recent_bookmarks.length > 0" class="mt-3 pt-3 border-t border-border/50">
+                <div class="space-y-1">
+                  <div
+                    v-for="bookmark in collection.recent_bookmarks.slice(0, 3)"
+                    :key="bookmark.id"
+                    class="text-xs text-muted-foreground truncate hover:text-foreground cursor-pointer"
+                    @click.stop="openBookmark(bookmark.url)"
+                  >
+                    • {{ bookmark.title }}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Loading state -->
-    <div v-else-if="collectionsStore.isLoading" class="flex justify-center py-12">
-      <div class="text-center">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-        <p class="text-muted-foreground">加载收藏夹中...</p>
-      </div>
-    </div>
+          <!-- Loading state -->
+          <div v-else-if="isLoading" class="flex justify-center py-12">
+            <div class="text-center">
+              <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p class="text-muted-foreground">加载收藏夹中...</p>
+            </div>
+          </div>
 
-    <!-- Empty state -->
-    <div v-else class="flex justify-center py-12">
-      <EmptyState
-        title="暂无收藏夹"
-        description="创建收藏夹来按主题组织您的书签"
-        action-text="创建收藏夹"
-        icon-type="folder"
-        @action="showCreateModal = true"
-      />
+          <!-- Empty state -->
+          <div v-else class="flex justify-center py-12">
+            <EmptyState
+              title="暂无收藏夹"
+              description="创建收藏夹来按主题组织您的书签"
+              action-text="创建收藏夹"
+              icon-type="folder"
+              @action="showCreateModal = true"
+            />
+          </div>
+        </template>
+      </InfiniteScroll>
     </div>
 
     <!-- Create/Edit Modal -->
@@ -197,6 +210,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { EmptyState } from '@/components/ui/empty-state'
+import { InfiniteScroll } from '@/components/ui/infinite-scroll'
 import type { Collection, CreateCollectionRequest, UpdateCollectionRequest } from '@/types'
 
 const router = useRouter()
@@ -328,8 +342,13 @@ const handleSubmit = async () => {
   }
 }
 
+// 加载更多
+const loadMore = async () => {
+  await collectionsStore.fetchCollections({}, false)
+}
+
 // 初始化
 onMounted(() => {
-  collectionsStore.fetchCollections()
+  collectionsStore.fetchCollections({}, true)
 })
 </script>

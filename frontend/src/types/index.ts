@@ -2,8 +2,12 @@ export interface User {
   id: number;
   username: string;
   email: string;
-  created_at: string;
-  updated_at: string;
+  avatar_url?: string;
+  is_active: boolean;
+  email_verified: boolean;
+  last_login_at?: number;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface AuthResponse {
@@ -29,9 +33,23 @@ export interface Bookmark {
   description?: string;
   user_id: number;
   collection_id?: number;
-  created_at: string;
-  updated_at: string;
-  tags: Tag[];
+  collection_name?: string;
+  collection_color?: string;
+  created_at: number;
+  updated_at: number;
+  tags: string[]; // 后端返回的是字符串数组而不是 Tag 对象
+  is_archived: boolean;
+  is_favorite: boolean;
+  is_private: boolean;
+  is_read: boolean;
+  last_visited?: number;
+  metadata: Record<string, any>;
+  reading_time?: number;
+  favicon_url?: string;
+  screenshot_url?: string;
+  thumbnail_url?: string;
+  visit_count: number;
+  difficulty_level?: number;
 }
 
 export interface Collection {
@@ -39,22 +57,26 @@ export interface Collection {
   name: string;
   description?: string;
   user_id: number;
-  created_at: string;
-  updated_at: string;
-  _count?: {
-    bookmarks: number;
-  };
+  created_at: number;
+  updated_at: number;
+  color: string;
+  icon: string;
+  sort_order: number;
+  is_default: boolean;
+  is_public: boolean;
+  parent_id?: number;
+  bookmark_count: number;
 }
 
 export interface Tag {
   id: number;
   name: string;
   user_id: number;
-  created_at: string;
-  updated_at: string;
-  _count?: {
-    bookmarks: number;
-  };
+  created_at: number;
+  updated_at: number;
+  color: string;
+  description?: string;
+  usage_count: number;
 }
 
 export interface BookmarkTag {
@@ -67,7 +89,9 @@ export interface CreateBookmarkRequest {
   url: string;
   description?: string;
   collection_id?: number;
-  tag_ids?: number[];
+  tags?: string[];
+  is_favorite?: boolean;
+  is_private?: boolean;
 }
 
 export interface UpdateBookmarkRequest {
@@ -75,33 +99,58 @@ export interface UpdateBookmarkRequest {
   url?: string;
   description?: string;
   collection_id?: number;
-  tag_ids?: number[];
+  clear_collection_id?: boolean;
+  tags?: string[];
+  is_favorite?: boolean;
+  is_archived?: boolean;
+  is_private?: boolean;
+  is_read?: boolean;
+  reading_time?: number;
+  difficulty_level?: number;
 }
 
 export interface CreateCollectionRequest {
   name: string;
   description?: string;
+  color?: string;
+  icon?: string;
+  parent_id?: number;
 }
 
 export interface UpdateCollectionRequest {
   name?: string;
   description?: string;
+  color?: string;
+  icon?: string;
+  parent_id?: number;
+  clear_parent_id?: boolean;
+  sort_order?: number;
 }
 
 export interface CreateTagRequest {
   name: string;
+  color?: string;
+  description?: string;
 }
 
 export interface UpdateTagRequest {
   name?: string;
+  color?: string;
+  description?: string;
 }
 
 export interface SearchQuery {
-  q?: string;
   collection_id?: number;
-  tag_id?: number;
+  tags?: string[];
+  is_favorite?: boolean;
+  is_archived?: boolean;
+  is_private?: boolean;
+  is_read?: boolean;
+  search?: string;
   limit?: number;
   offset?: number;
+  sort_by?: string; // "created_at", "updated_at", "title", "visit_count"
+  sort_order?: string; // "asc", "desc"
 }
 
 export interface PaginatedResponse<T> {
@@ -122,6 +171,27 @@ export interface Stats {
   total_bookmarks: number;
   total_collections: number;
   total_tags: number;
+  favorite_bookmarks: number;
+  archived_bookmarks: number;
+  total_visits: number;
   recent_bookmarks: Bookmark[];
-  popular_tags: Tag[];
+  recent_activity: RecentActivityEntry[];
+  top_tags: TopTagEntry[];
+  top_domains: TopDomainEntry[];
+}
+
+export interface RecentActivityEntry {
+  date: number;
+  bookmarks_added: number;
+  bookmarks_visited: number;
+}
+
+export interface TopTagEntry {
+  name: string;
+  count: number;
+}
+
+export interface TopDomainEntry {
+  domain: string;
+  count: number;
 }

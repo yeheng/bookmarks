@@ -105,7 +105,7 @@
             </span>
           </h2>
           <p class="text-sm text-muted-foreground">
-            {{ searchResults.length }} 个结果
+            {{ bookmarksStore.bookmarks.length }} 个结果
             <span v-if="searchTime">({{ searchTime }}秒)</span>
           </p>
         </div>
@@ -121,7 +121,7 @@
       </div>
 
       <!-- Results list -->
-      <div v-if="searchResults.length > 0" class="space-y-4">
+      <div v-if="bookmarksStore.bookmarks.length > 0" class="space-y-4">
         <div
           v-for="bookmark in searchResults"
           :key="bookmark.id"
@@ -191,7 +191,7 @@
         </div>
         
         <!-- Load more -->
-        <div v-if="hasMoreResults" class="text-center pt-4">
+        <div v-if="bookmarksStore.hasMore" class="text-center pt-4">
           <button
             @click="loadMore"
             :disabled="isLoadingMore"
@@ -203,7 +203,7 @@
       </div>
 
       <!-- No results -->
-      <div v-else-if="!isSearching && searchQuery" class="text-center py-12">
+      <div v-else-if="!isSearching && searchQuery && !bookmarksStore.isLoading" class="text-center py-12">
         <div class="mx-auto h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
           <span class="text-2xl">🔍</span>
         </div>
@@ -256,10 +256,7 @@ const tagsStore = useTagsStore()
 const searchQuery = ref('')
 const isSearching = ref(false)
 const hasSearched = ref(false)
-const searchResults = ref<Bookmark[]>([])
 const searchTime = ref(0)
-const currentOffset = ref(0)
-const hasMoreResults = ref(false)
 const isLoadingMore = ref(false)
 
 // Filters
@@ -270,6 +267,8 @@ const filters = reactive({
 })
 
 // Search suggestions (mock data - could be fetched from API)
+const searchResults = computed(() => bookmarksStore.bookmarks)
+
 const searchSuggestions = computed(() => {
   const allTags = tagsStore.tags.map(tag => tag.name)
   const popularTerms = ['Vue.js', 'JavaScript', 'React', 'CSS', 'TypeScript']
@@ -309,15 +308,13 @@ const handleSearch = async () => {
   
   isSearching.value = true
   hasSearched.value = true
-  currentOffset.value = 0
   
   try {
     const startTime = Date.now()
     
     const searchParams: any = {
-      q: searchQuery.value.trim(),
-      limit: 20,
-      offset: 0
+      search: searchQuery.value.trim(),
+      sort_by: filters.sortBy
     }
     
     if (filters.collectionId) {
@@ -325,17 +322,14 @@ const handleSearch = async () => {
     }
     
     if (filters.tagId) {
-      searchParams.tag_id = parseInt(filters.tagId)
+      searchParams.tags = [parseInt(filters.tagId)]
     }
     
-    const response = await bookmarksStore.searchBookmarks(searchParams)
-    searchResults.value = response.data
-    hasMoreResults.value = response.has_more
+    await bookmarksStore.searchBookmarks(searchParams, true)
     searchTime.value = ((Date.now() - startTime) / 1000).toFixed(3)
     
   } catch (error) {
     console.error('搜索失败:', error)
-    searchResults.value = []
   } finally {
     isSearching.value = false
   }
@@ -343,16 +337,14 @@ const handleSearch = async () => {
 
 // 加载更多结果
 const loadMore = async () => {
-  if (isLoadingMore.value || !hasMoreResults.value) return
+  if (isLoadingMore.value || !bookmarksStore.hasMore) return
   
   isLoadingMore.value = true
-  currentOffset.value += 20
   
   try {
     const searchParams: any = {
-      q: searchQuery.value.trim(),
-      limit: 20,
-      offset: currentOffset.value
+      search: searchQuery.value.trim(),
+      sort_by: filters.sortBy
     }
     
     if (filters.collectionId) {
@@ -360,12 +352,10 @@ const loadMore = async () => {
     }
     
     if (filters.tagId) {
-      searchParams.tag_id = parseInt(filters.tagId)
+      searchParams.tags = [parseInt(filters.tagId)]
     }
     
-    const response = await bookmarksStore.searchBookmarks(searchParams)
-    searchResults.value.push(...response.data)
-    hasMoreResults.value = response.has_more
+    await bookmarksStore.searchBookmarks(searchParams, false)
     
   } catch (error) {
     console.error('加载更多结果失败:', error)
@@ -378,9 +368,7 @@ const loadMore = async () => {
 const clearSearch = () => {
   searchQuery.value = ''
   hasSearched.value = false
-  searchResults.value = []
-  currentOffset.value = 0
-  hasMoreResults.value = false
+  bookmarksStore.bookmarks = []
   filters.collectionId = ''
   filters.tagId = ''
   filters.sortBy = 'relevance'
@@ -392,11 +380,6 @@ const toggleFavorite = async (bookmark: Bookmark) => {
     await bookmarksStore.updateBookmark(bookmark.id, {
       is_favorite: !bookmark.is_favorite
     })
-    // 更新搜索结果中的对应项
-    const index = searchResults.value.findIndex(b => b.id === bookmark.id)
-    if (index !== -1) {
-      searchResults.value[index].is_favorite = !bookmark.is_favorite
-    }
   } catch (error) {
     console.error('切换收藏状态失败:', error)
   }

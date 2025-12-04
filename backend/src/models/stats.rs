@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::BookmarkWithTags;
+
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -33,6 +35,7 @@ pub struct UserStats {
     pub favorite_bookmarks: i64,
     pub archived_bookmarks: i64,
     pub total_visits: i64,
+    pub recent_bookmarks: Vec<BookmarkWithTags>, // 添加最近书签列表
     pub recent_activity: Vec<RecentActivityEntry>,
     pub top_tags: Vec<TopTagEntry>,
     pub top_domains: Vec<TopDomainEntry>,

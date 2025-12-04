@@ -86,11 +86,13 @@ const stats = ref<Stats>({
   total_bookmarks: 0,
   total_collections: 0,
   total_tags: 0,
-  recent_bookmarks: [],
-  top_tags: [],
-  total_visits: 0,
   favorite_bookmarks: 0,
-  archived_bookmarks: 0
+  archived_bookmarks: 0,
+  total_visits: 0,
+  recent_bookmarks: [],
+  recent_activity: [],
+  top_tags: [],
+  top_domains: []
 })
 
 // 计算属性

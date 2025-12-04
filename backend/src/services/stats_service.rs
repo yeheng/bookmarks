@@ -1,7 +1,9 @@
 use chrono::Utc;
 use sqlx::{Row, SqlitePool};
 
-use crate::models::{RecentActivityEntry, StatsPeriod, TopDomainEntry, TopTagEntry, UserStats};
+use crate::models::{
+    BookmarkWithTags, RecentActivityEntry, StatsPeriod, TopDomainEntry, TopTagEntry, UserStats,
+};
 use crate::utils::error::{AppError, AppResult};
 
 pub struct StatsService;
@@ -48,6 +50,7 @@ impl StatsService {
                 .await?;
 
         let start_date = Self::start_date(period);
+        let recent_bookmarks = Self::recent_bookmarks(user_id, db_pool).await?;
         let recent_activity = Self::recent_activity(user_id, start_date, db_pool).await?;
         let top_tags = Self::top_tags(user_id, db_pool).await?;
         let top_domains = Self::top_domains(user_id, db_pool).await?;
@@ -72,10 +75,45 @@ impl StatsService {
             favorite_bookmarks,
             archived_bookmarks,
             total_visits,
+            recent_bookmarks,
             recent_activity,
             top_tags,
             top_domains,
         })
+    }
+
+    // 查询最近添加的书签 (最多10条)
+    async fn recent_bookmarks(
+        user_id: i64,
+        db_pool: &SqlitePool,
+    ) -> AppResult<Vec<BookmarkWithTags>> {
+        let bookmarks = sqlx::query_as::<_, BookmarkWithTags>(
+            r#"
+            SELECT
+                b.*,
+                COALESCE(
+                    json_group_array(
+                        CASE WHEN t.name IS NOT NULL THEN t.name ELSE NULL END
+                    ) FILTER (WHERE t.name IS NOT NULL),
+                    '[]'
+                ) as tags,
+                c.name as collection_name,
+                c.color as collection_color
+            FROM bookmarks b
+            LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+            LEFT JOIN tags t ON bt.tag_id = t.id
+            LEFT JOIN collections c ON b.collection_id = c.id
+            WHERE b.user_id = $1
+            GROUP BY b.id
+            ORDER BY b.created_at DESC
+            LIMIT 10
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(db_pool)
+        .await?;
+
+        Ok(bookmarks)
     }
 
     async fn recent_activity(

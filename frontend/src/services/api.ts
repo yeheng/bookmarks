@@ -7,7 +7,6 @@ import type {
   CreateCollectionRequest,
   CreateTagRequest,
   LoginRequest,
-  PaginatedResponse,
   RegisterRequest,
   SearchQuery,
   Stats,
@@ -182,7 +181,14 @@ class ApiService {
         return {} as T;
       }
 
-      return await response.json();
+      const jsonResponse = await response.json();
+      
+      // Handle the new API response format where data is wrapped in a "data" field
+      if (jsonResponse && typeof jsonResponse === 'object' && 'data' in jsonResponse && 'success' in jsonResponse) {
+        return jsonResponse.data;
+      }
+      
+      return jsonResponse;
     } catch (error) {
       if (error instanceof ApiError) {
         throw error;
@@ -232,8 +238,8 @@ class ApiService {
 
     // Handle the actual API response format
     const authResponse: AuthResponse = {
-      user: apiResponse.data.user,
-      token: apiResponse.data.access_token
+      user: apiResponse.user,
+      token: apiResponse.access_token
     };
 
     console.log('Processed auth response:', authResponse);
@@ -249,8 +255,8 @@ class ApiService {
 
     // Handle the actual API response format
     const authResponse: AuthResponse = {
-      user: apiResponse.data.user,
-      token: apiResponse.data.access_token
+      user: apiResponse.user,
+      token: apiResponse.access_token
     };
 
     this.setToken(authResponse.token);
@@ -271,12 +277,16 @@ class ApiService {
   }
 
   // Bookmark endpoints
-  async getBookmarks(params?: SearchQuery): Promise<PaginatedResponse<Bookmark>> {
+  async getBookmarks(params?: SearchQuery): Promise<Bookmark[]> {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
-          searchParams.append(key, value.toString());
+          if (key === 'tags' && Array.isArray(value)) {
+            searchParams.append(key, value.join(','));
+          } else {
+            searchParams.append(key, value.toString());
+          }
         }
       });
     }
@@ -307,8 +317,17 @@ class ApiService {
   }
 
   // Collection endpoints
-  async getCollections(): Promise<Collection[]> {
-    return this.request('/collections');
+  async getCollections(params?: { limit?: number; offset?: number; parent_id?: number; is_public?: boolean }): Promise<Collection[]> {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          searchParams.append(key, value.toString());
+        }
+      });
+    }
+    const query = searchParams.toString();
+    return this.request(`/collections${query ? `?${query}` : ''}`);
   }
 
   async getCollection(id: number): Promise<Collection> {
@@ -334,8 +353,17 @@ class ApiService {
   }
 
   // Tag endpoints
-  async getTags(): Promise<Tag[]> {
-    return this.request('/tags');
+  async getTags(params?: { limit?: number; offset?: number; search?: string }): Promise<Tag[]> {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          searchParams.append(key, value.toString());
+        }
+      });
+    }
+    const query = searchParams.toString();
+    return this.request(`/tags${query ? `?${query}` : ''}`);
   }
 
   async getTag(id: number): Promise<Tag> {
@@ -361,11 +389,15 @@ class ApiService {
   }
 
   // Search endpoints
-  async search(params: SearchQuery): Promise<PaginatedResponse<Bookmark>> {
+  async search(params: SearchQuery): Promise<Bookmark[]> {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
-        searchParams.append(key, value.toString());
+        if (key === 'tags' && Array.isArray(value)) {
+          searchParams.append(key, value.join(','));
+        } else {
+          searchParams.append(key, value.toString());
+        }
       }
     });
     return this.request(`/search/bookmarks?${searchParams.toString()}`);

@@ -1,11 +1,11 @@
 <template>
-  <div class="container mx-auto px-4 py-8">
+  <div class="container mx-auto px-4 py-8 h-screen flex flex-col">
     <!-- Page header -->
-    <div class="mb-6 flex items-center justify-between">
+    <div class="mb-6 flex items-center justify-between flex-shrink-0">
       <div>
         <h1 class="text-2xl font-bold tracking-tight">标签</h1>
         <p class="text-muted-foreground">
-          共 {{ tagsStore.tags.length }} 个标签
+          共 {{ tagsStore.tags?.length || 0 }} 个标签
         </p>
       </div>
       
@@ -16,96 +16,110 @@
     </div>
 
     <!-- Search and filter -->
-    <div class="mb-6">
+    <div class="mb-6 flex-shrink-0">
       <Input
         v-model="searchQuery"
         placeholder="搜索标签..."
         class="max-w-md"
+        @input="handleSearch"
       />
     </div>
 
-    <!-- Tags grid -->
-    <div v-if="!tagsStore.isLoading && filteredTags.length > 0" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-      <div
-        v-for="tag in filteredTags"
-        :key="tag.id"
-        class="group bg-card border border-border/50 rounded-lg p-3 hover:shadow-sm transition-all duration-200"
+    <!-- Infinite scroll container -->
+    <div class="flex-1 min-h-0">
+      <InfiniteScroll
+        :items="filteredTags"
+        :is-loading="tagsStore.isLoading"
+        :is-loading-more="tagsStore.isLoadingMore"
+        :has-more="tagsStore.hasMore && !searchQuery"
+        @load-more="loadMore"
       >
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center gap-2">
-            <div 
-              class="w-4 h-4 rounded-full"
-              :style="{ backgroundColor: tag.color }"
+        <template #default="{ items, isLoading, isLoadingMore }">
+          <!-- Tags grid -->
+          <div v-if="!isLoading && items.length > 0" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            <div
+              v-for="tag in items"
+              :key="tag.id"
+              class="group bg-card border border-border/50 rounded-lg p-3 hover:shadow-sm transition-all duration-200"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <div 
+                    class="w-4 h-4 rounded-full"
+                    :style="{ backgroundColor: tag.color }"
+                  />
+                  <span 
+                    class="font-medium truncate hover:text-primary cursor-pointer transition-colors"
+                    @click="viewTagBookmarks(tag)"
+                  >
+                    {{ tag.name }}
+                  </span>
+                </div>
+                
+                <!-- Actions -->
+                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    @click="editTag(tag)"
+                    class="p-1 rounded hover:bg-accent transition-colors text-muted-foreground"
+                    title="编辑"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    @click="deleteTag(tag)"
+                    class="p-1 rounded hover:bg-accent transition-colors text-red-500"
+                    title="删除"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              
+              <!-- Usage count -->
+              <div class="flex items-center justify-between text-sm text-muted-foreground">
+                <span>{{ tag.usage_count || 0 }} 个书签</span>
+                <span>{{ formatDate(tag.created_at) }}</span>
+              </div>
+              
+              <!-- Description -->
+              <div v-if="tag.description" class="mt-2">
+                <p class="text-xs text-muted-foreground line-clamp-2">
+                  {{ tag.description }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Loading state -->
+          <div v-else-if="isLoading" class="flex justify-center py-12">
+            <div class="text-center">
+              <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p class="text-muted-foreground">加载标签中...</p>
+            </div>
+          </div>
+
+          <!-- Empty state -->
+          <div v-else-if="searchQuery" class="flex justify-center py-12">
+            <div class="text-center">
+              <p class="text-muted-foreground">未找到匹配的标签</p>
+              <Button @click="clearSearch" variant="outline" class="mt-4">
+                清除搜索
+              </Button>
+            </div>
+          </div>
+
+          <!-- Empty state -->
+          <div v-else class="flex justify-center py-12">
+            <EmptyState
+              title="暂无标签"
+              description="为书签添加标签以便更好地分类和搜索"
+              action-text="添加标签"
+              icon-type="tag"
+              @action="showCreateModal = true"
             />
-            <span 
-              class="font-medium truncate hover:text-primary cursor-pointer transition-colors"
-              @click="viewTagBookmarks(tag)"
-            >
-              {{ tag.name }}
-            </span>
           </div>
-          
-          <!-- Actions -->
-          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              @click="editTag(tag)"
-              class="p-1 rounded hover:bg-accent transition-colors text-muted-foreground"
-              title="编辑"
-            >
-              ✏️
-            </button>
-            <button
-              @click="deleteTag(tag)"
-              class="p-1 rounded hover:bg-accent transition-colors text-red-500"
-              title="删除"
-            >
-              🗑️
-            </button>
-          </div>
-        </div>
-        
-        <!-- Usage count -->
-        <div class="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{{ tag.usage_count || 0 }} 个书签</span>
-          <span>{{ formatDate(tag.created_at) }}</span>
-        </div>
-        
-        <!-- Description -->
-        <div v-if="tag.description" class="mt-2">
-          <p class="text-xs text-muted-foreground line-clamp-2">
-            {{ tag.description }}
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Loading state -->
-    <div v-else-if="tagsStore.isLoading" class="flex justify-center py-12">
-      <div class="text-center">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-        <p class="text-muted-foreground">加载标签中...</p>
-      </div>
-    </div>
-
-    <!-- Empty state -->
-    <div v-else-if="searchQuery" class="flex justify-center py-12">
-      <div class="text-center">
-        <p class="text-muted-foreground">未找到匹配的标签</p>
-        <Button @click="searchQuery = ''" variant="outline" class="mt-4">
-          清除搜索
-        </Button>
-      </div>
-    </div>
-
-    <!-- Empty state -->
-    <div v-else class="flex justify-center py-12">
-      <EmptyState
-        title="暂无标签"
-        description="为书签添加标签以便更好地分类和搜索"
-        action-text="添加标签"
-        icon-type="tag"
-        @action="showCreateModal = true"
-      />
+        </template>
+      </InfiniteScroll>
     </div>
 
     <!-- Create/Edit Modal -->
@@ -179,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTagsStore } from '@/stores/tags'
 import { Button } from '@/components/ui/button'
@@ -187,6 +201,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { EmptyState } from '@/components/ui/empty-state'
+import { InfiniteScroll } from '@/components/ui/infinite-scroll'
 import type { Tag, CreateTagRequest, UpdateTagRequest } from '@/types'
 
 const router = useRouter()
@@ -226,6 +241,32 @@ const filteredTags = computed(() => {
     (tag.description && tag.description.toLowerCase().includes(query))
   )
 })
+
+// 处理搜索
+let searchTimeout: NodeJS.Timeout
+const handleSearch = () => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    if (searchQuery.value) {
+      tagsStore.fetchTags({ search: searchQuery.value }, true)
+    } else {
+      tagsStore.fetchTags({}, true)
+    }
+  }, 300)
+}
+
+// 清除搜索
+const clearSearch = () => {
+  searchQuery.value = ''
+  tagsStore.fetchTags({}, true)
+}
+
+// 加载更多
+const loadMore = async () => {
+  if (!searchQuery.value) {
+    await tagsStore.fetchTags({}, false)
+  }
+}
 
 // 格式化日期
 const formatDate = (timestamp: number) => {
@@ -316,6 +357,6 @@ const handleSubmit = async () => {
 
 // 初始化
 onMounted(() => {
-  tagsStore.fetchTags()
+  tagsStore.fetchTags({}, true)
 })
 </script>

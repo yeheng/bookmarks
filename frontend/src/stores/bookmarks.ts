@@ -1,44 +1,62 @@
+import { apiService } from '@/services/api'
+import type {
+  Bookmark,
+  CreateBookmarkRequest,
+  SearchQuery,
+  UpdateBookmarkRequest
+} from '@/types'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { apiService } from '@/services/api'
-import type { 
-  Bookmark, 
-  CreateBookmarkRequest, 
-  UpdateBookmarkRequest, 
-  SearchQuery,
-  PaginatedResponse 
-} from '@/types'
 
 export const useBookmarksStore = defineStore('bookmarks', () => {
   const bookmarks = ref<Bookmark[]>([])
   const currentBookmark = ref<Bookmark | null>(null)
   const isLoading = ref(false)
+  const isLoadingMore = ref(false)
   const error = ref<string | null>(null)
-  const pagination = ref({
-    total: 0,
-    limit: 20,
-    offset: 0,
-    has_more: false
-  })
+  const hasMore = ref(true)
+  const currentPage = ref(0)
+  const pageSize = ref(20)
 
-  const fetchBookmarks = async (params?: SearchQuery): Promise<void> => {
-    isLoading.value = true
+  const fetchBookmarks = async (params?: SearchQuery, reset = true): Promise<void> => {
+    if (reset) {
+      isLoading.value = true
+      bookmarks.value = []
+      currentPage.value = 0
+      hasMore.value = true
+    } else {
+      isLoadingMore.value = true
+    }
+    
     error.value = null
     
     try {
-      const response: PaginatedResponse<Bookmark> = await apiService.getBookmarks(params)
-      bookmarks.value = response.data
-      pagination.value = {
-        total: response.total,
-        limit: response.limit,
-        offset: response.offset,
-        has_more: response.has_more
+      const requestParams = {
+        ...params,
+        limit: pageSize.value,
+        offset: reset ? 0 : bookmarks.value.length
+      }
+      
+      const response = await apiService.getBookmarks(requestParams)
+      
+      if (reset) {
+        bookmarks.value = response
+      } else {
+        bookmarks.value.push(...response)
+      }
+      
+      // 如果返回的数据少于请求的页面大小，说明没有更多数据了
+      hasMore.value = response.length === pageSize.value
+      
+      if (!reset) {
+        currentPage.value++
       }
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch bookmarks'
       throw err
     } finally {
       isLoading.value = false
+      isLoadingMore.value = false
     }
   }
 
@@ -113,24 +131,45 @@ export const useBookmarksStore = defineStore('bookmarks', () => {
     }
   }
 
-  const searchBookmarks = async (params: SearchQuery): Promise<void> => {
-    isLoading.value = true
+  const searchBookmarks = async (params: SearchQuery, reset = true): Promise<void> => {
+    if (reset) {
+      isLoading.value = true
+      bookmarks.value = []
+      currentPage.value = 0
+      hasMore.value = true
+    } else {
+      isLoadingMore.value = true
+    }
+    
     error.value = null
     
     try {
-      const response: PaginatedResponse<Bookmark> = await apiService.search(params)
-      bookmarks.value = response.data
-      pagination.value = {
-        total: response.total,
-        limit: response.limit,
-        offset: response.offset,
-        has_more: response.has_more
+      const requestParams = {
+        ...params,
+        limit: pageSize.value,
+        offset: reset ? 0 : bookmarks.value.length
+      }
+      
+      const response = await apiService.search(requestParams)
+      
+      if (reset) {
+        bookmarks.value = response
+      } else {
+        bookmarks.value.push(...response)
+      }
+      
+      // 如果返回的数据少于请求的页面大小，说明没有更多数据了
+      hasMore.value = response.length === pageSize.value
+      
+      if (!reset) {
+        currentPage.value++
       }
     } catch (err: any) {
       error.value = err.message || 'Failed to search bookmarks'
       throw err
     } finally {
       isLoading.value = false
+      isLoadingMore.value = false
     }
   }
 
@@ -142,8 +181,11 @@ export const useBookmarksStore = defineStore('bookmarks', () => {
     bookmarks,
     currentBookmark,
     isLoading,
+    isLoadingMore,
     error,
-    pagination,
+    hasMore,
+    currentPage,
+    pageSize,
     fetchBookmarks,
     fetchBookmark,
     createBookmark,
