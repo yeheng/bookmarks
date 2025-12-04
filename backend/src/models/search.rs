@@ -30,6 +30,15 @@ pub struct SearchResponse {
     pub items: Vec<BookmarkWithTags>,
     pub pagination: SearchPagination,
     pub search_time: f64,
+    pub highlights: Option<std::collections::HashMap<i64, std::collections::HashMap<String, Vec<String>>>>, // bookmark_id -> field -> snippets
+}
+
+/// 带高亮的搜索结果项
+#[derive(Debug, Serialize)]
+pub struct BookmarkWithHighlights {
+    #[serde(flatten)]
+    pub bookmark: BookmarkWithTags,
+    pub highlights: std::collections::HashMap<String, Vec<String>>, // field -> snippets
 }
 
 #[derive(Debug, Serialize)]

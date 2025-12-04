@@ -141,6 +141,15 @@ class ApiService {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
 
+    // Debug: Log request details for auth endpoints
+    if (endpoint.includes('/auth/')) {
+      console.log(`Request to ${endpoint}:`, {
+        url,
+        token: this.token ? `${this.token.substring(0, 20)}...` : 'none',
+        authorization: headers.get('Authorization') ? `${headers.get('Authorization')?.substring(0, 30)}...` : 'none'
+      });
+    }
+
     try {
       const response = await fetch(url, {
         ...options,
@@ -197,22 +206,29 @@ class ApiService {
   }
 
   setToken(token: string | null) {
+    console.log('setToken called with:', token ? `${token.substring(0, 20)}...` : 'null');
     this.token = token;
     if (typeof window !== 'undefined') {
       if (token) {
         localStorage.setItem('auth_token', token);
+        console.log('Token saved to localStorage');
       } else {
         localStorage.removeItem('auth_token');
+        console.log('Token removed from localStorage');
       }
     }
   }
 
   // Auth endpoints
   async login(data: LoginRequest): Promise<AuthResponse> {
+    console.log('Login request data:', data);
+    
     const apiResponse: any = await this.request('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+
+    console.log('Login API response:', apiResponse);
 
     // Handle the actual API response format
     const authResponse: AuthResponse = {
@@ -220,6 +236,7 @@ class ApiService {
       token: apiResponse.data.access_token
     };
 
+    console.log('Processed auth response:', authResponse);
     this.setToken(authResponse.token);
     return authResponse;
   }
@@ -249,6 +266,7 @@ class ApiService {
   }
 
   async getCurrentUser(): Promise<User> {
+    console.log('getCurrentUser called, token:', this.token);
     return this.request('/auth/me');
   }
 
@@ -350,12 +368,12 @@ class ApiService {
         searchParams.append(key, value.toString());
       }
     });
-    return this.request(`/search?${searchParams.toString()}`);
+    return this.request(`/search/bookmarks?${searchParams.toString()}`);
   }
 
   // Stats endpoints
   async getStats(): Promise<Stats> {
-    return this.request('/stats');
+    return this.request('/stats/user');
   }
 }
 

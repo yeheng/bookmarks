@@ -63,7 +63,7 @@
                   v-for="result in searchResults"
                   :key="result.id"
                   class="p-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
-                  @click="goToBookmark(result.id)"
+                  @click="goToBookmark(result)"
                 >
                   <div class="font-medium text-sm">{{ result.title }}</div>
                   <div class="text-xs text-muted-foreground truncate">{{ result.url }}</div>
@@ -214,20 +214,19 @@ const handleSearchInput = async () => {
 
   isSearching.value = true
   try {
-    // 这里应该调用搜索API，暂时使用模拟数据
-    await new Promise(resolve => setTimeout(resolve, 300))
+    // 调用真实的搜索API
+    const { useBookmarksStore } = await import('@/stores/bookmarks')
+    const bookmarksStore = useBookmarksStore()
     
-    // 模拟搜索结果
-    searchResults.value = [
-      { id: 1, title: 'Vue.js 官方文档', url: 'https://vuejs.org' },
-      { id: 2, title: 'Tailwind CSS', url: 'https://tailwindcss.com' },
-      { id: 3, title: 'TypeScript Handbook', url: 'https://www.typescriptlang.org/docs/' }
-    ].filter(item => 
-      item.title.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      item.url.toLowerCase().includes(searchQuery.value.toLowerCase())
-    )
+    await bookmarksStore.searchBookmarks({
+      q: searchQuery.value.trim(),
+      limit: 5
+    })
+    
+    searchResults.value = bookmarksStore.bookmarks
   } catch (error) {
     console.error('搜索失败:', error)
+    searchResults.value = []
   } finally {
     isSearching.value = false
   }
@@ -235,14 +234,15 @@ const handleSearchInput = async () => {
 
 const handleSearchKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' && searchResults.value.length > 0) {
-    goToBookmark(searchResults.value[0].id)
+    goToBookmark(searchResults.value[0])
   }
 }
 
-const goToBookmark = (bookmarkId: number) => {
+const goToBookmark = (bookmark: any) => {
   showSearchResults.value = false
   searchQuery.value = ''
-  router.push(`/bookmarks/${bookmarkId}`)
+  // 直接打开书签URL，而不是跳转到详情页
+  window.open(bookmark.url, '_blank')
 }
 
 const hideSearchResults = () => {
@@ -256,8 +256,15 @@ const handleAddBookmark = async () => {
   if (!newBookmark.value.title || !newBookmark.value.url) return
 
   try {
-    // 这里应该调用添加书签API
-    console.log('添加书签:', newBookmark.value)
+    // 调用真实的添加书签API
+    const { useBookmarksStore } = await import('@/stores/bookmarks')
+    const bookmarksStore = useBookmarksStore()
+    
+    await bookmarksStore.createBookmark({
+      title: newBookmark.value.title,
+      url: newBookmark.value.url,
+      description: newBookmark.value.description
+    })
     
     // 重置表单
     newBookmark.value = {

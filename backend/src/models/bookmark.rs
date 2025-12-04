@@ -52,7 +52,7 @@ pub struct UpdateBookmark {
     pub difficulty_level: Option<i32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BookmarkWithTags {
     #[serde(flatten)]
     pub bookmark: Bookmark,

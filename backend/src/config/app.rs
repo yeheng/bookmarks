@@ -18,4 +18,12 @@ impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
         Self::load()
     }
+
+    /// 获取 Tantivy 索引文件路径
+    ///
+    /// 默认存储在 ./data/tantivy_index 目录下
+    pub fn tantivy_index_path(&self) -> String {
+        std::env::var("TANTIVY_INDEX_PATH")
+            .unwrap_or_else(|_| "./data/tantivy_index".to_string())
+    }
 }

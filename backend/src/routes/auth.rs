@@ -10,10 +10,14 @@ use crate::handlers::auth::{
 
 pub fn auth_routes() -> Router<AppState> {
     Router::new()
-        .route("/register", post(register))
-        .route("/login", post(login))
         .route("/logout", post(logout))
-        .route("/refresh", post(refresh_token))
         .route("/me", get(get_current_user))
         .route("/change-password", post(change_password))
+}
+
+pub fn ano_routes() -> Router<AppState> {
+    Router::new()
+        .route("/refresh", post(refresh_token))
+        .route("/register", post(register))
+        .route("/login", post(login))
 }

@@ -212,10 +212,6 @@ const handleLogin = async () => {
       password: form.password
     })
 
-    if (form.remember) {
-      localStorage.setItem('auth_token', authStore.token || '')
-    }
-
     router.push('/')
   } catch (error) {
     console.error('Login failed:', error)

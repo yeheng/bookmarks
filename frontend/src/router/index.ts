@@ -58,15 +58,26 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
   
-  // Initialize auth state if not already done
-  if (!authStore.isAuthenticated && !authStore.isLoading) {
-    authStore.initializeAuth()
+  // Always initialize auth state if there's a token in localStorage
+  // This ensures we try to validate the token on every navigation
+  const hasToken = localStorage.getItem('auth_token')
+  if (hasToken && !authStore.isAuthenticated && !authStore.isLoading) {
+    await authStore.initializeAuth()
   }
 
   // Wait for auth initialization to complete
   if (authStore.isLoading) {
-    // Wait a bit for initialization to complete
-    await new Promise(resolve => setTimeout(resolve, 100))
+    // Wait for initialization to complete
+    await new Promise(resolve => {
+      const checkLoading = () => {
+        if (!authStore.isLoading) {
+          resolve(undefined)
+        } else {
+          setTimeout(checkLoading, 50)
+        }
+      }
+      checkLoading()
+    })
   }
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {

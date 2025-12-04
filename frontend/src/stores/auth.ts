@@ -11,13 +11,26 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value && !!user.value)
 
-  const initializeAuth = () => {
+  const initializeAuth = async () => {
     const savedToken = localStorage.getItem('auth_token')
+    console.log('initializeAuth: savedToken from localStorage:', savedToken ? `${savedToken.substring(0, 20)}...` : 'none')
+    
     if (savedToken) {
       token.value = savedToken
       apiService.setToken(savedToken)
-      // Verify token validity by fetching current user
-      fetchCurrentUser()
+      console.log('initializeAuth: token set to store and API service')
+      
+      try {
+        // Verify token validity by fetching current user
+        await fetchCurrentUser()
+        console.log('initializeAuth: token validation successful')
+      } catch (error) {
+        // If token is invalid, clear it and don't redirect to login immediately
+        // Let the router guard handle the redirect
+        console.warn('Token validation failed during initialization:', error)
+      }
+    } else {
+      console.log('initializeAuth: no token found in localStorage')
     }
   }
 
@@ -29,7 +42,7 @@ export const useAuthStore = defineStore('auth', () => {
       const response: AuthResponse = await apiService.login(credentials)
       user.value = response.user
       token.value = response.token
-      apiService.setToken(response.token)
+      // API service already handles localStorage
     } catch (err: any) {
       error.value = err.message || 'Login failed'
       throw err
@@ -46,7 +59,7 @@ export const useAuthStore = defineStore('auth', () => {
       const response: AuthResponse = await apiService.register(userData)
       user.value = response.user
       token.value = response.token
-      apiService.setToken(response.token)
+      // API service already handles localStorage
     } catch (err: any) {
       error.value = err.message || 'Registration failed'
       throw err
@@ -66,6 +79,7 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       user.value = null
       token.value = null
+      // API service already handles localStorage cleanup
       apiService.setToken(null)
       isLoading.value = false
     }
@@ -81,8 +95,10 @@ export const useAuthStore = defineStore('auth', () => {
       // Token might be invalid, clear auth state
       user.value = null
       token.value = null
+      // API service already handles localStorage cleanup
       apiService.setToken(null)
       error.value = err.message || 'Failed to fetch user'
+      throw err // Re-throw to let caller handle the error
     }
   }
 

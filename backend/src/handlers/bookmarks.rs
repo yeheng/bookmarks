@@ -14,6 +14,7 @@ use crate::models::{
     BookmarkExportPayload, BookmarkQuery, CreateBookmark, UpdateBookmark,
 };
 use crate::services::BookmarkService;
+use crate::state::AppState;
 use crate::utils::error::AppError;
 use crate::utils::response::{
     success_message_response, success_response, success_response_with_message,
@@ -74,33 +75,33 @@ pub async fn get_bookmark(
 }
 
 pub async fn create_bookmark(
-    State(db_pool): State<SqlitePool>,
+    State(app_state): State<AppState>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(bookmark_data): Json<CreateBookmark>,
 ) -> Result<Response, AppError> {
-    let bookmark = BookmarkService::create_bookmark(user_id, bookmark_data, &db_pool).await?;
+    let bookmark = BookmarkService::create_bookmark(user_id, bookmark_data, &app_state.db_pool, Some(&app_state.tantivy_index)).await?;
 
     Ok(success_response(bookmark))
 }
 
 pub async fn update_bookmark(
-    State(db_pool): State<SqlitePool>,
+    State(app_state): State<AppState>,
     Path(bookmark_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(update_data): Json<UpdateBookmark>,
 ) -> Result<Response, AppError> {
     let bookmark =
-        BookmarkService::update_bookmark(user_id, bookmark_id, update_data, &db_pool).await?;
+        BookmarkService::update_bookmark(user_id, bookmark_id, update_data, &app_state.db_pool, Some(&app_state.tantivy_index)).await?;
 
     Ok(success_response(bookmark))
 }
 
 pub async fn delete_bookmark(
-    State(db_pool): State<SqlitePool>,
+    State(app_state): State<AppState>,
     Path(bookmark_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
-    let deleted = BookmarkService::delete_bookmark(user_id, bookmark_id, &db_pool).await?;
+    let deleted = BookmarkService::delete_bookmark(user_id, bookmark_id, &app_state.db_pool, Some(&app_state.tantivy_index)).await?;
 
     if !deleted {
         return Err(AppError::NotFound("Bookmark not found".to_string()));
@@ -120,7 +121,7 @@ pub async fn increment_visit_count(
 }
 
 pub async fn import_bookmarks(
-    State(db_pool): State<SqlitePool>,
+    State(app_state): State<AppState>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
@@ -177,12 +178,12 @@ pub async fn import_bookmarks(
             bookmark_data.collection_id = Some(target_collection);
         }
 
-        if BookmarkService::bookmark_exists(user_id, &bookmark_data.url, &db_pool).await? {
+        if BookmarkService::bookmark_exists(user_id, &bookmark_data.url, &app_state.db_pool).await? {
             duplicates += 1;
             continue;
         }
 
-        match BookmarkService::create_bookmark(user_id, bookmark_data, &db_pool).await {
+        match BookmarkService::create_bookmark(user_id, bookmark_data, &app_state.db_pool, Some(&app_state.tantivy_index)).await {
             Ok(_) => imported += 1,
             Err(err) => {
                 skipped += 1;

@@ -12,15 +12,15 @@
     <div class="max-w-4xl mx-auto mb-8">
       <div class="grid grid-cols-3 gap-4 text-center">
         <div class="py-4">
-          <p class="text-2xl font-bold">{{ stats.bookmarks }}</p>
+          <p class="text-2xl font-bold">{{ bookmarksCount }}</p>
           <p class="text-sm text-muted-foreground">书签</p>
         </div>
         <div class="py-4">
-          <p class="text-2xl font-bold">{{ stats.collections }}</p>
+          <p class="text-2xl font-bold">{{ collectionsCount }}</p>
           <p class="text-sm text-muted-foreground">收藏夹</p>
         </div>
         <div class="py-4">
-          <p class="text-2xl font-bold">{{ stats.tags }}</p>
+          <p class="text-2xl font-bold">{{ tagsCount }}</p>
           <p class="text-sm text-muted-foreground">标签</p>
         </div>
       </div>
@@ -69,40 +69,71 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { useBookmarksStore } from '@/stores/bookmarks'
+import { useCollectionsStore } from '@/stores/collections'
+import { useTagsStore } from '@/stores/tags'
+import { apiService } from '@/services/api'
+import type { Stats } from '@/types'
+
+// Stores
+const bookmarksStore = useBookmarksStore()
+const collectionsStore = useCollectionsStore()
+const tagsStore = useTagsStore()
 
 // 统计数据
-const stats = ref({
-  bookmarks: 0,
-  collections: 0,
-  tags: 0
+const stats = ref<Stats>({
+  total_bookmarks: 0,
+  total_collections: 0,
+  total_tags: 0,
+  recent_bookmarks: [],
+  top_tags: [],
+  total_visits: 0,
+  favorite_bookmarks: 0,
+  archived_bookmarks: 0
 })
 
-// 最近书签
-const recentBookmarks = ref<any[]>([])
+// 计算属性
+const recentBookmarks = computed(() => stats.value.recent_bookmarks || [])
+const bookmarksCount = computed(() => stats.value.total_bookmarks || 0)
+const collectionsCount = computed(() => stats.value.total_collections || 0)
+const tagsCount = computed(() => stats.value.total_tags || 0)
 
 // 打开书签
 const openBookmark = (url: string) => {
   window.open(url, '_blank')
 }
 
-// 加载数据
-const loadData = async () => {
+// 加载统计数据
+const loadStats = async () => {
   try {
-    // 这里应该调用API获取真实数据
-    // 暂时使用模拟数据
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    stats.value = {
-      bookmarks: 0,
-      collections: 0,
-      tags: 0
-    }
-    
-    recentBookmarks.value = []
+    const statsData = await apiService.getStats()
+    stats.value = statsData
   } catch (error) {
-    console.error('加载数据失败:', error)
+    console.error('加载统计数据失败:', error)
   }
+}
+
+// 加载基础数据
+const loadBasicData = async () => {
+  try {
+    // 并行加载基础数据
+    await Promise.all([
+      collectionsStore.fetchCollections(),
+      tagsStore.fetchTags(),
+      bookmarksStore.fetchBookmarks({ limit: 5 }) // 只获取最近5个书签用于首页显示
+    ])
+  } catch (error) {
+    console.error('加载基础数据失败:', error)
+  }
+}
+
+// 加载所有数据
+const loadData = async () => {
+  await Promise.all([
+    loadStats(),
+    loadBasicData()
+  ])
 }
 
 onMounted(() => {

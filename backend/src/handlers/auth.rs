@@ -4,6 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
+use tracing::info;
 
 use crate::services::AuthService;
 use crate::utils::error::AppError;
@@ -95,6 +96,10 @@ pub async fn get_current_user(
         .get_user_by_id(user_id, &db_pool)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    if !user.is_active {
+        return Err(AppError::Unauthorized("User is not active".to_string()));
+    }
 
     Ok(success_response(json!({
         "user": UserResponse::from(user)

@@ -109,6 +109,7 @@ impl SearchService {
                 has_prev: page > 1,
             },
             search_time: elapsed,
+            highlights: None,
         })
     }
 
