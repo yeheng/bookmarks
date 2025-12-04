@@ -50,3 +50,96 @@ pub fn validate_username(username: &str) -> Result<(), String> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_email_valid() {
+        assert!(validate_email("test@example.com"));
+        assert!(validate_email("user.name+tag@domain.co.uk"));
+        assert!(validate_email("user123@test-domain.com"));
+    }
+
+    #[test]
+    fn test_validate_email_invalid() {
+        assert!(!validate_email(""));
+        assert!(!validate_email("invalid-email"));
+        assert!(!validate_email("@example.com"));
+        assert!(!validate_email("test@"));
+        assert!(!validate_email("test.example.com"));
+    }
+
+    #[test]
+    fn test_validate_password_valid() {
+        assert!(validate_password("Password123").is_ok());
+        assert!(validate_password("MySecurePass456").is_ok());
+        assert!(validate_password("TestPass1!").is_ok());
+    }
+
+    #[test]
+    fn test_validate_password_invalid() {
+        assert_eq!(
+            validate_password("short"),
+            Err("Password must be at least 8 characters long".to_string())
+        );
+        assert_eq!(
+            validate_password("nouppercase1"),
+            Err("Password must contain at least one uppercase letter".to_string())
+        );
+        assert_eq!(
+            validate_password("NOLOWERCASE1"),
+            Err("Password must contain at least one lowercase letter".to_string())
+        );
+        assert_eq!(
+            validate_password("NoDigitsHere"),
+            Err("Password must contain at least one digit".to_string())
+        );
+    }
+
+    #[test]
+    fn test_validate_url_valid() {
+        assert!(validate_url("https://example.com"));
+        assert!(validate_url("http://test-site.org"));
+        assert!(validate_url("https://www.example.com/path"));
+        assert!(validate_url("http://localhost:3000"));
+    }
+
+    #[test]
+    fn test_validate_url_invalid() {
+        assert!(!validate_url(""));
+        assert!(!validate_url("not-a-url"));
+        assert!(!validate_url("ftp://example.com"));
+        assert!(!validate_url("://missing-protocol.com"));
+    }
+
+    #[test]
+    fn test_validate_username_valid() {
+        assert!(validate_username("testuser").is_ok());
+        assert!(validate_username("user_name").is_ok());
+        assert!(validate_username("user-name").is_ok());
+        assert!(validate_username("user123").is_ok());
+        assert!(validate_username("a").is_err()); // Too short
+    }
+
+    #[test]
+    fn test_validate_username_invalid() {
+        assert_eq!(
+            validate_username("ab"),
+            Err("Username must be at least 3 characters long".to_string())
+        );
+        assert_eq!(
+            validate_username(&"a".repeat(51)),
+            Err("Username must be no more than 50 characters long".to_string())
+        );
+        assert_eq!(
+            validate_username("user@name"),
+            Err("Username can only contain letters, numbers, underscores, and hyphens".to_string())
+        );
+        assert_eq!(
+            validate_username("user name"),
+            Err("Username can only contain letters, numbers, underscores, and hyphens".to_string())
+        );
+    }
+}

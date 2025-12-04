@@ -102,7 +102,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for BookmarkWithTags {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct BookmarkQuery {
     pub collection_id: Option<i64>,
     pub tags: Option<Vec<String>>,

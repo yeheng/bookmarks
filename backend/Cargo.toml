@@ -3,6 +3,10 @@ name = "bookmarks-api"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "bookmarks_api"
+path = "src/lib.rs"
+
 [dependencies]
 # Web framework
 axum = { version = "0.8", features = ["multipart"] }
