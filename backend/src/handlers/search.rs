@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::{
     middleware::AuthenticatedUser,
     models::{SearchFilters, SearchResponse, SearchType},
-    services::{SearchService, TantivySearchService},
+    services::SearchService,
     state::AppState,
     utils::error::AppError,
     utils::response::success_response,
@@ -40,11 +40,10 @@ pub async fn search_bookmarks(
 ) -> Result<Response, AppError> {
     let filters = build_filters(&query)?;
 
-    // 使用 TantivySearchService 进行搜索
-    let result: SearchResponse = TantivySearchService::search_bookmarks(
+    // 使用 FTS5 进行搜索
+    let result: SearchResponse = SearchService::search_bookmarks(
         user_id,
         filters,
-        &app_state.tantivy_index,
         &app_state.db_pool,
     ).await?;
 

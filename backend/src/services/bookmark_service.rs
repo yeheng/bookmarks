@@ -5,8 +5,8 @@ use crate::models::{
     BookmarkExportFormat, BookmarkExportOptions, BookmarkExportPayload, BookmarkQuery,
     BookmarkVisitInfo, BookmarkWithTags, CreateBookmark, UpdateBookmark,
 };
-use crate::services::TantivyIndexManager;
 use crate::utils::error::{AppError, AppResult};
+use crate::utils::segmenter::{prepare_for_search, prepare_tags_for_search};
 use crate::utils::validation::validate_url;
 
 pub struct BookmarkService;
@@ -16,7 +16,6 @@ impl BookmarkService {
         user_id: i64,
         bookmark_data: CreateBookmark,
         db_pool: &SqlitePool,
-        index_manager: Option<&TantivyIndexManager>,
     ) -> AppResult<Bookmark> {
         // Validate URL
         validate_url(&bookmark_data.url)
@@ -25,7 +24,7 @@ impl BookmarkService {
                 AppError::BadRequest(format!("Invalid URL format: {}", bookmark_data.url))
             })?;
 
-        // Start transaction
+        // Start transaction - 事务内同时更新 bookmarks 和 bookmarks_fts
         let mut tx = db_pool.begin().await?;
 
         // Create bookmark
@@ -47,6 +46,9 @@ impl BookmarkService {
         .bind(bookmark_data.is_private.unwrap_or(false))
         .fetch_one(&mut *tx)
         .await?;
+
+        // 收集标签名称用于 FTS
+        let mut tag_names = Vec::new();
 
         // Handle tags
         if let Some(tags) = bookmark_data.tags {
@@ -73,27 +75,34 @@ impl BookmarkService {
                 .bind(tag_id)
                 .execute(&mut *tx)
                 .await?;
+
+                tag_names.push(tag_name);
             }
         }
 
-        // Commit transaction
+        // 使用 jieba 分词，准备 FTS5 索引数据
+        let title_keywords = prepare_for_search(Some(&bookmark.title));
+        let description_keywords = prepare_for_search(bookmark.description.as_deref());
+        let tags_keywords = prepare_tags_for_search(&tag_names);
+        let url_text = bookmark.url.clone();
+
+        // 在同一事务中插入 FTS5 索引，使用 bookmark.id 作为 rowid
+        sqlx::query(
+            r#"
+            INSERT INTO bookmarks_fts (rowid, title, description, tags, url)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(bookmark.id)
+        .bind(title_keywords)
+        .bind(description_keywords)
+        .bind(tags_keywords)
+        .bind(url_text)
+        .execute(&mut *tx)
+        .await?;
+
+        // Commit transaction - ACID 保证：要么 bookmarks 和 bookmarks_fts 都成功，要么都失败
         tx.commit().await?;
-
-        // 同步更新搜索索引
-        if let Some(index_manager) = index_manager {
-            // 获取完整的书签信息（包含标签）用于索引
-            let bookmark_with_tags = Self::get_bookmark_with_tags_for_index(user_id, bookmark.id, db_pool).await?;
-
-            // 添加到索引，失败不影响主流程
-            if let Err(e) = index_manager.add_bookmark(&bookmark_with_tags) {
-                tracing::error!("Failed to add bookmark to search index: {}", e);
-            } else {
-                // 提交索引更改
-                if let Err(e) = index_manager.commit() {
-                    tracing::error!("Failed to commit search index changes: {}", e);
-                }
-            }
-        }
 
         Ok(bookmark)
     }
@@ -325,7 +334,6 @@ impl BookmarkService {
         bookmark_id: i64,
         update_data: UpdateBookmark,
         db_pool: &SqlitePool,
-        index_manager: Option<&TantivyIndexManager>,
     ) -> AppResult<Option<Bookmark>> {
         // Validate URL if provided
         if let Some(ref url) = update_data.url {
@@ -334,7 +342,7 @@ impl BookmarkService {
                 .ok_or_else(|| AppError::BadRequest(format!("Invalid URL format: {}", url)))?;
         }
 
-        // Start transaction
+        // Start transaction - 同时更新 bookmarks 和 bookmarks_fts
         let mut tx = db_pool.begin().await?;
 
         // 构建更新查询 - 使用Option字段逐个更新
@@ -372,9 +380,9 @@ impl BookmarkService {
                           reading_time, difficulty_level, metadata, created_at, updated_at
                 "#,
             )
-            .bind(update_data.title)
-            .bind(update_data.url)
-            .bind(update_data.description)
+            .bind(update_data.title.as_ref())
+            .bind(update_data.url.as_ref())
+            .bind(update_data.description.as_ref())
             .bind(update_data.clear_collection_id.unwrap_or(false))
             .bind(update_data.collection_id)
             .bind(update_data.is_favorite)
@@ -392,6 +400,15 @@ impl BookmarkService {
                 "No update fields provided".to_string(),
             ));
         };
+
+        // 如果 bookmark 不存在，提前返回
+        let Some(ref updated_bookmark) = bookmark else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+
+        // 收集标签名称用于 FTS
+        let mut tag_names = Vec::new();
 
         // Handle tags update
         if let Some(tags) = update_data.tags {
@@ -423,27 +440,54 @@ impl BookmarkService {
                 .bind(tag_id)
                 .execute(&mut *tx)
                 .await?;
+
+                tag_names.push(tag_name);
             }
+        } else {
+            // 如果没有更新标签，获取现有标签用于 FTS 更新
+            let existing_tags = sqlx::query(
+                r#"
+                SELECT t.name
+                FROM tags t
+                JOIN bookmark_tags bt ON t.id = bt.tag_id
+                WHERE bt.bookmark_id = $1 AND t.user_id = $2
+                "#,
+            )
+            .bind(bookmark_id)
+            .bind(user_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+            tag_names = existing_tags
+                .into_iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect();
         }
 
-        // Commit transaction
+        // 使用 jieba 分词，准备 FTS5 更新数据
+        let title_keywords = prepare_for_search(Some(&updated_bookmark.title));
+        let description_keywords = prepare_for_search(updated_bookmark.description.as_deref());
+        let tags_keywords = prepare_tags_for_search(&tag_names);
+        let url_text = updated_bookmark.url.clone();
+
+        // 在同一事务中更新 FTS5 索引
+        sqlx::query(
+            r#"
+            UPDATE bookmarks_fts
+            SET title = $1, description = $2, tags = $3, url = $4
+            WHERE rowid = $5
+            "#,
+        )
+        .bind(title_keywords)
+        .bind(description_keywords)
+        .bind(tags_keywords)
+        .bind(url_text)
+        .bind(bookmark_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Commit transaction - ACID 保证
         tx.commit().await?;
-
-        // 同步更新搜索索引
-        if let (Some(index_manager), Some(updated_bookmark)) = (index_manager, bookmark.clone()) {
-            // 获取更新后的完整书签信息
-            let bookmark_with_tags = Self::get_bookmark_with_tags_for_index(user_id, updated_bookmark.id, db_pool).await?;
-
-            // 更新索引，失败不影响主流程
-            if let Err(e) = index_manager.update_bookmark(&bookmark_with_tags) {
-                tracing::error!("Failed to update bookmark in search index: {}", e);
-            } else {
-                // 提交索引更改
-                if let Err(e) = index_manager.commit() {
-                    tracing::error!("Failed to commit search index changes: {}", e);
-                }
-            }
-        }
 
         Ok(bookmark)
     }
@@ -452,30 +496,27 @@ impl BookmarkService {
         user_id: i64,
         bookmark_id: i64,
         db_pool: &SqlitePool,
-        index_manager: Option<&TantivyIndexManager>,
     ) -> AppResult<bool> {
+        // Start transaction - 同时删除 bookmarks 和 bookmarks_fts
+        let mut tx = db_pool.begin().await?;
+
+        // 首先从 FTS 索引中删除（必须在 bookmarks 删除之前，因为需要 rowid 关联）
+        sqlx::query("DELETE FROM bookmarks_fts WHERE rowid = $1")
+            .bind(bookmark_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // 删除 bookmark（CASCADE 会自动删除 bookmark_tags）
         let result = sqlx::query("DELETE FROM bookmarks WHERE id = $1 AND user_id = $2")
             .bind(bookmark_id)
             .bind(user_id)
-            .execute(db_pool)
+            .execute(&mut *tx)
             .await?;
 
         let was_deleted = result.rows_affected() > 0;
 
-        // 同步更新搜索索引
-        if was_deleted {
-            if let Some(index_manager) = index_manager {
-                // 从索引中删除，失败不影响主流程
-                if let Err(e) = index_manager.delete_bookmark(bookmark_id) {
-                    tracing::error!("Failed to delete bookmark from search index: {}", e);
-                } else {
-                    // 提交索引更改
-                    if let Err(e) = index_manager.commit() {
-                        tracing::error!("Failed to commit search index changes: {}", e);
-                    }
-                }
-            }
-        }
+        // Commit transaction - ACID 保证
+        tx.commit().await?;
 
         Ok(was_deleted)
     }
@@ -540,7 +581,7 @@ impl BookmarkService {
         for bookmark_id in bookmark_ids {
             let operation = match action {
                 BookmarkBatchAction::Delete => {
-                    Self::delete_bookmark(user_id, bookmark_id, db_pool, None).await
+                    Self::delete_bookmark(user_id, bookmark_id, db_pool).await
                 }
                 BookmarkBatchAction::Move => {
                     let collection_id = data
@@ -762,75 +803,6 @@ impl BookmarkService {
 
         Ok(result > 0)
     }
-
-    /// 获取包含标签的书签信息，用于搜索索引
-    ///
-    /// 这个方法专门为搜索索引优化，返回 BookmarkWithTags 结构
-    async fn get_bookmark_with_tags_for_index(
-        user_id: i64,
-        bookmark_id: i64,
-        db_pool: &SqlitePool,
-    ) -> AppResult<BookmarkWithTags> {
-        let bookmark = sqlx::query_as::<_, Bookmark>(
-            r#"
-            SELECT id, user_id, collection_id, title, url, description, favicon_url, screenshot_url,
-                   thumbnail_url, is_favorite, is_archived, is_private, is_read, visit_count,
-                   last_visited, reading_time, difficulty_level, metadata, created_at, updated_at
-            FROM bookmarks
-            WHERE id = $1 AND user_id = $2
-            "#,
-        )
-        .bind(bookmark_id)
-        .bind(user_id)
-        .fetch_one(db_pool)
-        .await?;
-
-        // 获取标签
-        let tags = sqlx::query(
-            r#"
-            SELECT t.name
-            FROM tags t
-            JOIN bookmark_tags bt ON t.id = bt.tag_id
-            WHERE bt.bookmark_id = $1 AND t.user_id = $2
-            ORDER BY t.name
-            "#,
-        )
-        .bind(bookmark_id)
-        .bind(user_id)
-        .fetch_all(db_pool)
-        .await?
-        .into_iter()
-        .map(|row| row.get::<String, _>("name"))
-        .collect();
-
-        // 获取集合信息
-        let (collection_name, collection_color) = if let Some(collection_id) = bookmark.collection_id {
-            let collection_row = sqlx::query(
-                "SELECT name, color FROM collections WHERE id = $1 AND user_id = $2"
-            )
-            .bind(collection_id)
-            .bind(user_id)
-            .fetch_optional(db_pool)
-            .await?;
-
-            match collection_row {
-                Some(row) => (
-                    Some(row.get::<String, _>("name")),
-                    Some(row.get::<String, _>("color")),
-                ),
-                None => (None, None),
-            }
-        } else {
-            (None, None)
-        };
-
-        Ok(BookmarkWithTags {
-            bookmark,
-            tags,
-            collection_name,
-            collection_color,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -977,7 +949,7 @@ mod tests {
             tags: Some(vec!["test".to_string(), "example".to_string()]),
         };
 
-        let result = BookmarkService::create_bookmark(user_id, bookmark_data, &pool, None).await;
+        let result = BookmarkService::create_bookmark(user_id, bookmark_data, &pool).await;
         if let Err(e) = &result {
             println!("Error creating bookmark: {:?}", e);
             panic!("Failed to create bookmark: {:?}", e);
@@ -1007,7 +979,7 @@ mod tests {
             tags: None,
         };
 
-        let result = BookmarkService::create_bookmark(user_id, bookmark_data, &pool, None).await;
+        let result = BookmarkService::create_bookmark(user_id, bookmark_data, &pool).await;
         assert!(result.is_err());
     }
 
@@ -1058,7 +1030,7 @@ mod tests {
             tags: None,
         };
 
-        let result = BookmarkService::update_bookmark(user_id, bookmark_id, update_data, &pool, None).await;
+        let result = BookmarkService::update_bookmark(user_id, bookmark_id, update_data, &pool).await;
         assert!(result.is_ok());
 
         let bookmark = result.unwrap();
@@ -1071,7 +1043,7 @@ mod tests {
         let user_id = 1;
         let bookmark_id = 999;
         
-        let result = BookmarkService::delete_bookmark(user_id, bookmark_id, &pool, None).await;
+        let result = BookmarkService::delete_bookmark(user_id, bookmark_id, &pool).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
     }

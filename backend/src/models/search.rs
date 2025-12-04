@@ -34,6 +34,8 @@ pub struct SearchResponse {
 }
 
 /// 带高亮的搜索结果项
+/// 保留此结构以备将来实现 FTS5 snippet() 高亮功能
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 pub struct BookmarkWithHighlights {
     #[serde(flatten)]

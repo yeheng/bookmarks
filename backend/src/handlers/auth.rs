@@ -4,7 +4,6 @@ use axum::{
 };
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
-use tracing::info;
 
 use crate::services::AuthService;
 use crate::utils::error::AppError;

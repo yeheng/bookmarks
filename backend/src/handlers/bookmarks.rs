@@ -79,7 +79,7 @@ pub async fn create_bookmark(
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(bookmark_data): Json<CreateBookmark>,
 ) -> Result<Response, AppError> {
-    let bookmark = BookmarkService::create_bookmark(user_id, bookmark_data, &app_state.db_pool, Some(&app_state.tantivy_index)).await?;
+    let bookmark = BookmarkService::create_bookmark(user_id, bookmark_data, &app_state.db_pool).await?;
 
     Ok(success_response(bookmark))
 }
@@ -91,7 +91,7 @@ pub async fn update_bookmark(
     Json(update_data): Json<UpdateBookmark>,
 ) -> Result<Response, AppError> {
     let bookmark =
-        BookmarkService::update_bookmark(user_id, bookmark_id, update_data, &app_state.db_pool, Some(&app_state.tantivy_index)).await?;
+        BookmarkService::update_bookmark(user_id, bookmark_id, update_data, &app_state.db_pool).await?;
 
     Ok(success_response(bookmark))
 }
@@ -101,7 +101,7 @@ pub async fn delete_bookmark(
     Path(bookmark_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
-    let deleted = BookmarkService::delete_bookmark(user_id, bookmark_id, &app_state.db_pool, Some(&app_state.tantivy_index)).await?;
+    let deleted = BookmarkService::delete_bookmark(user_id, bookmark_id, &app_state.db_pool).await?;
 
     if !deleted {
         return Err(AppError::NotFound("Bookmark not found".to_string()));
@@ -183,7 +183,7 @@ pub async fn import_bookmarks(
             continue;
         }
 
-        match BookmarkService::create_bookmark(user_id, bookmark_data, &app_state.db_pool, Some(&app_state.tantivy_index)).await {
+        match BookmarkService::create_bookmark(user_id, bookmark_data, &app_state.db_pool).await {
             Ok(_) => imported += 1,
             Err(err) => {
                 skipped += 1;
