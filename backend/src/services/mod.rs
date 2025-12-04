@@ -11,3 +11,6 @@ pub use collection_service::*;
 pub use search_service::*;
 pub use stats_service::*;
 pub use tag_service::*;
+
+#[cfg(test)]
+mod collection_service_test;

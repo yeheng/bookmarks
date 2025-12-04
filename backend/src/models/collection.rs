@@ -18,7 +18,7 @@ pub struct Collection {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CreateCollection {
     pub name: String,
     pub description: Option<String>,

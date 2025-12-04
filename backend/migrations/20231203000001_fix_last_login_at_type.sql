@@ -3,8 +3,6 @@
 
 -- SQLite approach: recreate the table with proper schema
 
-BEGIN TRANSACTION;
-
 -- Create new users table with correct schema
 CREATE TABLE users_new (
     id INTEGER PRIMARY KEY,
@@ -58,5 +56,3 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW BEGIN
         UPDATE users SET updated_at = CAST(strftime('%s', 'now') AS INTEGER) WHERE id = NEW.id;
     END;
-
-COMMIT;

@@ -13,7 +13,7 @@ pub struct Tag {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CreateTag {
     pub name: String,
     pub color: Option<String>,
