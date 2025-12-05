@@ -18,7 +18,7 @@ impl SearchService {
     ) -> AppResult<SearchResponse> {
         let start = Instant::now();
 
-        // 使用 jieba 对查询进行分词
+        // 根据配置对查询进行分词处理
         let search_keywords = prepare_for_search(Some(&filters.query));
 
         // 构建查询

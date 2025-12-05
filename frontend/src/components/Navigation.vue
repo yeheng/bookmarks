@@ -60,10 +60,15 @@
               </div>
               <div v-else>
                 <div
-                  v-for="result in (searchResults || [])"
+                  v-for="(result, index) in (searchResults || [])"
                   :key="result?.id"
-                  class="p-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
+                  class="p-3 cursor-pointer border-b last:border-b-0 transition-colors"
+                  :class="{
+                    'bg-accent text-accent-foreground': highlightedIndex === index,
+                    'hover:bg-accent': highlightedIndex !== index
+                  }"
                   @click="goToBookmark(result)"
+                  @mouseenter="highlightedIndex = index"
                 >
                   <div class="font-medium text-sm">{{ result?.title || '无标题' }}</div>
                   <div class="text-xs text-muted-foreground truncate">{{ result?.url || '' }}</div>
@@ -177,6 +182,9 @@ const showSearchResults = ref(false)
 const isSearching = ref(false)
 const searchInput = ref<HTMLInputElement>()
 
+// 键盘导航相关状态
+const highlightedIndex = ref(-1)
+
 // 添加书签相关状态
 const showAddBookmarkModal = ref(false)
 const newBookmark = ref({
@@ -205,6 +213,9 @@ const getUserInitials = () => {
 
 // 搜索功能
 const handleSearchInput = async () => {
+  // 重置高亮索引
+  highlightedIndex.value = -1
+  
   if (!searchQuery.value.trim()) {
     searchResults.value = []
     return
@@ -231,14 +242,38 @@ const handleSearchInput = async () => {
 }
 
 const handleSearchKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Enter' && searchResults.value.length > 0) {
-    goToBookmark(searchResults.value[0])
+  const resultsLength = searchResults.value.length
+  
+  // 上下键导航
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    if (resultsLength > 0) {
+      highlightedIndex.value = (highlightedIndex.value + 1) % resultsLength
+    }
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    if (resultsLength > 0) {
+      highlightedIndex.value = highlightedIndex.value <= 0 
+        ? resultsLength - 1 
+        : highlightedIndex.value - 1
+    }
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    if (highlightedIndex.value >= 0 && highlightedIndex.value < resultsLength) {
+      goToBookmark(searchResults.value[highlightedIndex.value])
+    } else if (resultsLength > 0) {
+      goToBookmark(searchResults.value[0])
+    }
+  } else if (event.key === 'Escape') {
+    showSearchResults.value = false
+    highlightedIndex.value = -1
   }
 }
 
 const goToBookmark = (bookmark: any) => {
   showSearchResults.value = false
   searchQuery.value = ''
+  highlightedIndex.value = -1
   // 直接打开书签URL，而不是跳转到详情页
   if (bookmark && bookmark.url) {
     window.open(bookmark.url, '_blank')
@@ -248,6 +283,7 @@ const goToBookmark = (bookmark: any) => {
 const hideSearchResults = () => {
   setTimeout(() => {
     showSearchResults.value = false
+    highlightedIndex.value = -1
   }, 200)
 }
 
@@ -292,6 +328,7 @@ const handleKeydown = (event: KeyboardEvent) => {
   // Escape 关闭搜索结果
   if (event.key === 'Escape') {
     showSearchResults.value = false
+    highlightedIndex.value = -1
     showAddBookmarkModal.value = false
   }
 }

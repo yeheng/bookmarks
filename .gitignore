@@ -2,6 +2,8 @@
 backend/target/
 backend/Cargo.lock
 backend/*.pdb
+backend/*.db
+backend/*.db-wal
 
 # Node.js
 frontend/node_modules/

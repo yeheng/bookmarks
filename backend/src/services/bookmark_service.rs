@@ -5,8 +5,8 @@ use crate::models::{
     BookmarkExportFormat, BookmarkExportOptions, BookmarkExportPayload, BookmarkQuery,
     BookmarkVisitInfo, BookmarkWithTags, CreateBookmark, UpdateBookmark,
 };
+use crate::services::IndexerService;
 use crate::utils::error::{AppError, AppResult};
-use crate::utils::segmenter::{prepare_for_search, prepare_tags_for_search};
 use crate::utils::validation::validate_url;
 
 pub struct BookmarkService;
@@ -47,9 +47,6 @@ impl BookmarkService {
         .fetch_one(&mut *tx)
         .await?;
 
-        // 收集标签名称用于 FTS
-        let mut tag_names = Vec::new();
-
         // Handle tags
         if let Some(tags) = bookmark_data.tags {
             for tag_name in tags {
@@ -75,13 +72,11 @@ impl BookmarkService {
                 .bind(tag_id)
                 .execute(&mut *tx)
                 .await?;
-
-                tag_names.push(tag_name);
             }
         }
 
-        // 同步 FTS 索引 - 使用封装的私有方法
-        Self::sync_fts_index(&mut tx, &bookmark, &tag_names, false).await?;
+        // 同步 FTS 索引 - 使用 IndexerService
+        IndexerService::index_bookmark(&mut tx, bookmark.id, user_id).await?;
 
         // Commit transaction - ACID 保证：要么 bookmarks 和 bookmarks_fts 都成功，要么都失败
         tx.commit().await?;
@@ -389,9 +384,6 @@ impl BookmarkService {
             return Ok(None);
         };
 
-        // 收集标签名称用于 FTS
-        let mut tag_names = Vec::new();
-
         // Handle tags update
         if let Some(tags) = update_data.tags {
             // Delete existing tag associations
@@ -422,32 +414,11 @@ impl BookmarkService {
                 .bind(tag_id)
                 .execute(&mut *tx)
                 .await?;
-
-                tag_names.push(tag_name);
             }
-        } else {
-            // 如果没有更新标签，获取现有标签用于 FTS 更新
-            let existing_tags = sqlx::query(
-                r#"
-                SELECT t.name
-                FROM tags t
-                JOIN bookmark_tags bt ON t.id = bt.tag_id
-                WHERE bt.bookmark_id = $1 AND t.user_id = $2
-                "#,
-            )
-            .bind(bookmark_id)
-            .bind(user_id)
-            .fetch_all(&mut *tx)
-            .await?;
-
-            tag_names = existing_tags
-                .into_iter()
-                .map(|row| row.get::<String, _>("name"))
-                .collect();
         }
 
-        // 同步 FTS 索引 - 使用封装的私有方法
-        Self::sync_fts_index(&mut tx, updated_bookmark, &tag_names, true).await?;
+        // 同步 FTS 索引 - 使用 IndexerService
+        IndexerService::index_bookmark(&mut tx, updated_bookmark.id, user_id).await?;
 
         // Commit transaction - ACID 保证
         tx.commit().await?;
@@ -765,64 +736,6 @@ impl BookmarkService {
         }
 
         Ok(result > 0)
-    }
-
-    /// 同步书签的 FTS 索引
-    ///
-    /// 这个私有方法封装了从书签数据生成分词并更新 FTS 索引的完整逻辑
-    /// 用于 create_bookmark 和 update_bookmark 中，消除代码重复
-    ///
-    /// # 参数
-    /// - tx: 数据库事务
-    /// - bookmark: 书签数据（包含 id, title, description, url）
-    /// - tags: 标签名称列表（用于分词）
-    /// - is_update: 是否为更新操作（true = UPDATE，false = INSERT）
-    async fn sync_fts_index(
-        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-        bookmark: &Bookmark,
-        tags: &[String],
-        is_update: bool,
-    ) -> AppResult<()> {
-        // 使用 jieba 分词，准备 FTS5 数据
-        let title_keywords = prepare_for_search(Some(&bookmark.title));
-        let description_keywords = prepare_for_search(bookmark.description.as_deref());
-        let tags_keywords = prepare_tags_for_search(tags);
-        let url_text = bookmark.url.clone();
-
-        if is_update {
-            // 更新现有 FTS 索引
-            sqlx::query(
-                r#"
-                UPDATE bookmarks_fts
-                SET title = $1, description = $2, tags = $3, url = $4
-                WHERE rowid = $5
-                "#,
-            )
-            .bind(title_keywords)
-            .bind(description_keywords)
-            .bind(tags_keywords)
-            .bind(url_text)
-            .bind(bookmark.id)
-            .execute(&mut **tx)
-            .await?;
-        } else {
-            // 插入新的 FTS 索引
-            sqlx::query(
-                r#"
-                INSERT INTO bookmarks_fts (rowid, title, description, tags, url)
-                VALUES ($1, $2, $3, $4, $5)
-                "#,
-            )
-            .bind(bookmark.id)
-            .bind(title_keywords)
-            .bind(description_keywords)
-            .bind(tags_keywords)
-            .bind(url_text)
-            .execute(&mut **tx)
-            .await?;
-        }
-
-        Ok(())
     }
 }
 

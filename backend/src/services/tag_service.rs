@@ -1,6 +1,7 @@
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 
 use crate::models::{CreateTag, Tag, TagQuery, UpdateTag};
+use crate::services::IndexerService;
 use crate::utils::error::{AppError, AppResult};
 
 pub struct TagService;
@@ -125,6 +126,12 @@ impl TagService {
             ));
         }
 
+        // 开启事务 - 确保标签更新和 FTS 索引更新的 ACID 一致性
+        let mut tx = db_pool.begin().await?;
+
+        // 检查标签名是否被更新（如果是，需要重建相关书签的 FTS 索引）
+        let name_changed = update_data.name.is_some();
+
         // 使用 COALESCE 来只更新提供的字段
         let tag = sqlx::query_as::<_, Tag>(
             r#"
@@ -144,8 +151,38 @@ impl TagService {
         .bind(update_data.description)
         .bind(tag_id)
         .bind(user_id)
-        .fetch_optional(db_pool)
+        .fetch_optional(&mut *tx)
         .await?;
+
+        // 如果标签不存在，回滚并返回
+        let Some(_tag) = tag.as_ref() else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+
+        // ⚠️ 核心修复：如果标签名被更新，必须重建所有关联书签的 FTS 索引
+        if name_changed {
+            // 查询所有使用该标签的书签 ID
+            let bookmark_ids = sqlx::query(
+                r#"
+                SELECT bookmark_id
+                FROM bookmark_tags
+                WHERE tag_id = $1
+                "#,
+            )
+            .bind(tag_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+            // 对每个受影响的书签，重建 FTS 索引
+            for row in bookmark_ids {
+                let bookmark_id: i64 = row.get("bookmark_id");
+                IndexerService::index_bookmark(&mut tx, bookmark_id, user_id).await?;
+            }
+        }
+
+        // 提交事务 - ACID 保证：标签更新和 FTS 更新要么都成功，要么都失败
+        tx.commit().await?;
 
         Ok(tag)
     }

@@ -2,8 +2,10 @@
 ///
 /// 包含 FTS 索引重建等后台维护任务
 
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 use tracing::{error, info, warn};
+
+use crate::services::IndexerService;
 
 /// 检查并重建 FTS 索引（如果需要）
 ///
@@ -54,91 +56,11 @@ pub async fn check_and_rebuild_fts(pool: SqlitePool) -> anyhow::Result<()> {
 
 /// 执行 FTS 索引重建的核心逻辑
 ///
-/// 从 bookmarks 表读取数据，使用 jieba 分词，插入到 bookmarks_fts 表
+/// 委托给 IndexerService::rebuild_index 统一处理
 async fn rebuild_fts_index(pool: SqlitePool) -> anyhow::Result<()> {
-    use jieba_rs::Jieba;
-
     info!("开始重建 FTS5 索引...");
 
-    // 清空现有 FTS 数据
-    info!("清空现有 FTS 索引...");
-    sqlx::query("DELETE FROM bookmarks_fts")
-        .execute(&pool)
-        .await?;
-
-    // 读取所有书签
-    info!("读取书签数据...");
-    let bookmarks = sqlx::query(
-        r#"
-        SELECT
-            b.id,
-            b.title,
-            b.description,
-            b.url,
-            COALESCE(
-                (SELECT GROUP_CONCAT(t.name, ',')
-                 FROM bookmark_tags bt
-                 JOIN tags t ON bt.tag_id = t.id
-                 WHERE bt.bookmark_id = b.id),
-                ''
-            ) as tags
-        FROM bookmarks b
-        "#,
-    )
-    .fetch_all(&pool)
-    .await?;
-
-    info!("找到 {} 条书签，开始分词和索引...", bookmarks.len());
-
-    // 使用 jieba 分词并插入 FTS
-    let jieba = Jieba::new();
-    let mut count = 0;
-
-    for row in bookmarks {
-        let id: i64 = row.get("id");
-        let title: String = row.get("title");
-        let description: Option<String> = row.get("description");
-        let url: String = row.get("url");
-        let tags_str: String = row.get("tags");
-
-        // 分词
-        let title_keywords = jieba.cut(&title, false).join(" ");
-        let description_keywords = description
-            .as_ref()
-            .map(|d| jieba.cut(d, false).join(" "))
-            .unwrap_or_default();
-
-        // 处理标签（逗号分隔）
-        let tags_keywords = if tags_str.is_empty() {
-            String::new()
-        } else {
-            tags_str
-                .split(',')
-                .map(|tag| jieba.cut(tag, false).join(" "))
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
-
-        // 插入 FTS
-        sqlx::query(
-            r#"
-            INSERT INTO bookmarks_fts (rowid, title, description, tags, url)
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-        )
-        .bind(id)
-        .bind(title_keywords)
-        .bind(description_keywords)
-        .bind(tags_keywords)
-        .bind(url)
-        .execute(&pool)
-        .await?;
-
-        count += 1;
-        if count % 100 == 0 {
-            info!("已处理 {} 条书签...", count);
-        }
-    }
+    let count = IndexerService::rebuild_index(None, &pool).await?;
 
     info!("✅ FTS 索引重建完成！共处理 {} 条书签", count);
     Ok(())

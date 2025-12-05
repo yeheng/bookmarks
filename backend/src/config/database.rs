@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode},
+    SqlitePool,
+};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,7 +13,13 @@ pub struct DatabaseConfig {
 
 impl DatabaseConfig {
     pub async fn create_pool(&self) -> anyhow::Result<SqlitePool> {
-        let options = SqliteConnectOptions::from_str(&self.url)?.create_if_missing(true);
+        // 配置 SQLite 连接选项
+        // 1. 开启 WAL 模式 - 允许并发读写，避免 SQLITE_BUSY
+        // 2. 设置 busy_timeout - 失败前等待 5 秒
+        let options = SqliteConnectOptions::from_str(&self.url)?
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal) // Write-Ahead Logging
+            .busy_timeout(std::time::Duration::from_secs(5)); // 等待锁释放
 
         let pool = SqlitePool::connect_with(options).await?;
         Ok(pool)
