@@ -6,14 +6,16 @@
 
 ## 技术栈
 
-- **Web 框架**: Axum 0.7+
+- **Web 框架**: Axum 0.8+
 - **异步运行时**: Tokio
-- **数据库**: PostgreSQL + SQLx
+- **数据库**: SQLite + SQLx
+- **全文搜索**: SQLite FTS5 (支持中英文混合搜索)
 - **序列化**: Serde
 - **认证**: JWT + bcrypt
 - **日志**: tracing
-- **配置**: config-rs
+- **配置**: config-rs + dotenv
 - **错误处理**: anyhow + thiserror
+- **中文分词**: jieba-rs (可选功能)
 
 ## 项目结构
 
@@ -21,29 +23,41 @@
 backend/
 ├── src/
 │   ├── main.rs                 # 应用入口点
+│   ├── lib.rs                  # 库入口点
+│   ├── state.rs                # 应用状态管理
 │   ├── config/
 │   │   ├── mod.rs
+│   │   ├── app.rs              # 应用配置
+│   │   ├── auth.rs             # 认证配置
 │   │   ├── database.rs         # 数据库配置
-│   │   └── auth.rs             # 认证配置
+│   │   └── loader.rs           # 配置加载器
 │   ├── models/
 │   │   ├── mod.rs
-│   │   ├── user.rs             # 用户模型
 │   │   ├── bookmark.rs         # 书签模型
 │   │   ├── collection.rs       # 收藏夹模型
-│   │   └── tag.rs              # 标签模型
+│   │   ├── pagination.rs       # 分页模型
+│   │   ├── search.rs           # 搜索模型
+│   │   ├── stats.rs            # 统计模型
+│   │   ├── tag.rs              # 标签模型
+│   │   └── user.rs             # 用户模型
 │   ├── handlers/
 │   │   ├── mod.rs
 │   │   ├── auth.rs             # 认证处理器
 │   │   ├── bookmarks.rs        # 书签处理器
 │   │   ├── collections.rs      # 收藏夹处理器
+│   │   ├── search.rs           # 搜索处理器
+│   │   ├── stats.rs            # 统计处理器
 │   │   └── tags.rs             # 标签处理器
 │   ├── services/
 │   │   ├── mod.rs
 │   │   ├── auth_service.rs     # 认证服务
 │   │   ├── bookmark_service.rs # 书签服务
 │   │   ├── collection_service.rs # 收藏夹服务
-│   │   ├── tag_service.rs      # 标签服务
-│   │   └── search_service.rs   # 搜索服务
+│   │   ├── indexer_service.rs  # 索引服务
+│   │   ├── maintenance_service.rs # 维护服务
+│   │   ├── search_service.rs   # 搜索服务
+│   │   ├── stats_service.rs    # 统计服务
+│   │   └── tag_service.rs      # 标签服务
 │   ├── middleware/
 │   │   ├── mod.rs
 │   │   ├── auth.rs             # 认证中间件
@@ -52,17 +66,31 @@ backend/
 │   ├── utils/
 │   │   ├── mod.rs
 │   │   ├── error.rs            # 错误处理
-│   │   ├── response.rs         # 响应工具
 │   │   ├── jwt.rs              # JWT 工具
+│   │   ├── response.rs         # 响应工具
+│   │   ├── segmenter.rs        # 分词器
 │   │   └── validation.rs       # 验证工具
 │   └── routes/
 │       ├── mod.rs
 │       ├── auth.rs             # 认证路由
 │       ├── bookmarks.rs        # 书签路由
 │       ├── collections.rs      # 收藏夹路由
+│       ├── search.rs           # 搜索路由
+│       ├── stats.rs            # 统计路由
 │       └── tags.rs             # 标签路由
 ├── migrations/                 # 数据库迁移
+│   ├── 20250104000001_create_tables.sql
+│   ├── 20250104000002_optimize_indexes.sql
+│   ├── 20250104000003_setup_fts5.sql
+│   └── 20250104000004_seed_data.sql
 ├── tests/                      # 集成测试
+│   ├── fts_config_integration.rs
+│   └── segmentation_integration.rs
+├── config/                     # 配置文件
+│   ├── default.toml
+│   ├── development.toml
+│   └── production.toml
+├── .env.example                # 环境变量示例
 └── Cargo.toml
 ```
 
@@ -71,108 +99,137 @@ backend/
 ### 1. 应用入口 (main.rs)
 
 ```rust
-use axum::{Router, middleware};
+use axum::{middleware as mw, Router};
+use axum_jwt_auth::Decoder;
 use std::net::SocketAddr;
-use tower::ServiceBuilder;
-use tower_http::cors::CorsLayer;
-use tracing_subscriber;
+use std::sync::Arc;
+use tracing_subscriber::{self, EnvFilter};
 
 mod config;
-mod models;
 mod handlers;
-mod services;
 mod middleware;
-mod utils;
+mod models;
 mod routes;
+mod services;
+mod state;
+mod utils;
 
 use config::AppConfig;
 use middleware::{auth_middleware, logging_middleware};
-use routes::{auth_routes, bookmark_routes, collection_routes, tag_routes};
+use routes::{
+    ano_routes, auth_routes, bookmark_routes, collection_routes, search_routes, stats_routes,
+    tag_routes,
+};
+use state::AppState;
+use utils::jwt::{JWTService, JwtClaims};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 初始化日志
-    tracing_subscriber::init();
-    
-    // 加载配置
-    let config = AppConfig::from_env()?;
-    
-    // 初始化数据库连接池
+    // Load environment variables
+    dotenv::dotenv().ok();
+
+    // Initialize tracing with a sensible default when RUST_LOG isn't set
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_target(true)
+        .with_env_filter(env_filter)
+        .init();
+
+    // Load configuration with support for config files and environment variables
+    let config = AppConfig::load()?;
+
+    // Initialize database connection pool
     let db_pool = config.database.create_pool().await?;
-    
-    // 构建应用路由
-    let app = Router::new()
-        .nest("/api/auth", auth_routes())
+
+    // Run migrations
+    sqlx::migrate!("./migrations").run(&db_pool).await?;
+
+    // 检查并重建 FTS 索引（如果需要）
+    services::check_and_rebuild_fts(db_pool.clone()).await?;
+
+    // Initialize shared JWT decoder for middleware
+    let jwt_decoder: Decoder<JwtClaims> = Arc::new(JWTService::new(config.auth.jwt_secret.clone()));
+
+    let app_state = AppState::new(db_pool.clone(), jwt_decoder);
+
+    // Protected routes requiring authentication
+    let protected_routes = Router::new()
         .nest("/api/bookmarks", bookmark_routes())
         .nest("/api/collections", collection_routes())
         .nest("/api/tags", tag_routes())
-        .layer(
-            ServiceBuilder::new()
-                .layer(CorsLayer::permissive())
-                .layer(middleware::from_fn(logging_middleware))
-        )
-        .with_state(db_pool);
-    
-    // 启动服务器
+        .nest("/api/search", search_routes())
+        .nest("/api/stats", stats_routes())
+        .nest("/api/auth", auth_routes())
+        .layer(mw::from_fn_with_state(app_state.clone(), auth_middleware));
+
+    // Build application router
+    let app = Router::new()
+        .nest("/api/auth", ano_routes())
+        .merge(protected_routes)
+        .layer(middleware::cors::cors_layer())
+        .layer(mw::from_fn(logging_middleware))
+        .with_state(app_state);
+
+    // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     tracing::info!("Server listening on {}", addr);
-    
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
-    
+
     Ok(())
 }
 ```
 
-### 2. 配置管理 (config/mod.rs)
+### 2. 应用状态管理 (state.rs)
 
 ```rust
-use serde::{Deserialize, Serialize};
+use axum::extract::FromRef;
+use axum_jwt_auth::Decoder;
 use sqlx::SqlitePool;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppConfig {
-    pub server: ServerConfig,
-    pub database: DatabaseConfig,
-    pub auth: AuthConfig,
+use crate::utils::jwt::JwtClaims;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub db_pool: SqlitePool,
+    pub jwt_decoder: Decoder<JwtClaims>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatabaseConfig {
-    pub url: String,
-    pub max_connections: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthConfig {
-    pub jwt_secret: String,
-    pub jwt_expires_in: u64,
-    pub refresh_token_expires_in: u64,
-}
-
-impl AppConfig {
-    pub fn from_env() -> anyhow::Result<Self> {
-        config::Config::builder()
-            .add_source(config::File::with_name("config"))
-            .add_source(config::Environment::with_prefix("APP"))
-            .build()?
-            .try_deserialize()
+impl AppState {
+    pub fn new(
+        db_pool: SqlitePool,
+        jwt_decoder: Decoder<JwtClaims>,
+    ) -> Self {
+        Self {
+            db_pool,
+            jwt_decoder,
+        }
     }
 }
 
-impl DatabaseConfig {
-    pub async fn create_pool(&self) -> anyhow::Result<SqlitePool> {
-        let pool = SqlitePool::connect(&self.url).await?;
-        Ok(pool)
+impl FromRef<AppState> for SqlitePool {
+    fn from_ref(state: &AppState) -> Self {
+        state.db_pool.clone()
+    }
+}
+
+impl FromRef<AppState> for Decoder<JwtClaims> {
+    fn from_ref(state: &AppState) -> Self {
+        state.jwt_decoder.clone()
     }
 }
 ```
+
+### 3. 配置管理 (config/mod.rs)
+
+配置系统支持 TOML 文件和环境变量，具有分层的配置结构：
+
+- `default.toml`: 默认配置
+- `development.toml`: 开发环境配置
+- `production.toml`: 生产环境配置
+
+配置加载优先级：环境变量 > 环境特定配置文件 > 默认配置文件。
 
 ### 3. 数据模型 (models/)
 
@@ -181,18 +238,23 @@ impl DatabaseConfig {
 ```rust
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
-    pub id: Uuid,
+    pub id: i64,
     pub username: String,
     pub email: String,
     #[serde(skip_serializing)]
     pub password_hash: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub avatar_url: Option<String>,
+    pub is_active: bool,
+    pub email_verified: bool,
+    pub email_verification_token: Option<String>,
+    pub password_reset_token: Option<String>,
+    pub password_reset_expires_at: Option<i64>,
+    pub last_login_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -210,10 +272,15 @@ pub struct LoginUser {
 
 #[derive(Debug, Serialize)]
 pub struct UserResponse {
-    pub id: Uuid,
+    pub id: i64,
     pub username: String,
     pub email: String,
-    pub created_at: DateTime<Utc>,
+    pub avatar_url: Option<String>,
+    pub is_active: bool,
+    pub email_verified: bool,
+    pub last_login_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 impl From<User> for UserResponse {
@@ -222,7 +289,12 @@ impl From<User> for UserResponse {
             id: user.id,
             username: user.username,
             email: user.email,
+            avatar_url: user.avatar_url,
+            is_active: user.is_active,
+            email_verified: user.email_verified,
+            last_login_at: user.last_login_at,
             created_at: user.created_at,
+            updated_at: user.updated_at,
         }
     }
 }
@@ -1054,30 +1126,68 @@ CMD ["bookmarks-app"]
 
 ```toml
 [package]
-name = "bookmarks-app"
+name = "bookmarks-api"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.7"
+# Web framework
+axum = { version = "0.8", features = ["multipart"] }
 tokio = { version = "1.0", features = ["full"] }
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Database
+sqlx = { version = "0.8", features = [
+    "runtime-tokio-rustls",
+    "sqlite",
+    "migrate",
+] }
+
+async-trait = "0.1"
+
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Time/Date
 chrono = { version = "0.4", features = ["serde"] }
-bcrypt = "0.15"
-jsonwebtoken = "9.0"
-config = "0.14"
+
+# Authentication
+jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
+bcrypt = "0.17"
+axum-jwt-auth = "0.6"
+
+# Configuration
+config = "0.15"
+
+# Error handling
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
+
+# Logging
 tracing = "0.1"
-tracing-subscriber = "0.3"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Environment variables
+dotenv = "0.15"
+
+# Validation
+regex = "1.0"
+
+# Lazy initialization
+once_cell = "1.20"
+
+# Full-text search (Chinese word segmentation for FTS5)
+jieba-rs = { version = "0.8", optional = true }
+
+[features]
+default = []
+jieba = ["jieba-rs"]
 
 [dev-dependencies]
 tokio-test = "0.4"
+tempfile = "3.0"
 ```
 
 ## 性能优化
@@ -1096,6 +1206,70 @@ tokio-test = "0.4"
 4. **CORS 配置**: 合理配置跨域访问策略
 5. **错误处理**: 避免泄露敏感信息
 
+## 全文搜索架构
+
+### FTS5 配置
+
+项目使用 SQLite FTS5 进行全文搜索，支持中英文混合搜索：
+
+```sql
+CREATE VIRTUAL TABLE bookmarks_fts USING fts5(
+    title, 
+    description,
+    tags,
+    url,
+    tokenize = 'unicode61 remove_diacritics 2'
+);
+```
+
+### 搜索服务
+
+搜索服务提供以下功能：
+- 全文搜索（标题、描述、标签、URL）
+- 搜索建议
+- 高亮显示
+- 按相关性排序
+
+### 中文分词支持
+
+可选的 jieba 分词支持：
+```bash
+# 启用 jieba 功能
+cargo run --features jieba
+```
+
+## 性能优化
+
+1. **数据库索引优化**：
+   - 基础索引用于常见查询
+   - 部分索引用于特定场景
+   - 复合索引用于复杂查询
+
+2. **连接池配置**：
+   - SQLite 连接池优化
+   - WAL 模式提高并发性能
+
+3. **搜索优化**：
+   - FTS5 虚拟表
+   - 触发器自动同步
+   - 索引重建机制
+
+## 安全特性
+
+1. **认证安全**：
+   - JWT 令牌认证
+   - bcrypt 密码哈希
+   - 令牌自动刷新
+
+2. **数据安全**：
+   - SQL 注入防护
+   - 输入验证
+   - 错误信息过滤
+
+3. **CORS 配置**：
+   - 可配置的跨域策略
+   - 开发/生产环境分离
+
 ---
 
-这个 Rust 后端 API 架构提供了完整的书签应用后端功能，具有高性能、类型安全和良好的可维护性。
+这个 Rust 后端 API 架构提供了完整的书签应用后端功能，具有高性能、类型安全和良好的可维护性。特别针对 SQLite 和全文搜索进行了优化，支持中英文混合搜索，适合中小型应用和快速开发迭代。

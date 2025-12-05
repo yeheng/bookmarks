@@ -28,7 +28,11 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Node.js
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-nvm install 18
+nvm install 20
+
+# Docker (可选)
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
 ```
 
 2. **克隆项目**
@@ -92,10 +96,12 @@ npm run dev
 ┌─────────────────┐    HTTP     ┌─────────────────┐
 │   Vue.js 3      │ ◄─────────► │   Rust + Axum   │
 │   Frontend      │             │   Backend       │
+│   + Reka UI     │             │   + SQLite      │
 └─────────────────┘             └─────────────────┘
          │                               │
          │                               │
     Vite Dev Server                 SQLite Database
+                                     + FTS5 Search
 ```
 
 ### 后端架构
@@ -140,7 +146,7 @@ npm run dev
 │  Presentation Layer                             │
 │  ├─ Views (Pages)                              │
 │  ├─ Components                                 │
-│  └─ UI Components (shadcn-vue)                 │
+│  └─ UI Components (Reka UI)                    │
 ├─────────────────────────────────────────────────┤
 │  Business Layer                                 │
 │  ├─ Composables                                │

@@ -18,6 +18,7 @@
 - Rust 1.75+
 - Node.js 20+
 - SQLite 3+
+- Docker (可选，用于容器化部署)
 
 ### 快速启动
 
@@ -40,9 +41,46 @@
    npm run dev
    ```
 
-4. **访问应用**
+3. **访问应用**
    - 前端: http://localhost:5173
    - 后端 API: http://localhost:3000
+
+### 环境变量配置
+
+#### 后端环境变量 (.env)
+
+```bash
+# 数据库配置
+DATABASE_URL=sqlite:./data/bookmarks.db
+
+# 服务器配置
+SERVER_PORT=3000
+SERVER_HOST=0.0.0.0
+
+# 认证配置
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_EXPIRES_IN=604800  # 7 days in seconds
+
+# 日志配置
+RUST_LOG=info  # debug, info, warn, error
+
+# 前端 URL（CORS）
+FRONTEND_URL=http://localhost:5173
+```
+
+#### 前端环境变量 (.env)
+
+```bash
+# API 地址
+VITE_API_BASE_URL=http://localhost:3000/api
+
+# 应用标题
+VITE_APP_TITLE=Bookmarks Manager
+
+# 功能开关
+VITE_ENABLE_ANALYTICS=false
+VITE_ENABLE_PWA=true
+```
 
 ### 使用 Docker Compose 进行本地开发
 

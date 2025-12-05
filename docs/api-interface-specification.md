@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档定义了书签应用的 RESTful API 接口规范，包括请求格式、响应格式、错误处理和认证机制。API 遵循 REST 设计原则，使用 JSON 格式进行数据交换。该 API 专为 Vuejs + shadcn-vue 前端架构设计，提供高效的数据交互和良好的开发体验。
+本文档定义了书签应用的 RESTful API 接口规范，包括请求格式、响应格式、错误处理和认证机制。API 遵循 REST 设计原则，使用 JSON 格式进行数据交换。该 API 专为 Vue.js 3 + Reka UI 前端架构设计，提供高效的数据交互和良好的开发体验。
 
 ## 基础信息
 
@@ -12,8 +12,11 @@
 - **字符编码**: UTF-8
 - **认证方式**: Bearer Token (JWT)
 - **前端框架**: Vue.js 3.4+
-- **UI 组件库**: shadcn-vue
-- **数据库**: SQLite
+- **UI 组件库**: Reka UI (基于 Radix Vue)
+- **状态管理**: Pinia
+- **数据库**: SQLite with FTS5
+- **后端框架**: Rust + Axum
+- **搜索支持**: 中英文混合全文搜索
 
 ## 通用响应格式
 
@@ -25,24 +28,7 @@
   "data": {
     // 响应数据
   },
-  "message": "操作成功",
-  "timestamp": "2025-11-30T10:00:00Z"
-}
-```
-
-### 错误响应
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "错误描述",
-    "details": {
-      // 详细错误信息
-    }
-  },
-  "timestamp": "2025-11-30T10:00:00Z"
+  "message": "操作成功"
 }
 ```
 
@@ -51,15 +37,38 @@
 ```json
 {
   "success": true,
-  "data": [
-    // 数据项列表
-  ],
+  "data": {
+    "items": [
+      // 数据项列表
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 100,
+      "total_pages": 5,
+      "has_next": true,
+      "has_prev": false
+    }
+  },
   "message": "获取成功",
-  "timestamp": "2025-11-30T10:00:00Z"
+  "search_time": 0.05
 }
 ```
 
-注意：当前版本使用简化的分页，通过查询参数 `limit` 和 `offset` 控制。
+### 错误响应
+
+```json
+{
+  "success": false,
+  "message": "错误描述",
+  "code": "ERROR_CODE",
+  "details": {
+    // 详细错误信息
+  }
+}
+```
+
+注意：当前版本使用标准分页，通过查询参数 `limit` 和 `offset` 控制，返回完整的分页信息。
 
 ## 认证接口
 
@@ -97,7 +106,7 @@
       "id": 1,
       "username": "testuser",
       "email": "test@example.com",
-      "created_at": "2025-11-30T10:00:00Z"
+      "created_at": 1735584000
     },
     "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
   },
@@ -143,7 +152,7 @@
       "id": 1,
       "username": "testuser",
       "email": "test@example.com",
-      "last_login_at": "2025-11-30T10:00:00Z"
+      "last_login_at": 1735584000
     },
     "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
   },
@@ -238,8 +247,12 @@ Authorization: Bearer <access_token>
     "id": 1,
     "username": "testuser",
     "email": "test@example.com",
-    "created_at": "2025-11-30T10:00:00Z",
-    "updated_at": "2025-11-30T10:00:00Z"
+    "avatar_url": "https://ui-avatars.com/api/?name=testuser&background=3b82f6&color=fff",
+    "is_active": true,
+    "email_verified": true,
+    "last_login_at": 1735584000,
+    "created_at": 1735584000,
+    "updated_at": 1735584000
   },
   "message": "获取成功"
 }
@@ -274,27 +287,41 @@ Authorization: Bearer <access_token>
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "id": 1,
-      "title": "示例网站",
-      "url": "https://example.com",
-      "description": "这是一个示例网站",
-      "user_id": 1,
-      "collection_id": 1,
-      "created_at": "2025-11-30T08:00:00Z",
-      "updated_at": "2025-11-30T08:00:00Z",
-      "tags": [
-        {
-          "id": 1,
-          "name": "技术",
-          "user_id": 1,
-          "created_at": "2025-11-30T07:00:00Z",
-          "updated_at": "2025-11-30T07:00:00Z"
-        }
-      ]
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "title": "示例网站",
+        "url": "https://example.com",
+        "description": "这是一个示例网站",
+        "user_id": 1,
+        "collection_id": 1,
+        "collection_name": "技术文档",
+        "collection_color": "#3b82f6",
+        "created_at": 1735584000,
+        "updated_at": 1735584000,
+        "tags": ["技术", "前端"],
+        "is_archived": false,
+        "is_favorite": true,
+        "is_private": false,
+        "is_read": false,
+        "visit_count": 5,
+        "last_visited": 1735584000,
+        "metadata": {},
+        "reading_time": 3,
+        "difficulty_level": 2,
+        "favicon_url": "https://example.com/favicon.ico"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "total_pages": 1,
+      "has_next": false,
+      "has_prev": false
     }
-  ],
+  },
   "message": "获取成功"
 }
 ```
@@ -323,7 +350,7 @@ Authorization: Bearer <access_token>
 {
   "success": true,
   "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "id": 1,
     "title": "示例网站",
     "url": "https://example.com",
     "description": "这是一个示例网站",
@@ -335,7 +362,7 @@ Authorization: Bearer <access_token>
     "is_read": false,
     "is_private": false,
     "visit_count": 5,
-    "last_visited": "2025-11-30T09:00:00Z",
+    "last_visited": 1735584000,
     "reading_time": 3,
     "difficulty_level": 2,
     "metadata": {
@@ -343,13 +370,12 @@ Authorization: Bearer <access_token>
       "publish_date": "2025-11-29"
     },
     "tags": ["技术", "前端"],
-    "collection": {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "name": "技术文档",
-      "color": "#3b82f6"
-    },
-    "created_at": "2025-11-30T08:00:00Z",
-    "updated_at": "2025-11-30T08:00:00Z"
+    "collection_name": "技术文档",
+    "collection_color": "#3b82f6",
+    "user_id": 1,
+    "collection_id": 1,
+    "created_at": 1735584000,
+    "updated_at": 1735584000
   },
   "message": "获取成功"
 }
@@ -413,20 +439,23 @@ Authorization: Bearer <access_token>
 {
   "success": true,
   "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "id": 1,
     "title": "示例网站",
     "url": "https://example.com",
     "description": "这是一个示例网站",
     "is_favorite": true,
     "is_private": false,
     "tags": ["技术", "前端"],
-    "collection": {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "name": "技术文档",
-      "color": "#3b82f6"
-    },
-    "created_at": "2025-11-30T10:00:00Z",
-    "updated_at": "2025-11-30T10:00:00Z"
+    "collection_name": "技术文档",
+    "collection_color": "#3b82f6",
+    "user_id": 1,
+    "collection_id": 1,
+    "created_at": 1735584000,
+    "updated_at": 1735584000,
+    "visit_count": 0,
+    "is_archived": false,
+    "is_read": false,
+    "metadata": {}
   },
   "message": "创建成功"
 }
@@ -582,11 +611,12 @@ Authorization: Bearer <access_token>
 {
   "action": "delete",
   "bookmark_ids": [
-    "550e8400-e29b-41d4-a716-446655440000",
-    "550e8400-e29b-41d4-a716-446655440001"
+    1,
+    2
   ],
   "data": {
-    "collection_id": "550e8400-e29b-41d4-a716-446655440002"
+    "collection_id": 3,
+    "tags": ["新标签"]
   }
 }
 ```
@@ -596,7 +626,7 @@ Authorization: Bearer <access_token>
 | 参数 | 类型 | 必需 | 描述 |
 |------|------|------|------|
 | action | string | 是 | 操作类型 (delete/move/add_tags/remove_tags) |
-| bookmark_ids | string[] | 是 | 书签ID列表 |
+| bookmark_ids | number[] | 是 | 书签ID列表 |
 | data | object | 否 | 操作数据 |
 
 **响应**:
@@ -696,22 +726,33 @@ Authorization: Bearer <access_token>
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440001",
-      "name": "技术文档",
-      "description": "技术相关的文档和教程",
-      "color": "#3b82f6",
-      "icon": "folder",
-      "sort_order": 0,
-      "is_default": false,
-      "is_public": false,
-      "bookmark_count": 15,
-      "parent_id": null,
-      "created_at": "2025-11-30T08:00:00Z",
-      "updated_at": "2025-11-30T08:00:00Z"
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "name": "技术文档",
+        "description": "技术相关的文档和教程",
+        "color": "#3b82f6",
+        "icon": "folder",
+        "sort_order": 0,
+        "is_default": false,
+        "is_public": false,
+        "bookmark_count": 15,
+        "parent_id": null,
+        "user_id": 1,
+        "created_at": 1735584000,
+        "updated_at": 1735584000
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "total_pages": 1,
+      "has_next": false,
+      "has_prev": false
     }
-  ],
+  },
   "message": "获取成功"
 }
 ```
@@ -756,7 +797,7 @@ Authorization: Bearer <access_token>
 {
   "success": true,
   "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "id": 1,
     "name": "技术文档",
     "description": "技术相关的文档和教程",
     "color": "#3b82f6",
@@ -765,8 +806,9 @@ Authorization: Bearer <access_token>
     "is_default": false,
     "bookmark_count": 0,
     "parent_id": null,
-    "created_at": "2025-11-30T10:00:00Z",
-    "updated_at": "2025-11-30T10:00:00Z"
+    "user_id": 1,
+    "created_at": 1735584000,
+    "updated_at": 1735584000
   },
   "message": "创建成功"
 }
@@ -839,17 +881,63 @@ Authorization: Bearer <access_token>
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440003",
-      "name": "技术",
-      "color": "#64748b",
-      "description": "技术相关的标签",
-      "usage_count": 25,
-      "created_at": "2025-11-30T08:00:00Z",
-      "updated_at": "2025-11-30T08:00:00Z"
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "name": "技术",
+        "color": "#64748b",
+        "description": "技术相关的标签",
+        "usage_count": 25,
+        "user_id": 1,
+        "created_at": 1735584000,
+        "updated_at": 1735584000
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "total_pages": 1,
+      "has_next": false,
+      "has_prev": false
     }
-  ],
+  },
+  "message": "获取成功"
+}
+```
+
+### 2. 获取热门标签
+
+**GET** `/tags/popular`
+
+获取热门标签列表，按使用频率排序。
+
+**请求头**:
+
+```
+Authorization: Bearer <access_token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "name": "技术",
+        "color": "#64748b",
+        "description": "技术相关的标签",
+        "usage_count": 25,
+        "user_id": 1,
+        "created_at": 1735584000,
+        "updated_at": 1735584000
+      }
+    ]
+  },
   "message": "获取成功"
 }
 ```
@@ -906,14 +994,18 @@ Authorization: Bearer <access_token>
 
 | 参数 | 类型 | 必需 | 描述 |
 |------|------|------|------|
-| q | string | 是 | 搜索关键词 |
-| type | string | 否 | 搜索类型 (all/title/content/url) |
-| collection_id | string | 否 | 限制在指定收藏夹中搜索 |
-| tags | string | 否 | 限制在指定标签中搜索 |
-| date_from | string | 否 | 开始日期 (YYYY-MM-DD) |
-| date_to | string | 否 | 结束日期 (YYYY-MM-DD) |
-| page | integer | 否 | 页码 |
-| limit | integer | 否 | 每页数量 |
+| q | string | 否 | 搜索关键词（全局搜索） |
+| search | string | 否 | 搜索关键词（特定搜索） |
+| collection_id | number | 否 | 限制在指定收藏夹中搜索 |
+| tags | string | 否 | 限制在指定标签中搜索（逗号分隔） |
+| is_favorite | boolean | 否 | 是否收藏 |
+| is_archived | boolean | 否 | 是否归档 |
+| is_private | boolean | 否 | 是否私有 |
+| is_read | boolean | 否 | 是否已读 |
+| limit | number | 否 | 每页数量，默认20 |
+| offset | number | 否 | 偏移量，默认0 |
+| sort_by | string | 否 | 排序字段 (created_at/updated_at/title/visit_count) |
+| sort_order | string | 否 | 排序方向 (asc/desc) |
 
 **响应**:
 
@@ -923,32 +1015,43 @@ Authorization: Bearer <access_token>
   "data": {
     "items": [
       {
-        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "id": 1,
         "title": "示例网站",
         "url": "https://example.com",
         "description": "这是一个示例网站",
         "tags": ["技术"],
-        "collection": {
-          "id": "550e8400-e29b-41d4-a716-446655440001",
-          "name": "技术文档"
-        },
-        "rank": 0.95,
-        "highlights": {
-          "title": ["<mark>示例</mark>网站"],
-          "content": ["这是一个<mark>示例</mark>网站"]
-        },
-        "created_at": "2025-11-30T08:00:00Z"
+        "collection_name": "技术文档",
+        "collection_color": "#3b82f6",
+        "user_id": 1,
+        "collection_id": 1,
+        "created_at": 1735584000,
+        "updated_at": 1735584000,
+        "is_archived": false,
+        "is_favorite": true,
+        "is_private": false,
+        "is_read": false,
+        "visit_count": 5,
+        "last_visited": 1735584000,
+        "metadata": {},
+        "reading_time": 3,
+        "difficulty_level": 2
       }
     ],
     "pagination": {
       "page": 1,
       "limit": 20,
-      "total": 10,
-      "total_pages": 1
+      "total": 1,
+      "total_pages": 1,
+      "has_next": false,
+      "has_prev": false
     },
-    "search_time": 0.05
+    "highlights": {
+      "title": ["<mark>示例</mark>网站"],
+      "description": ["这是一个<mark>示例</mark>网站"]
+    }
   },
-  "message": "搜索完成"
+  "message": "搜索完成",
+  "search_time": 0.05
 }
 ```
 
@@ -1010,9 +1113,7 @@ Authorization: Bearer <access_token>
 
 **查询参数**:
 
-| 参数 | 类型 | 必需 | 描述 |
-|------|------|------|------|
-| period | string | 否 | 统计周期 (week/month/year) |
+无
 
 **响应**:
 
@@ -1026,9 +1127,17 @@ Authorization: Bearer <access_token>
     "favorite_bookmarks": 20,
     "archived_bookmarks": 10,
     "total_visits": 1250,
+    "recent_bookmarks": [
+      {
+        "id": 1,
+        "title": "最近添加的书签",
+        "url": "https://example.com",
+        "created_at": 1735584000
+      }
+    ],
     "recent_activity": [
       {
-        "date": "2025-11-30",
+        "date": 1735584000,
         "bookmarks_added": 3,
         "bookmarks_visited": 12
       }

@@ -36,7 +36,7 @@ Users (用户)
 
 ```sql
 CREATE TABLE users (
-    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6)))),
+    id INTEGER PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
@@ -45,10 +45,10 @@ CREATE TABLE users (
     email_verified INTEGER DEFAULT 0,
     email_verification_token TEXT,
     password_reset_token TEXT,
-    password_reset_expires_at DATETIME,
-    last_login_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    password_reset_expires_at INTEGER,
+    last_login_at INTEGER,
+    created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
+    updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER))
 );
 
 -- 索引
@@ -56,11 +56,13 @@ CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_users_active ON users(is_active);
 CREATE INDEX idx_users_email_verified ON users(email_verified);
+CREATE INDEX idx_users_active_email_verified ON users(is_active, email_verified);
+CREATE INDEX idx_users_last_login_desc ON users(last_login_at DESC);
 ```
 
 **字段说明：**
 
-- `id`: 主键，使用TEXT格式存储UUID
+- `id`: 主键，自增整数
 - `username`: 用户名，唯一约束
 - `email`: 邮箱地址，唯一约束，用于登录
 - `password_hash`: 加密后的密码，使用 bcrypt 存储
@@ -69,17 +71,17 @@ CREATE INDEX idx_users_email_verified ON users(email_verified);
 - `email_verified`: 邮箱是否已验证（INTEGER，1=已验证，0=未验证）
 - `email_verification_token`: 邮箱验证令牌
 - `password_reset_token`: 密码重置令牌
-- `password_reset_expires_at`: 密码重置令牌过期时间
-- `last_login_at`: 最后登录时间
-- `created_at`: 创建时间
-- `updated_at`: 更新时间
+- `password_reset_expires_at`: 密码重置令牌过期时间（Unix时间戳）
+- `last_login_at`: 最后登录时间（Unix时间戳）
+- `created_at`: 创建时间（Unix时间戳）
+- `updated_at`: 更新时间（Unix时间戳）
 
 ### 2. 收藏夹表 (collections)
 
 ```sql
 CREATE TABLE collections (
-    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6)))),
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT,
     color TEXT DEFAULT '#3b82f6',
@@ -87,10 +89,10 @@ CREATE TABLE collections (
     sort_order INTEGER DEFAULT 0,
     is_default INTEGER DEFAULT 0,
     is_public INTEGER DEFAULT 0,
-    parent_id TEXT REFERENCES collections(id) ON DELETE CASCADE,
+    parent_id INTEGER REFERENCES collections(id) ON DELETE CASCADE,
     bookmark_count INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
+    updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
     
     CONSTRAINT collections_user_name_unique UNIQUE(user_id, name)
 );
@@ -101,11 +103,12 @@ CREATE INDEX idx_collections_parent_id ON collections(parent_id);
 CREATE INDEX idx_collections_sort_order ON collections(sort_order);
 CREATE INDEX idx_collections_is_default ON collections(is_default);
 CREATE INDEX idx_collections_is_public ON collections(is_public);
+CREATE INDEX idx_collections_user_public_default ON collections(user_id, is_public, is_default);
 ```
 
 **字段说明：**
 
-- `id`: 主键，使用TEXT格式存储UUID
+- `id`: 主键，自增整数
 - `user_id`: 用户 ID，外键关联用户表
 - `name`: 收藏夹名称
 - `description`: 收藏夹描述（可选）
@@ -116,16 +119,16 @@ CREATE INDEX idx_collections_is_public ON collections(is_public);
 - `is_public`: 是否公开（INTEGER，1=公开，0=私有）
 - `parent_id`: 父收藏夹 ID，支持嵌套收藏夹
 - `bookmark_count`: 书签数量（冗余字段，用于性能优化）
-- `created_at`: 创建时间
-- `updated_at`: 更新时间
+- `created_at`: 创建时间（Unix时间戳）
+- `updated_at`: 更新时间（Unix时间戳）
 
 ### 3. 书签表 (bookmarks)
 
 ```sql
 CREATE TABLE bookmarks (
-    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6)))),
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    collection_id TEXT REFERENCES collections(id) ON DELETE SET NULL,
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     url TEXT NOT NULL,
     description TEXT,
@@ -137,12 +140,12 @@ CREATE TABLE bookmarks (
     is_private INTEGER DEFAULT 0,
     is_read INTEGER DEFAULT 0,
     visit_count INTEGER DEFAULT 0,
-    last_visited DATETIME,
+    last_visited INTEGER,
     reading_time INTEGER,
     difficulty_level INTEGER CHECK (difficulty_level BETWEEN 1 AND 5),
     metadata TEXT DEFAULT '{}',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
+    updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER))
 );
 
 -- 索引
@@ -155,37 +158,52 @@ CREATE INDEX idx_bookmarks_is_read ON bookmarks(is_read);
 CREATE INDEX idx_bookmarks_created_at ON bookmarks(created_at DESC);
 CREATE INDEX idx_bookmarks_last_visited ON bookmarks(last_visited DESC);
 CREATE INDEX idx_bookmarks_visit_count ON bookmarks(visit_count DESC);
+CREATE INDEX idx_bookmarks_url ON bookmarks(url);
+
+-- 部分索引 (针对常见查询场景的优化)
+CREATE INDEX idx_bookmarks_active_users ON bookmarks(user_id, created_at DESC)
+WHERE is_archived = 0;
+
+CREATE INDEX idx_bookmarks_favorites ON bookmarks(user_id, created_at DESC)
+WHERE is_favorite = 1;
+
+CREATE INDEX idx_bookmarks_unread ON bookmarks(user_id, created_at DESC)
+WHERE is_read = 0;
+
+-- 复合索引
+CREATE INDEX idx_bookmarks_user_read_visited ON bookmarks(user_id, is_read, last_visited DESC);
 
 -- 全文搜索索引 (SQLite FTS5)
 CREATE VIRTUAL TABLE bookmarks_fts USING fts5(
     title, 
     description,
-    content='bookmarks',
-    content_rowid='rowid'
+    tags,
+    url,
+    tokenize = 'unicode61 remove_diacritics 2'
 );
 
 -- FTS 触发器
 CREATE TRIGGER bookmarks_fts_insert AFTER INSERT ON bookmarks BEGIN
-    INSERT INTO bookmarks_fts(rowid, title, description) 
-    VALUES (new.rowid, new.title, new.description);
+    INSERT INTO bookmarks_fts(rowid, title, description, tags, url) 
+    VALUES (new.id, new.title, new.description, '', new.url);
 END;
 
 CREATE TRIGGER bookmarks_fts_delete AFTER DELETE ON bookmarks BEGIN
-    INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, description) 
-    VALUES ('delete', old.rowid, old.title, old.description);
+    INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, description, tags, url) 
+    VALUES ('delete', old.id, old.title, old.description, '', old.url);
 END;
 
 CREATE TRIGGER bookmarks_fts_update AFTER UPDATE ON bookmarks BEGIN
-    INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, description) 
-    VALUES ('delete', old.rowid, old.title, old.description);
-    INSERT INTO bookmarks_fts(rowid, title, description) 
-    VALUES (new.rowid, new.title, new.description);
+    INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, description, tags, url) 
+    VALUES ('delete', old.id, old.title, old.description, '', old.url);
+    INSERT INTO bookmarks_fts(rowid, title, description, tags, url) 
+    VALUES (new.id, new.title, new.description, '', new.url);
 END;
 ```
 
 **字段说明：**
 
-- `id`: 主键，使用TEXT格式存储UUID
+- `id`: 主键，自增整数
 - `user_id`: 用户 ID
 - `collection_id`: 收藏夹 ID（可选）
 - `title`: 书签标题
@@ -199,25 +217,25 @@ END;
 - `is_private`: 是否私有（INTEGER，1=私有，0=公开）
 - `is_read`: 是否已读（INTEGER，1=已读，0=未读）
 - `visit_count`: 访问次数
-- `last_visited`: 最后访问时间
+- `last_visited`: 最后访问时间（Unix时间戳）
 - `reading_time`: 预估阅读时间（分钟）
 - `difficulty_level`: 难度等级（1-5）
 - `metadata`: JSON 格式的额外元数据（TEXT格式存储）
-- `created_at`: 创建时间
-- `updated_at`: 更新时间
+- `created_at`: 创建时间（Unix时间戳）
+- `updated_at`: 更新时间（Unix时间戳）
 
 ### 4. 标签表 (tags)
 
 ```sql
 CREATE TABLE tags (
-    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6)))),
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     color TEXT DEFAULT '#64748b',
     description TEXT,
     usage_count INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
+    updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
     
     CONSTRAINT tags_user_name_unique UNIQUE(user_id, name)
 );
@@ -227,26 +245,28 @@ CREATE INDEX idx_tags_user_id ON tags(user_id);
 CREATE INDEX idx_tags_name ON tags(name);
 CREATE INDEX idx_tags_usage_count ON tags(usage_count DESC);
 CREATE INDEX idx_tags_created_at ON tags(created_at DESC);
+CREATE INDEX idx_tags_name_search ON tags(name);
+CREATE INDEX idx_tags_user_usage_created ON tags(user_id, usage_count DESC, created_at DESC);
 ```
 
 **字段说明：**
 
-- `id`: 主键，使用TEXT格式存储UUID
+- `id`: 主键，自增整数
 - `user_id`: 用户 ID
 - `name`: 标签名称
 - `color`: 标签颜色
 - `description`: 标签描述（可选）
 - `usage_count`: 使用次数（冗余字段）
-- `created_at`: 创建时间
-- `updated_at`: 更新时间
+- `created_at`: 创建时间（Unix时间戳）
+- `updated_at`: 更新时间（Unix时间戳）
 
 ### 5. 书签标签关联表 (bookmark_tags)
 
 ```sql
 CREATE TABLE bookmark_tags (
-    bookmark_id TEXT NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
-    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    bookmark_id INTEGER NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
     
     PRIMARY KEY (bookmark_id, tag_id)
 );
@@ -254,13 +274,15 @@ CREATE TABLE bookmark_tags (
 -- 索引
 CREATE INDEX idx_bookmark_tags_bookmark_id ON bookmark_tags(bookmark_id);
 CREATE INDEX idx_bookmark_tags_tag_id ON bookmark_tags(tag_id);
+CREATE INDEX idx_bookmark_tags_bookmark_created ON bookmark_tags(bookmark_id, created_at DESC);
+CREATE INDEX idx_bookmark_tags_tag_created ON bookmark_tags(tag_id, created_at DESC);
 ```
 
 **字段说明：**
 
 - `bookmark_id`: 书签 ID
 - `tag_id`: 标签 ID
-- `created_at`: 关联创建时间
+- `created_at`: 关联创建时间（Unix时间戳）
 
 ### 6. 用户会话表 (user_sessions)
 
