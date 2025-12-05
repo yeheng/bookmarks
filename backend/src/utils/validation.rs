@@ -1,8 +1,16 @@
+use once_cell::sync::Lazy;
 use regex::Regex;
 
+// 使用 Lazy 静态变量避免在每次调用时重新编译正则表达式
+// 这些正则表达式只会在第一次使用时编译一次，后续调用直接复用
+static EMAIL_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap());
+
+static URL_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").unwrap());
+
 pub fn validate_email(email: &str) -> bool {
-    let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
-    email_regex.is_match(email)
+    EMAIL_REGEX.is_match(email)
 }
 
 pub fn validate_password(password: &str) -> Result<(), String> {
@@ -26,8 +34,7 @@ pub fn validate_password(password: &str) -> Result<(), String> {
 }
 
 pub fn validate_url(url: &str) -> bool {
-    let url_regex = Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").unwrap();
-    url_regex.is_match(url)
+    URL_REGEX.is_match(url)
 }
 
 pub fn validate_username(username: &str) -> Result<(), String> {

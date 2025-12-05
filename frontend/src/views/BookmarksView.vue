@@ -21,7 +21,6 @@
             <option value="created_at">最新创建</option>
             <option value="updated_at">最近更新</option>
             <option value="title">标题</option>
-            <option value="visit_count">访问次数</option>
           </select>
 
           <button @click="toggleRightDrawer" class="p-2 rounded-md hover:bg-accent transition-colors" title="切换标签栏">

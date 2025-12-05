@@ -169,6 +169,7 @@
 <script setup lang="ts">
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth'
+import { useDebounceFn } from '@vueuse/core'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 
@@ -211,12 +212,9 @@ const getUserInitials = () => {
   return username.substring(0, 2).toUpperCase()
 }
 
-// 搜索功能
-const handleSearchInput = async () => {
-  // 重置高亮索引
-  highlightedIndex.value = -1
-  
-  if (!searchQuery.value.trim()) {
+// 实际执行搜索的函数
+const performSearch = async (query: string) => {
+  if (!query.trim()) {
     searchResults.value = []
     return
   }
@@ -226,10 +224,10 @@ const handleSearchInput = async () => {
     // 直接调用API，避免影响store状态
     const { apiService } = await import('@/services/api')
     const response = await apiService.search({
-      q: searchQuery.value.trim(),
+      q: query.trim(),
       limit: 5
     })
-    
+
     // API返回格式: {data: {items: [...], pagination: {...}}, success: true}
     const items = response.data?.items || []
     searchResults.value = items
@@ -239,6 +237,19 @@ const handleSearchInput = async () => {
   } finally {
     isSearching.value = false
   }
+}
+
+// 使用 VueUse 的 useDebounceFn 创建防抖搜索函数
+// 300ms 延迟，避免输入过快导致频繁的 API 请求
+const debouncedSearch = useDebounceFn(performSearch, 300)
+
+// 搜索功能 - 使用防抖
+const handleSearchInput = () => {
+  // 重置高亮索引
+  highlightedIndex.value = -1
+
+  // 调用防抖后的搜索函数
+  debouncedSearch(searchQuery.value)
 }
 
 const handleSearchKeydown = (event: KeyboardEvent) => {

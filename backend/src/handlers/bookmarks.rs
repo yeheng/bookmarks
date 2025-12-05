@@ -3,6 +3,7 @@ use axum::{
     http::{header, HeaderValue},
     response::Response,
 };
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
@@ -19,6 +20,16 @@ use crate::utils::error::AppError;
 use crate::utils::response::{
     success_message_response, success_response, success_response_with_message,
 };
+
+// 静态正则表达式，用于解析 Netscape 书签文件
+// 只在第一次使用时编译，避免每次导入时重新编译
+static LINK_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)<a[^>]*href="(?P<url>[^"]+)"[^>]*>(?P<title>[^<]+)"#)
+        .expect("Failed to compile bookmark regex"));
+
+static TAG_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)tags="(?P<tags>[^"]+)""#)
+        .expect("Failed to compile tag regex"));
 
 #[derive(Deserialize)]
 pub struct BookmarkListQuery {
@@ -295,12 +306,8 @@ fn parse_import_payload(
 }
 
 fn parse_netscape_bookmarks(content: &str) -> Vec<CreateBookmark> {
-    let link_regex = Regex::new(r#"(?i)<a[^>]*href="(?P<url>[^"]+)"[^>]*>(?P<title>[^<]+)"#)
-        .expect("Failed to compile bookmark regex");
-    let tag_regex =
-        Regex::new(r#"(?i)tags="(?P<tags>[^"]+)""#).expect("Failed to compile tag regex");
-
-    link_regex
+    // 使用全局静态正则表达式，避免每次调用时重新编译
+    LINK_REGEX
         .captures_iter(content)
         .map(|caps| {
             let url = caps
@@ -313,7 +320,7 @@ fn parse_netscape_bookmarks(content: &str) -> Vec<CreateBookmark> {
                 .filter(|t| !t.is_empty())
                 .unwrap_or_else(|| "Untitled".to_string());
 
-            let tags = tag_regex
+            let tags = TAG_REGEX
                 .captures(caps.get(0).map(|m| m.as_str()).unwrap_or_default())
                 .and_then(|tag_caps| tag_caps.name("tags").map(|m| m.as_str().to_string()))
                 .map(|value| {

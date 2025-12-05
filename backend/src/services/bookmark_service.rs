@@ -94,7 +94,7 @@ impl BookmarkService {
         let sort_by = query.sort_by.as_deref().unwrap_or("created_at");
         let sort_order = query.sort_order.as_deref().unwrap_or("desc");
 
-        // Validate sort_by and sort_order
+        // 验证排序字段和顺序，防止 SQL 注入
         let valid_sort_fields = [
             "created_at",
             "updated_at",
@@ -120,7 +120,9 @@ impl BookmarkService {
             )));
         }
 
-        let mut sql = r#"
+        // 使用 QueryBuilder 构建动态查询 - 自动管理参数绑定
+        let mut query_builder = sqlx::QueryBuilder::new(
+            r#"
             SELECT
                 b.id, b.user_id, b.collection_id, b.title, b.url, b.description,
                 b.favicon_url, b.screenshot_url, b.thumbnail_url,
@@ -128,8 +130,8 @@ impl BookmarkService {
                 b.visit_count, b.last_visited, b.reading_time, b.difficulty_level,
                 b.metadata, b.created_at, b.updated_at,
                 COALESCE(
-                    CASE 
-                        WHEN COUNT(t.name) > 0 
+                    CASE
+                        WHEN COUNT(t.name) > 0
                         THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
                         ELSE '[]'
                     END,
@@ -141,126 +143,101 @@ impl BookmarkService {
             LEFT JOIN collections c ON b.collection_id = c.id
             LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
             LEFT JOIN tags t ON bt.tag_id = t.id
-            WHERE b.user_id = $1
-        "#
-        .to_string();
+            WHERE b.user_id =
+            "#,
+        );
 
-        let mut param_count = 1;
+        // 自动绑定 user_id - 不需要手动管理参数索引
+        query_builder.push_bind(user_id);
 
-        // Add filter conditions
-        if let Some(_collection_id) = query.collection_id {
-            param_count += 1;
-            sql.push_str(&format!(" AND b.collection_id = ${}", param_count));
+        // 动态添加过滤条件 - QueryBuilder 自动管理参数绑定
+        if let Some(collection_id) = query.collection_id {
+            query_builder.push(" AND b.collection_id = ");
+            query_builder.push_bind(collection_id);
         }
 
-        if let Some(_is_favorite) = query.is_favorite {
-            param_count += 1;
-            sql.push_str(&format!(" AND b.is_favorite = ${}", param_count));
+        if let Some(is_favorite) = query.is_favorite {
+            query_builder.push(" AND b.is_favorite = ");
+            query_builder.push_bind(is_favorite);
         }
 
-        if let Some(_is_archived) = query.is_archived {
-            param_count += 1;
-            sql.push_str(&format!(" AND b.is_archived = ${}", param_count));
+        if let Some(is_archived) = query.is_archived {
+            query_builder.push(" AND b.is_archived = ");
+            query_builder.push_bind(is_archived);
         }
 
-        if let Some(_is_private) = query.is_private {
-            param_count += 1;
-            sql.push_str(&format!(" AND b.is_private = ${}", param_count));
+        if let Some(is_private) = query.is_private {
+            query_builder.push(" AND b.is_private = ");
+            query_builder.push_bind(is_private);
         }
 
-        if let Some(_is_read) = query.is_read {
-            param_count += 1;
-            sql.push_str(&format!(" AND b.is_read = ${}", param_count));
+        if let Some(is_read) = query.is_read {
+            query_builder.push(" AND b.is_read = ");
+            query_builder.push_bind(is_read);
         }
 
-        if let Some(ref _search_term) = query.search {
-            param_count += 1;
-            sql.push_str(&format!(
-                " AND (b.title LIKE '%' || ${} || '%' OR COALESCE(b.description, '') LIKE '%' || ${} || '%')",
-                param_count, param_count
-            ));
+        // 搜索条件 - 简化为单次绑定
+        if let Some(ref search_term) = query.search {
+            query_builder.push(" AND (b.title LIKE '%' || ");
+            query_builder.push_bind(search_term);
+            query_builder.push(" || '%' OR COALESCE(b.description, '') LIKE '%' || ");
+            query_builder.push_bind(search_term);
+            query_builder.push(" || '%')");
         }
 
+        // Tags 过滤 - 使用 QueryBuilder 处理 IN 子句
         if let Some(ref tags) = query.tags {
             if !tags.is_empty() {
-                param_count += 1;
-                let tag_placeholders = tags
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", param_count + 1 + i))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                param_count += tags.len();
-
-                sql.push_str(&format!(
+                query_builder.push(
                     " AND b.id IN (
                         SELECT bookmark_id
                         FROM bookmark_tags
                         JOIN tags ON bookmark_tags.tag_id = tags.id
-                        WHERE tags.name IN ({})
-                        GROUP BY bookmark_id
-                        HAVING COUNT(DISTINCT tags.id) = {}
-                    )",
-                    tag_placeholders,
-                    tags.len()
-                ));
+                        WHERE tags.name IN (",
+                );
+
+                // 使用 separated 方法处理 IN 子句中的多个值
+                let mut separated = query_builder.separated(", ");
+                for tag in tags {
+                    separated.push_bind(tag);
+                }
+
+                query_builder.push(") GROUP BY bookmark_id HAVING COUNT(DISTINCT tags.id) = ");
+                query_builder.push_bind(tags.len() as i64);
+                query_builder.push(")");
             }
         }
 
-        // Add ordering with validated sort field
+        // 添加 GROUP BY
+        query_builder.push(" GROUP BY b.id, c.name, c.color");
+
+        // 添加排序 - 已验证的字段名可以安全拼接
         let sort_field = match sort_by {
             "title" => "b.title",
             "created_at" => "b.created_at",
             "updated_at" => "b.updated_at",
             "visit_count" => "b.visit_count",
             "last_visited" => "b.last_visited",
-            _ => "b.created_at", // Default safe fallback
+            _ => "b.created_at", // 安全回退
         };
 
         let sort_direction = match sort_order {
             "ASC" | "asc" => "ASC",
             "DESC" | "desc" => "DESC",
-            _ => "DESC", // Default safe fallback
+            _ => "DESC", // 安全回退
         };
 
-        sql.push_str(&format!(
-            " GROUP BY b.id, c.name, c.color ORDER BY {} {} LIMIT ${} OFFSET ${}",
-            sort_field,
-            sort_direction,
-            param_count + 1,
-            param_count + 2
-        ));
+        query_builder.push(format!(" ORDER BY {} {}", sort_field, sort_direction));
 
-        let mut query_builder = sqlx::query_as::<_, BookmarkWithTags>(&sql).bind(user_id);
+        // 添加分页 - QueryBuilder 自动管理参数
+        query_builder.push(" LIMIT ");
+        query_builder.push_bind(limit);
+        query_builder.push(" OFFSET ");
+        query_builder.push_bind(offset);
 
-        // Bind parameters
-        if let Some(collection_id) = query.collection_id {
-            query_builder = query_builder.bind(collection_id);
-        }
-        if let Some(is_favorite) = query.is_favorite {
-            query_builder = query_builder.bind(is_favorite);
-        }
-        if let Some(is_archived) = query.is_archived {
-            query_builder = query_builder.bind(is_archived);
-        }
-        if let Some(is_private) = query.is_private {
-            query_builder = query_builder.bind(is_private);
-        }
-        if let Some(is_read) = query.is_read {
-            query_builder = query_builder.bind(is_read);
-        }
-        if let Some(search_term) = query.search {
-            query_builder = query_builder.bind(search_term);
-        }
-        if let Some(tags) = query.tags {
-            for tag in tags {
-                query_builder = query_builder.bind(tag);
-            }
-        }
-
+        // 执行查询
         let bookmarks = query_builder
-            .bind(limit)
-            .bind(offset)
+            .build_query_as::<BookmarkWithTags>()
             .fetch_all(db_pool)
             .await?;
 

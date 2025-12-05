@@ -79,8 +79,8 @@ export function useTagStats(bookmarks: Bookmark[]) {
  * 抽屉状态管理
  */
 export function useDrawers() {
-  const leftDrawerOpen = ref(true)
-  const rightDrawerOpen = ref(true)
+  const leftDrawerOpen = ref(false)
+  const rightDrawerOpen = ref(false)
 
   const toggleLeftDrawer = () => {
     leftDrawerOpen.value = !leftDrawerOpen.value

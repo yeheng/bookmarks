@@ -44,14 +44,22 @@ impl CollectionService {
         let limit = query.limit.unwrap_or(50);
         let offset = query.offset.unwrap_or(0);
 
-        // 构建动态查询，使用 sqlx::QueryBuilder 避免手动字符串拼接
-        let mut query_builder =
-            sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT * FROM collections WHERE user_id = ");
+        // 使用 QueryBuilder 构建动态查询 - 自动管理参数绑定
+        let mut query_builder = sqlx::QueryBuilder::new(
+            r#"
+            SELECT
+                id, user_id, name, description, color, icon, sort_order,
+                is_default, is_public, parent_id,
+                bookmark_count, created_at, updated_at
+            FROM collections
+            WHERE user_id =
+            "#,
+        );
 
-        // 添加 user_id 条件
+        // 自动绑定 user_id - 不需要手动管理参数索引
         query_builder.push_bind(user_id);
 
-        // 动态添加 parent_id 条件
+        // 动态添加 parent_id 条件 - QueryBuilder 自动管理参数绑定
         if let Some(parent_id) = query.parent_id {
             query_builder.push(" AND parent_id = ");
             query_builder.push_bind(parent_id);
@@ -66,7 +74,7 @@ impl CollectionService {
         // 添加排序
         query_builder.push(" ORDER BY sort_order, created_at");
 
-        // 添加分页
+        // 添加分页 - QueryBuilder 自动管理参数
         query_builder.push(" LIMIT ");
         query_builder.push_bind(limit);
         query_builder.push(" OFFSET ");

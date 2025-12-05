@@ -154,6 +154,13 @@ export interface SearchQuery {
   sort_order?: string; // "asc", "desc"
 }
 
+// 搜索过滤器接口（用于前端UI）
+export interface SearchFilters {
+  collectionId: string;
+  tagId: string;
+  sortBy: 'relevance' | 'created_at' | 'updated_at' | 'visit_count';
+}
+
 export interface CollectionsQuery {
   limit?: number;
   offset?: number;
