@@ -1,0 +1,97 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+target/
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary folders
+tmp/
+temp/
+
+# Cache
+.cache/
+.parcel-cache/
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Monitoring
+monitoring/
+
+# Data
+data/
+*.db
+*.sqlite
+
+# Rust
+Cargo.lock
+backend/target/
+**/*.rs.bk
+
+# Frontend
+frontend/.nuxt
+frontend/.output
+frontend/.vite
+frontend/.cache
+
+# Testing
+coverage/
+.nyc_output/
+test-results/

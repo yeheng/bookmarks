@@ -1,775 +1,375 @@
-# 安装部署指南
+# 部署指南
 
-本指南详细说明如何在不同环境中安装和部署书签管理系统。
+本文档提供了书签管理系统的完整部署指南，包括本地开发、Docker 部署和 CI/CD 流程。
 
-## 📋 目录
+## 目录
 
-- [环境要求](#环境要求)
-- [开发环境搭建](#开发环境搭建)
-- [生产环境部署](#生产环境部署)
+- [本地开发](#本地开发)
 - [Docker 部署](#docker-部署)
-- [云平台部署](#云平台部署)
-- [配置说明](#配置说明)
+- [CI/CD 流程](#cicd-流程)
+- [环境配置](#环境配置)
+- [监控和日志](#监控和日志)
 - [故障排除](#故障排除)
 
-## 🔧 环境要求
+## 本地开发
 
-### 基础要求
+### 前置要求
 
-- **操作系统**: Linux, macOS, Windows
-- **内存**: 最少 2GB RAM
-- **存储**: 最少 1GB 可用空间
-- **网络**: 稳定的互联网连接
+- Rust 1.75+
+- Node.js 20+
+- SQLite 3+
 
-### 软件依赖
+### 快速启动
 
-#### 后端依赖
+1. **克隆仓库**
+   ```bash
+   git clone <repository-url>
+   cd bookmarks
+   ```
 
-- **Rust**: 1.75.0 或更高版本
-- **SQLite**: 3.0 或更高版本
-- **OpenSSL**: 用于加密功能
+2. **启动后端**
+   ```bash
+   cd backend
+   cargo run
+   ```
 
-#### 前端依赖
+3. **启动前端**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
 
-- **Node.js**: 18.0.0 或更高版本
-- **npm**: 9.0.0 或更高版本
+4. **访问应用**
+   - 前端: http://localhost:5173
+   - 后端 API: http://localhost:3000
 
-### 可选工具
-
-- **Git**: 版本控制
-- **Docker**: 容器化部署
-- **Make**: 构建自动化
-
-## 🛠️ 开发环境搭建
-
-### 1. 克隆项目
-
-```bash
-git clone <repository-url>
-cd bookmarks
-```
-
-### 2. 安装 Rust
+### 使用 Docker Compose 进行本地开发
 
 ```bash
-# 安装 Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
+# 启动后端服务
+docker-compose up backend
 
-# 验证安装
-rustc --version
-cargo --version
+# 启动前端开发服务
+docker-compose --profile dev up
+
+# 启动开发工具（数据库管理）
+docker-compose --profile tools up
+
+# 启动监控服务
+docker-compose --profile monitoring up
 ```
 
-### 3. 安装 Node.js
+## Docker 部署
 
-#### 使用 nvm (推荐)
+### 构建镜像
 
 ```bash
-# 安装 nvm
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-source ~/.bashrc
+# 构建应用镜像
+docker build -t bookmarks:latest .
 
-# 安装 Node.js
-nvm install 18
-nvm use 18
+# 使用多平台构建
+docker buildx build --platform linux/amd64,linux/arm64 -t bookmarks:latest .
 ```
 
-#### 直接下载
-
-从 [Node.js 官网](https://nodejs.org/) 下载并安装。
-
-### 4. 后端设置
+### 运行容器
 
 ```bash
-cd backend
+# 基本运行
+docker run -d \
+  --name bookmarks \
+  -p 3000:3000 \
+  -e DATABASE_URL=sqlite:///app/data/bookmarks.db \
+  -e JWT_SECRET=your-secret-key \
+  bookmarks:latest
 
-# 创建环境配置文件
-cp .env.example .env
-
-# 编辑配置文件
-nano .env
+# 带数据持久化
+docker run -d \
+  --name bookmarks \
+  -p 3000:3000 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  -e DATABASE_URL=sqlite:///app/data/bookmarks.db \
+  -e JWT_SECRET=your-secret-key \
+  bookmarks:latest
 ```
 
-环境配置示例：
+### 使用 Docker Compose 生产部署
 
-```env
-# 数据库配置
-DATABASE_URL=sqlite:bookmarks.db
+```bash
+# 创建生产环境配置
+cp docker-compose.yml docker-compose.prod.yml
 
-# JWT 配置
-JWT_SECRET=your-super-secret-jwt-key-here
-JWT_EXPIRES_IN=15m
+# 编辑生产配置
+# 修改环境变量、卷挂载等
 
-# 服务器配置
-SERVER_HOST=0.0.0.0
+# 启动生产服务
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+## CI/CD 流程
+
+### GitHub Actions 工作流
+
+项目包含两个主要工作流：
+
+#### 1. 构建所有平台 (`.github/workflows/build-all-platforms.yml`)
+
+**触发条件：**
+- 推送到 `main` 或 `develop` 分支
+- 创建 Pull Request
+- 发布 Release
+
+**工作流程：**
+1. **代码质量检查** - 运行 Rust 和前端的代码检查
+2. **后端多平台构建** - 构建 5 个目标平台：
+   - Linux x86_64 (glibc)
+   - Linux x86_64 (musl)
+   - Windows x86_64
+   - macOS x86_64
+   - macOS ARM64
+3. **前端构建** - 构建生产版本
+4. **Docker 镜像构建** - 构建多架构 Docker 镜像
+5. **发布资产** - 上传构建产物到 Release
+6. **部署** - 自动部署到测试/生产环境
+
+#### 2. 测试 (`.github/workflows/test.yml`)
+
+**触发条件：**
+- 推送到 `main` 或 `develop` 分支
+- 创建 Pull Request
+
+**工作流程：**
+1. **后端测试** - 运行单元测试和集成测试
+2. **前端测试** - 运行单元测试和组件测试
+3. **代码覆盖率** - 生成并上传覆盖率报告
+
+### 环境变量配置
+
+在 GitHub 仓库设置中配置以下 Secrets：
+
+```bash
+# Docker Hub 认证
+DOCKER_USERNAME=your-docker-username
+DOCKER_PASSWORD=your-docker-password
+
+# 部署相关
+DEPLOY_HOST=your-server.com
+DEPLOY_USER=deploy
+DEPLOY_KEY=your-ssh-key
+
+# 通知（可选）
+SLACK_WEBHOOK_URL=your-slack-webhook
+```
+
+## 环境配置
+
+### 后端环境变量
+
+```bash
+# 数据库
+DATABASE_URL=sqlite:///app/data/bookmarks.db
+
+# 服务器
 SERVER_PORT=3000
+SERVER_HOST=0.0.0.0
 
-# 日志配置
-RUST_LOG=info
+# 认证
+JWT_SECRET=your-super-secret-jwt-key
+JWT_EXPIRES_IN=7d
+
+# 日志
+RUST_LOG=info  # debug, info, warn, error
+
+# 前端 URL（CORS）
+FRONTEND_URL=http://localhost:5173
 ```
 
-### 5. 数据库初始化
+### 前端环境变量
 
 ```bash
-# 安装 SQLx CLI
-cargo install sqlx-cli
-
-# 运行数据库迁移
-sqlx migrate run
-
-# 验证数据库
-sqlite3 bookmarks.db ".tables"
-```
-
-### 6. 启动后端服务
-
-```bash
-# 开发模式运行
-cargo run
-
-# 或者使用 watch 模式（需要安装 cargo-watch）
-cargo install cargo-watch
-cargo watch -x run
-```
-
-### 7. 前端设置
-
-```bash
-cd frontend
-
-# 安装依赖
-npm install
-
-# 创建环境配置文件
-cp .env.example .env.local
-
-# 编辑配置文件
-nano .env.local
-```
-
-前端配置示例：
-
-```env
-# API 配置
+# API 地址
 VITE_API_BASE_URL=http://localhost:3000/api
 
-# 应用配置
-VITE_APP_NAME=Bookmarks
-VITE_APP_VERSION=1.0.0
+# 应用标题
+VITE_APP_TITLE=Bookmarks Manager
+
+# 功能开关
+VITE_ENABLE_ANALYTICS=false
+VITE_ENABLE_PWA=true
 ```
 
-### 8. 启动前端服务
+## 监控和日志
+
+### 日志配置
 
 ```bash
-# 开发模式运行
-npm run dev
+# 查看应用日志
+docker-compose logs -f backend
 
-# 或者使用 TypeScript 检查
-npm run type-check
+# 查看特定时间段的日志
+docker-compose logs --since="2023-01-01T00:00:00" backend
+
+# 日志级别控制
+docker run -e RUST_LOG=debug bookmarks:latest
 ```
 
-### 9. 验证安装
+### 监控配置
 
-访问以下地址验证服务运行状态：
-
-- 前端应用: <http://localhost:5173>
-- 后端 API: <http://localhost:3000/api/auth/me>
-- API 健康检查: <http://localhost:3000/health>
-
-## 🚀 生产环境部署
-
-### 1. 服务器准备
-
-#### 系统要求
-
-- **CPU**: 2 核心或更多
-- **内存**: 4GB RAM 或更多
-- **存储**: 20GB SSD 或更多
-- **操作系统**: Ubuntu 20.04+ / CentOS 8+ / Debian 11+
-
-#### 系统更新
+使用 Prometheus + Grafana 进行监控：
 
 ```bash
-# Ubuntu/Debian
-sudo apt update && sudo apt upgrade -y
+# 启动监控服务
+docker-compose --profile monitoring up
 
-# CentOS/RHEL
-sudo yum update -y
+# 访问监控界面
+# Prometheus: http://localhost:9090
+# Grafana: http://localhost:3001 (admin/admin)
 ```
 
-### 2. 安装依赖
+### 健康检查
 
 ```bash
-# Ubuntu/Debian
-sudo apt install -y build-essential pkg-config libssl-dev sqlite3 nginx
+# 检查应用健康状态
+curl http://localhost:3000/health
 
-# CentOS/RHEL
-sudo yum groupinstall -y "Development Tools"
-sudo yum install -y openssl-devel sqlite nginx
+# 检查 Docker 容器状态
+docker ps
+docker-compose ps
 ```
 
-### 3. 部署用户设置
-
-```bash
-# 创建部署用户
-sudo useradd -m -s /bin/bash bookmarks
-sudo usermod -aG sudo bookmarks
-
-# 切换到部署用户
-sudo su - bookmarks
-```
-
-### 4. 应用部署
-
-#### 克隆代码
-
-```bash
-cd /home/bookmarks
-git clone <repository-url> app
-cd app
-```
-
-#### 后端构建
-
-```bash
-cd backend
-
-# 生产构建
-cargo build --release
-
-# 创建服务目录
-sudo mkdir -p /opt/bookmarks
-sudo cp target/release/bookmarks /opt/bookmarks/
-sudo cp -r migrations /opt/bookmarks/
-```
-
-#### 前端构建
-
-```bash
-cd frontend
-
-# 安装依赖
-npm ci --only=production
-
-# 构建生产版本
-npm run build
-
-# 部署静态文件
-sudo mkdir -p /var/www/bookmarks
-sudo cp -r dist/* /var/www/bookmarks/
-```
-
-### 5. 配置生产环境
-
-#### 后端配置
-
-```bash
-# 创建生产配置
-sudo mkdir -p /etc/bookmarks
-sudo nano /etc/bookmarks/.env
-```
-
-生产环境配置：
-
-```env
-# 数据库配置
-DATABASE_URL=sqlite:/opt/bookmarks/data/bookmarks.db
-
-# JWT 配置
-JWT_SECRET=your-production-jwt-secret-key
-JWT_EXPIRES_IN=15m
-
-# 服务器配置
-SERVER_HOST=127.0.0.1
-SERVER_PORT=3000
-
-# 日志配置
-RUST_LOG=warn
-
-# 生产环境标识
-ENVIRONMENT=production
-```
-
-#### 创建数据库目录
-
-```bash
-sudo mkdir -p /opt/bookmarks/data
-sudo chown -R bookmarks:bookmarks /opt/bookmarks
-```
-
-#### 运行数据库迁移
-
-```bash
-cd /opt/bookmarks
-sudo -u bookmarks sqlx migrate run --database-url "sqlite:/opt/bookmarks/data/bookmarks.db"
-```
-
-### 6. 系统服务配置
-
-#### 创建 systemd 服务
-
-```bash
-sudo nano /etc/systemd/system/bookmarks.service
-```
-
-服务配置文件：
-
-```ini
-[Unit]
-Description=Bookmarks Management System
-After=network.target
-
-[Service]
-Type=simple
-User=bookmarks
-Group=bookmarks
-WorkingDirectory=/opt/bookmarks
-Environment=DATABASE_URL=sqlite:/opt/bookmarks/data/bookmarks.db
-Environment=JWT_SECRET=your-production-jwt-secret-key
-Environment=RUST_LOG=warn
-ExecStart=/opt/bookmarks/bookmarks
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-#### 启用和启动服务
-
-```bash
-# 重新加载 systemd
-sudo systemctl daemon-reload
-
-# 启用服务
-sudo systemctl enable bookmarks
-
-# 启动服务
-sudo systemctl start bookmarks
-
-# 检查状态
-sudo systemctl status bookmarks
-```
-
-### 7. Nginx 配置
-
-#### 创建 Nginx 配置
-
-```bash
-sudo nano /etc/nginx/sites-available/bookmarks
-```
-
-Nginx 配置文件：
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    # 前端静态文件
-    location / {
-        root /var/www/bookmarks;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API 代理
-    location /api {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # 静态资源缓存
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-}
-```
-
-#### 启用站点
-
-```bash
-# 启用站点
-sudo ln -s /etc/nginx/sites-available/bookmarks /etc/nginx/sites-enabled/
-
-# 测试配置
-sudo nginx -t
-
-# 重启 Nginx
-sudo systemctl restart nginx
-```
-
-### 8. SSL 证书配置
-
-#### 使用 Let's Encrypt
-
-```bash
-# 安装 Certbot
-sudo apt install certbot python3-certbot-nginx
-
-# 获取证书
-sudo certbot --nginx -d your-domain.com
-
-# 自动续期
-sudo crontab -e
-```
-
-添加自动续期任务：
-
-```crontab
-0 12 * * * /usr/bin/certbot renew --quiet
-```
-
-## 🐳 Docker 部署
-
-### 1. 创建 Dockerfile
-
-#### 后端 Dockerfile
-
-```dockerfile
-# backend/Dockerfile
-FROM rust:1.75 as builder
-
-WORKDIR /app
-COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-COPY migrations ./migrations
-
-# 构建应用
-RUN cargo build --release
-
-# 运行时镜像
-FROM debian:bookworm-slim
-
-# 安装运行时依赖
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    sqlite3 \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# 复制构建产物
-COPY --from=builder /app/target/release/bookmarks /usr/local/bin/
-COPY --from=builder /app/migrations ./migrations
-
-# 创建数据目录
-RUN mkdir -p /data
-
-# 设置用户
-RUN useradd -r -s /bin/false bookmarks
-USER bookmarks
-
-EXPOSE 3000
-
-CMD ["bookmarks"]
-```
-
-#### 前端 Dockerfile
-
-```dockerfile
-# frontend/Dockerfile
-FROM node:18-alpine as builder
-
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-
-COPY . .
-RUN npm run build
-
-# Nginx 服务镜像
-FROM nginx:alpine
-
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/nginx.conf
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
-```
-
-### 2. Docker Compose
-
-创建 `docker-compose.yml`：
-
-```yaml
-version: '3.8'
-
-services:
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    environment:
-      - DATABASE_URL=sqlite:/data/bookmarks.db
-      - JWT_SECRET=your-docker-jwt-secret
-      - RUST_LOG=info
-    volumes:
-      - ./data:/data
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-    restart: unless-stopped
-
-volumes:
-  data:
-```
-
-### 3. 部署命令
-
-```bash
-# 构建和启动
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
-
-# 停止服务
-docker-compose down
-
-# 重新构建
-docker-compose up -d --build
-```
-
-## ☁️ 云平台部署
-
-### Vercel 部署（前端）
-
-```bash
-# 安装 Vercel CLI
-npm install -g vercel
-
-# 部署
-cd frontend
-vercel --prod
-```
-
-### Railway 部署（后端）
-
-```bash
-# 安装 Railway CLI
-npm install -g @railway/cli
-
-# 登录
-railway login
-
-# 部署
-cd backend
-railway up
-```
-
-### Docker Cloud 部署
-
-```bash
-# 构建镜像
-docker build -t your-username/bookmarks .
-
-# 推送到 Docker Hub
-docker push your-username/bookmarks
-
-# 部署到云平台
-# 根据具体平台操作
-```
-
-## ⚙️ 配置说明
-
-### 环境变量
-
-#### 后端环境变量
-
-| 变量名 | 必需 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `DATABASE_URL` | 是 | - | SQLite 数据库路径 |
-| `JWT_SECRET` | 是 | - | JWT 签名密钥 |
-| `JWT_EXPIRES_IN` | 否 | 15m | Token 过期时间 |
-| `SERVER_HOST` | 否 | 0.0.0.0 | 服务器监听地址 |
-| `SERVER_PORT` | 否 | 3000 | 服务器端口 |
-| `RUST_LOG` | 否 | info | 日志级别 |
-| `ENVIRONMENT` | 否 | development | 运行环境 |
-
-#### 前端环境变量
-
-| 变量名 | 必需 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `VITE_API_BASE_URL` | 是 | <http://localhost:3000/api> | API 基础地址 |
-| `VITE_APP_NAME` | 否 | Bookmarks | 应用名称 |
-| `VITE_APP_VERSION` | 否 | 1.0.0 | 应用版本 |
-
-### 数据库配置
-
-#### SQLite 优化
-
-```sql
--- 性能优化设置
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA cache_size = 10000;
-PRAGMA foreign_keys = ON;
-```
-
-### 安全配置
-
-#### JWT 安全
-
-- 使用强密钥（至少 32 字符）
-- 定期轮换密钥
-- 设置合理的过期时间
-
-#### 网络安全
-
-- 使用 HTTPS
-- 配置防火墙
-- 限制数据库访问
-
-## 🔧 故障排除
+## 故障排除
 
 ### 常见问题
 
-#### 1. 后端启动失败
-
-**问题**: 服务无法启动
-
-**解决方案**:
+#### 1. 后端编译失败
 
 ```bash
-# 检查日志
-sudo journalctl -u bookmarks -f
+# 清理 Rust 缓存
+cd backend
+cargo clean
+cargo build
 
-# 检查端口占用
-sudo netstat -tlnp | grep 3000
-
-# 检查配置文件
-cat /etc/bookmarks/.env
+# 检查 Rust 版本
+rustc --version  # 需要 1.75+
 ```
 
-#### 2. 数据库连接失败
+#### 2. 前端构建失败
 
-**问题**: 无法连接到数据库
+```bash
+# 清理 node_modules
+cd frontend
+rm -rf node_modules package-lock.json
+npm install
 
-**解决方案**:
+# 检查 Node.js 版本
+node --version  # 需要 20+
+npm --version
+```
+
+#### 3. Docker 构建问题
+
+```bash
+# 清理 Docker 缓存
+docker system prune -a
+
+# 重新构建镜像
+docker build --no-cache -t bookmarks:latest .
+```
+
+#### 4. 数据库连接问题
 
 ```bash
 # 检查数据库文件权限
-ls -la /opt/bookmarks/data/
+ls -la data/bookmarks.db
 
-# 检查 SQLite 版本
-sqlite3 --version
-
-# 手动测试数据库
-sqlite3 /opt/bookmarks/data/bookmarks.db ".tables"
+# 重新初始化数据库
+rm data/bookmarks.db
+docker-compose restart backend
 ```
 
-#### 3. 前端构建失败
+### 性能优化
 
-**问题**: npm 构建错误
-
-**解决方案**:
+#### 1. 后端优化
 
 ```bash
-# 清理缓存
-npm cache clean --force
+# 使用 release 模式
+cargo build --release
 
-# 删除 node_modules
-rm -rf node_modules package-lock.json
-
-# 重新安装
-npm install
+# 启用 Rust 优化
+RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
-#### 4. Nginx 配置错误
-
-**问题**: 502 Bad Gateway
-
-**解决方案**:
+#### 2. 前端优化
 
 ```bash
-# 检查 Nginx 配置
-sudo nginx -t
+# 构建分析
+npm run build -- --analyze
 
-# 检查后端服务状态
-sudo systemctl status bookmarks
-
-# 查看 Nginx 日志
-sudo tail -f /var/log/nginx/error.log
+# 启用压缩
+npm run build -- --minify
 ```
 
-### 日志分析
-
-#### 后端日志
+#### 3. Docker 优化
 
 ```bash
-# 实时日志
-sudo journalctl -u bookmarks -f
+# 使用多阶段构建
+# 已在 Dockerfile 中配置
 
-# 历史日志
-sudo journalctl -u bookmarks --since "1 hour ago"
+# 使用 .dockerignore
+# 已创建 .dockerignore 文件
 ```
 
-#### Nginx 日志
+## 安全建议
 
-```bash
-# 访问日志
-sudo tail -f /var/log/nginx/access.log
+1. **更改默认密钥**：生产环境中必须更改 JWT_SECRET
+2. **使用 HTTPS**：配置反向代理（Nginx/Traefik）启用 HTTPS
+3. **定期更新**：保持依赖项和基础镜像的最新版本
+4. **限制访问**：使用防火墙限制不必要的端口访问
+5. **备份策略**：定期备份数据库和配置文件
 
-# 错误日志
-sudo tail -f /var/log/nginx/error.log
+## 扩展部署
+
+### Kubernetes 部署
+
+可以使用提供的 Docker 镜像在 Kubernetes 中部署：
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookmarks
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: bookmarks
+  template:
+    metadata:
+      labels:
+        app: bookmarks
+    spec:
+      containers:
+      - name: bookmarks
+        image: bookmarks:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: DATABASE_URL
+          value: "sqlite:///app/data/bookmarks.db"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: bookmarks-secrets
+              key: jwt-secret
 ```
 
-### 性能监控
+### 云平台部署
 
-#### 系统监控
+支持部署到以下云平台：
+- AWS ECS/Fargate
+- Google Cloud Run
+- Azure Container Instances
+- DigitalOcean App Platform
 
-```bash
-# CPU 和内存使用
-top
-htop
-
-# 磁盘使用
-df -h
-
-# 网络连接
-netstat -tlnp
-```
-
-#### 应用监控
-
-```bash
-# 进程状态
-ps aux | grep bookmarks
-
-# 端口监听
-ss -tlnp | grep 3000
-```
-
-## 📞 支持
-
-如果遇到问题，请：
-
-1. 查看本文档的故障排除部分
-2. 检查项目的 GitHub Issues
-3. 提交新的 Issue 并包含详细的错误信息
-4. 联系技术支持团队
-
----
-
-**更新时间**: 2025-12-02
-**版本**: 1.0.0
+详细配置请参考各平台的官方文档。

@@ -1,0 +1,364 @@
+name: Build All Platforms
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: '20'
+  RUST_VERSION: '1.75'
+
+jobs:
+  # 代码质量检查
+  quality-check:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Rust format check
+        run: |
+          cd backend
+          cargo fmt --all -- --check
+
+      - name: Rust clippy check
+        run: |
+          cd backend
+          cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Frontend lint
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Frontend type check
+        run: |
+          cd frontend
+          npm run type-check
+
+  # 后端多平台构建
+  backend-build:
+    name: Backend Build
+    needs: quality-check
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: bookmarks-api
+            asset_name: bookmarks-api-linux-x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_name: bookmarks-api
+            asset_name: bookmarks-api-linux-x86_64-musl
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: bookmarks-api.exe
+            asset_name: bookmarks-api-windows-x86_64.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: bookmarks-api
+            asset_name: bookmarks-api-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: bookmarks-api
+            asset_name: bookmarks-api-macos-aarch64
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          target: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Build backend
+        run: |
+          cd backend
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          strip backend/target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: backend/target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+  # 前端构建
+  frontend-build:
+    name: Frontend Build
+    needs: quality-check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+  # Docker 镜像构建
+  docker-build:
+    name: Docker Build
+    needs: [backend-build, frontend-build]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    
+    strategy:
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Download backend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bookmarks-api-linux-x86_64
+          path: backend/
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/
+
+      - name: Create Dockerfile
+        run: |
+          cat > Dockerfile << 'EOF'
+          # Multi-stage build for Rust backend
+          FROM rust:1.75 as backend-builder
+          WORKDIR /app/backend
+          COPY backend/ ./
+          RUN cargo build --release
+
+          # Multi-stage build for frontend
+          FROM node:20 as frontend-builder
+          WORKDIR /app/frontend
+          COPY frontend/ ./
+          RUN npm ci && npm run build
+
+          # Final runtime image
+          FROM debian:bookworm-slim
+          RUN apt-get update && apt-get install -y \
+              ca-certificates \
+              sqlite3 \
+              && rm -rf /var/lib/apt/lists/*
+
+          WORKDIR /app
+
+          # Copy backend binary
+          COPY --from=backend-builder /app/backend/target/release/bookmarks-api /app/
+
+          # Copy frontend dist
+          COPY --from=frontend-builder /app/frontend/dist /app/frontend/
+
+          # Copy migrations
+          COPY backend/migrations /app/migrations
+
+          # Copy config
+          COPY backend/config /app/config
+
+          EXPOSE 3000
+
+          CMD ["./bookmarks-api"]
+          EOF
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: bookmarks/app
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  # 发布资产
+  release-assets:
+    name: Release Assets
+    needs: [backend-build, frontend-build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release archives
+        run: |
+          mkdir -p release
+          
+          # Create backend archives
+          cd artifacts
+          for dir in bookmarks-api-*; do
+            if [ -d "$dir" ]; then
+              binary=$(ls "$dir")
+              tar -czf "../release/${dir}.tar.gz" -C "$dir" "$binary"
+              zip - "../release/${dir}.zip" "$dir/$binary"
+            fi
+          done
+          
+          # Create frontend archive
+          tar -czf "../release/frontend-dist.tar.gz" -C frontend-dist .
+          zip -r "../release/frontend-dist.zip" frontend-dist/
+          
+          cd ..
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.tar.gz
+            release/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 部署到测试环境
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [docker-build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          # Add your deployment commands here
+          # Example: kubectl apply -f k8s/staging/
+
+  # 部署到生产环境
+  deploy-production:
+    name: Deploy to Production
+    needs: [docker-build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          # Add your deployment commands here
+          # Example: kubectl apply -f k8s/production/
+
+  # 通知
+  notify:
+    name: Notify
+    needs: [deploy-staging, deploy-production]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Notify on success
+        if: needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success'
+        run: |
+          echo "✅ Deployment successful!"
+          # Add notification logic here (Slack, Discord, etc.)
+
+      - name: Notify on failure
+        if: needs.deploy-staging.result == 'failure' || needs.deploy-production.result == 'failure'
+        run: |
+          echo "❌ Deployment failed!"
+          # Add notification logic here (Slack, Discord, etc.)
