@@ -1,18 +1,13 @@
 use axum::{
-    extract::{Json, Multipart, Path, Query, State},
-    http::{header, HeaderValue},
+    extract::{Json, Path, Query, State},
     response::Response,
 };
-use once_cell::sync::Lazy;
-use regex::Regex;
 use serde::Deserialize;
-use serde_json::json;
 use sqlx::SqlitePool;
 
 use crate::middleware::AuthenticatedUser;
 use crate::models::{
-    BookmarkBatchRequest, BookmarkBatchResult, BookmarkExportFormat, BookmarkExportOptions,
-    BookmarkExportPayload, BookmarkQuery, CreateBookmark, UpdateBookmark,
+    BookmarkBatchRequest, BookmarkBatchResult, BookmarkQuery, CreateBookmark, UpdateBookmark,
 };
 use crate::services::BookmarkService;
 use crate::state::AppState;
@@ -20,16 +15,6 @@ use crate::utils::error::AppError;
 use crate::utils::response::{
     success_message_response, success_response, success_response_with_message,
 };
-
-// 静态正则表达式，用于解析 Netscape 书签文件
-// 只在第一次使用时编译，避免每次导入时重新编译
-static LINK_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)<a[^>]*href="(?P<url>[^"]+)"[^>]*>(?P<title>[^<]+)"#)
-        .expect("Failed to compile bookmark regex"));
-
-static TAG_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)tags="(?P<tags>[^"]+)""#)
-        .expect("Failed to compile tag regex"));
 
 #[derive(Deserialize)]
 pub struct BookmarkListQuery {
@@ -120,100 +105,6 @@ pub async fn delete_bookmark(
 
     Ok(success_message_response("Bookmark deleted successfully"))
 }
-
-pub async fn increment_visit_count(
-    State(db_pool): State<SqlitePool>,
-    Path(bookmark_id): Path<i64>,
-    AuthenticatedUser(user_id): AuthenticatedUser,
-) -> Result<Response, AppError> {
-    let visit_info = BookmarkService::increment_visit_count(user_id, bookmark_id, &db_pool).await?;
-
-    Ok(success_response(visit_info))
-}
-
-pub async fn import_bookmarks(
-    State(app_state): State<AppState>,
-    AuthenticatedUser(user_id): AuthenticatedUser,
-    mut multipart: Multipart,
-) -> Result<Response, AppError> {
-    let mut format = BookmarkExportFormat::Json;
-    let mut collection_id: Option<i64> = None;
-    let mut file_bytes: Option<Vec<u8>> = None;
-
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Invalid multipart payload: {}", e)))?
-    {
-        match field.name() {
-            Some("format") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|e| AppError::BadRequest(format!("Invalid format field: {}", e)))?;
-                format = parse_export_format(&value)?;
-            }
-            Some("collection_id") => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|e| AppError::BadRequest(format!("Invalid collection_id: {}", e)))?;
-                collection_id = Some(value.trim().parse::<i64>().map_err(|_| {
-                    AppError::BadRequest("collection_id must be a valid integer".to_string())
-                })?);
-            }
-            Some("file") => {
-                let data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| AppError::BadRequest(format!("Invalid file upload: {}", e)))?;
-                file_bytes = Some(data.to_vec());
-            }
-            _ => {}
-        }
-    }
-
-    let bytes = file_bytes.ok_or_else(|| {
-        AppError::BadRequest("Missing bookmark file in multipart payload".to_string())
-    })?;
-
-    let mut bookmarks = parse_import_payload(&bytes, &format)?;
-
-    let mut imported = 0usize;
-    let mut duplicates = 0usize;
-    let mut skipped = 0usize;
-    let mut errors: Vec<String> = Vec::new();
-
-    for mut bookmark_data in bookmarks.drain(..) {
-        if let Some(target_collection) = collection_id {
-            bookmark_data.collection_id = Some(target_collection);
-        }
-
-        if BookmarkService::bookmark_exists(user_id, &bookmark_data.url, &app_state.db_pool).await? {
-            duplicates += 1;
-            continue;
-        }
-
-        match BookmarkService::create_bookmark(user_id, bookmark_data, &app_state.db_pool).await {
-            Ok(_) => imported += 1,
-            Err(err) => {
-                skipped += 1;
-                errors.push(format!("{}", err));
-            }
-        }
-    }
-
-    Ok(success_response_with_message(
-        json!({
-            "imported": imported,
-            "skipped": skipped,
-            "duplicates": duplicates,
-            "errors": errors
-        }),
-        "Import completed",
-    ))
-}
-
 pub async fn batch_update_bookmarks(
     State(db_pool): State<SqlitePool>,
     AuthenticatedUser(user_id): AuthenticatedUser,
@@ -232,114 +123,4 @@ pub async fn batch_update_bookmarks(
         result,
         "Batch operation completed",
     ))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct BookmarkExportQuery {
-    #[serde(default)]
-    pub format: BookmarkExportFormat,
-    pub collection_id: Option<i64>,
-    #[serde(default)]
-    pub include_archived: bool,
-}
-
-pub async fn export_bookmarks(
-    State(db_pool): State<SqlitePool>,
-    AuthenticatedUser(user_id): AuthenticatedUser,
-    Query(query): Query<BookmarkExportQuery>,
-) -> Result<Response, AppError> {
-    let options = BookmarkExportOptions {
-        format: query.format,
-        collection_id: query.collection_id,
-        include_archived: query.include_archived,
-    };
-
-    let payload: BookmarkExportPayload =
-        BookmarkService::export_bookmarks(user_id, options, &db_pool).await?;
-
-    let disposition =
-        HeaderValue::from_str(&format!("attachment; filename=\"{}\"", payload.filename))
-            .map_err(|_| AppError::Internal("Failed to build export headers".into()))?;
-
-    let content_type = HeaderValue::from_str(&payload.content_type)
-        .map_err(|_| AppError::Internal("Failed to build export headers".into()))?;
-
-    let mut response = Response::new(payload.body.into());
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, content_type);
-    response
-        .headers_mut()
-        .insert(header::CONTENT_DISPOSITION, disposition);
-
-    Ok(response)
-}
-
-fn parse_export_format(raw: &str) -> Result<BookmarkExportFormat, AppError> {
-    match raw.trim().to_lowercase().as_str() {
-        "json" => Ok(BookmarkExportFormat::Json),
-        "html" => Ok(BookmarkExportFormat::Html),
-        "netscape" => Ok(BookmarkExportFormat::Netscape),
-        other => Err(AppError::BadRequest(format!(
-            "Unsupported format '{}'",
-            other
-        ))),
-    }
-}
-
-fn parse_import_payload(
-    bytes: &[u8],
-    format: &BookmarkExportFormat,
-) -> Result<Vec<CreateBookmark>, AppError> {
-    match format {
-        BookmarkExportFormat::Json => {
-            let bookmarks: Vec<CreateBookmark> = serde_json::from_slice(bytes)
-                .map_err(|e| AppError::BadRequest(format!("Invalid JSON import file: {}", e)))?;
-            Ok(bookmarks)
-        }
-        BookmarkExportFormat::Html | BookmarkExportFormat::Netscape => {
-            let content = String::from_utf8(bytes.to_vec())
-                .map_err(|_| AppError::BadRequest("Import file is not valid UTF-8".into()))?;
-            Ok(parse_netscape_bookmarks(&content))
-        }
-    }
-}
-
-fn parse_netscape_bookmarks(content: &str) -> Vec<CreateBookmark> {
-    // 使用全局静态正则表达式，避免每次调用时重新编译
-    LINK_REGEX
-        .captures_iter(content)
-        .map(|caps| {
-            let url = caps
-                .name("url")
-                .map(|m| m.as_str().to_string())
-                .unwrap_or_default();
-            let title = caps
-                .name("title")
-                .map(|m| m.as_str().trim().to_string())
-                .filter(|t| !t.is_empty())
-                .unwrap_or_else(|| "Untitled".to_string());
-
-            let tags = TAG_REGEX
-                .captures(caps.get(0).map(|m| m.as_str()).unwrap_or_default())
-                .and_then(|tag_caps| tag_caps.name("tags").map(|m| m.as_str().to_string()))
-                .map(|value| {
-                    value
-                        .split(',')
-                        .map(|tag| tag.trim().to_string())
-                        .filter(|tag| !tag.is_empty())
-                        .collect::<Vec<_>>()
-                });
-
-            CreateBookmark {
-                title,
-                url,
-                description: None,
-                collection_id: None,
-                tags,
-                is_favorite: None,
-                is_private: None,
-            }
-        })
-        .collect::<Vec<_>>()
 }

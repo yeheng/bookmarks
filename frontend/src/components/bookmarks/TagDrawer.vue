@@ -18,7 +18,12 @@
             v-for="tag in tags"
             :key="tag.name"
             @click="handleTagClick(tag.name)"
-            class="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-accent/50 transition-colors"
+            :class="[
+              'w-full text-left px-3 py-2 rounded-md text-sm transition-colors',
+              selectedTag === tag.name 
+                ? 'bg-accent text-accent-foreground' 
+                : 'hover:bg-accent/50'
+            ]"
           >
             <div class="flex items-center gap-2">
               <span class="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -42,9 +47,12 @@ interface TagInfo {
 interface Props {
   isOpen: boolean
   tags: TagInfo[]
+  selectedTag?: string
 }
 
-defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  selectedTag: ''
+})
 
 // Emits
 const emit = defineEmits<{

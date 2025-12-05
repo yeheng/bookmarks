@@ -158,35 +158,3 @@ pub struct BookmarkBatchError {
     pub bookmark_id: i64,
     pub reason: String,
 }
-
-#[derive(Debug, Serialize)]
-pub struct BookmarkVisitInfo {
-    pub visit_count: i64,
-    pub last_visited: Option<i64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum BookmarkExportFormat {
-    #[default]
-    Json,
-    Html,
-    Netscape,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct BookmarkExportOptions {
-    #[serde(default)]
-    pub format: BookmarkExportFormat,
-    pub collection_id: Option<i64>,
-    #[serde(default)]
-    pub include_archived: bool,
-}
-
-#[derive(Debug)]
-pub struct BookmarkExportPayload {
-    pub filename: String,
-    pub content_type: String,
-    pub body: Vec<u8>,
-}

@@ -1,9 +1,8 @@
 use sqlx::{Row, SqlitePool};
 
 use crate::models::{
-    Bookmark, BookmarkBatchAction, BookmarkBatchError, BookmarkBatchRequest, BookmarkBatchResult,
-    BookmarkExportFormat, BookmarkExportOptions, BookmarkExportPayload, BookmarkQuery,
-    BookmarkVisitInfo, BookmarkWithTags, CreateBookmark, UpdateBookmark,
+    Bookmark, BookmarkBatchAction, BookmarkBatchError, BookmarkBatchRequest, BookmarkBatchResult, BookmarkQuery,
+    BookmarkWithTags, CreateBookmark, UpdateBookmark,
 };
 use crate::services::IndexerService;
 use crate::utils::error::{AppError, AppResult};
@@ -288,7 +287,7 @@ impl BookmarkService {
         bookmark_id: i64,
         update_data: UpdateBookmark,
         db_pool: &SqlitePool,
-    ) -> AppResult<Option<Bookmark>> {
+    ) -> AppResult<Option<BookmarkWithTags>> {
         // Validate URL if provided
         if let Some(ref url) = update_data.url {
             validate_url(url)
@@ -299,8 +298,8 @@ impl BookmarkService {
         // Start transaction - 同时更新 bookmarks 和 bookmarks_fts
         let mut tx = db_pool.begin().await?;
 
-        // 构建更新查询 - 使用Option字段逐个更新
-        let bookmark = if update_data.title.is_some()
+        // 检查是否有书签字段需要更新（不包括标签）
+        let has_bookmark_updates = update_data.title.is_some()
             || update_data.url.is_some()
             || update_data.description.is_some()
             || update_data.collection_id.is_some()
@@ -310,8 +309,19 @@ impl BookmarkService {
             || update_data.is_private.is_some()
             || update_data.is_read.is_some()
             || update_data.reading_time.is_some()
-            || update_data.difficulty_level.is_some()
-        {
+            || update_data.difficulty_level.is_some();
+
+        // 检查是否有任何字段需要更新（包括标签）
+        let has_any_updates = has_bookmark_updates || update_data.tags.is_some();
+
+        if !has_any_updates {
+            return Err(AppError::BadRequest(
+                "No update fields provided".to_string(),
+            ));
+        }
+
+        // 获取或更新书签
+        let bookmark = if has_bookmark_updates {
             // 使用 COALESCE 来只更新提供的字段
             sqlx::query_as::<_, Bookmark>(
                 r#"
@@ -350,9 +360,21 @@ impl BookmarkService {
             .fetch_optional(&mut *tx)
             .await?
         } else {
-            return Err(AppError::BadRequest(
-                "No update fields provided".to_string(),
-            ));
+            // 如果只更新标签，先获取现有书签
+            sqlx::query_as::<_, Bookmark>(
+                r#"
+                SELECT id, user_id, collection_id, title, url, description, favicon_url,
+                       screenshot_url, thumbnail_url, is_favorite, is_archived, is_private, 
+                       is_read, visit_count, last_visited, reading_time, difficulty_level, 
+                       metadata, created_at, updated_at
+                FROM bookmarks 
+                WHERE id = $1 AND user_id = $2
+                "#,
+            )
+            .bind(bookmark_id)
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await?
         };
 
         // 如果 bookmark 不存在，提前返回
@@ -400,7 +422,43 @@ impl BookmarkService {
         // Commit transaction - ACID 保证
         tx.commit().await?;
 
-        Ok(bookmark)
+        // 构建包含 tags 和 collection 信息的完整响应
+        let bookmark_with_tags = if let Some(bookmark) = bookmark {
+            // 获取标签
+            let tags = sqlx::query_scalar(
+                "SELECT t.name FROM tags t 
+                 JOIN bookmark_tags bt ON t.id = bt.tag_id 
+                 WHERE bt.bookmark_id = $1 
+                 ORDER BY t.name"
+            )
+            .bind(bookmark.id)
+            .fetch_all(db_pool)
+            .await?;
+
+            // 获取收藏夹信息
+            let collection_info = if let Some(collection_id) = bookmark.collection_id {
+                sqlx::query_as::<_, (String, String)>(
+                    "SELECT name, color FROM collections WHERE id = $1"
+                )
+                .bind(collection_id)
+                .fetch_optional(db_pool)
+                .await?
+                .map(|(name, color)| (name, Some(color)))
+            } else {
+                None
+            };
+
+            Some(BookmarkWithTags {
+                bookmark,
+                tags,
+                collection_name: collection_info.as_ref().map(|(name, _)| name.clone()),
+                collection_color: collection_info.as_ref().and_then(|(_, color)| color.clone()),
+            })
+        } else {
+            None
+        };
+
+        Ok(bookmark_with_tags)
     }
 
     pub async fn delete_bookmark(
@@ -432,34 +490,7 @@ impl BookmarkService {
         Ok(was_deleted)
     }
 
-    pub async fn increment_visit_count(
-        user_id: i64,
-        bookmark_id: i64,
-        db_pool: &SqlitePool,
-    ) -> AppResult<BookmarkVisitInfo> {
-        let record = sqlx::query(
-            r#"
-            UPDATE bookmarks
-            SET visit_count = visit_count + 1, last_visited = CAST(strftime('%s', 'now') AS INTEGER)
-            WHERE id = $1 AND user_id = $2
-            RETURNING visit_count, last_visited
-            "#,
-        )
-        .bind(bookmark_id)
-        .bind(user_id)
-        .fetch_optional(db_pool)
-        .await?;
-
-        let record = record.ok_or_else(|| AppError::NotFound("Bookmark not found".to_string()))?;
-        let visit_count: i64 = record.get("visit_count");
-        let last_visited = record.get("last_visited");
-
-        Ok(BookmarkVisitInfo {
-            visit_count: visit_count as i64,
-            last_visited,
-        })
-    }
-
+    #[allow(dead_code)]
     pub async fn bookmark_exists(user_id: i64, url: &str, db_pool: &SqlitePool) -> AppResult<bool> {
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM bookmarks WHERE user_id = $1 AND url = $2)",
@@ -558,76 +589,6 @@ impl BookmarkService {
         Ok(result)
     }
 
-    pub async fn export_bookmarks(
-        user_id: i64,
-        options: BookmarkExportOptions,
-        db_pool: &SqlitePool,
-    ) -> AppResult<BookmarkExportPayload> {
-        let query = BookmarkQuery {
-            collection_id: options.collection_id,
-            tags: None,
-            is_favorite: None,
-            is_archived: if options.include_archived {
-                None
-            } else {
-                Some(false)
-            },
-            is_private: None,
-            is_read: None,
-            search: None,
-            limit: Some(5000),
-            offset: Some(0),
-            sort_by: Some("created_at".to_string()),
-            sort_order: Some("desc".to_string()),
-        };
-
-        let bookmarks = Self::get_bookmarks(user_id, query, db_pool).await?;
-        let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
-
-        match options.format {
-            BookmarkExportFormat::Json => {
-                let body = serde_json::to_vec(&bookmarks)?;
-                Ok(BookmarkExportPayload {
-                    filename: format!("bookmarks-{}.json", timestamp),
-                    content_type: "application/json".to_string(),
-                    body,
-                })
-            }
-            BookmarkExportFormat::Html | BookmarkExportFormat::Netscape => {
-                let mut body = String::from(
-                    "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n",
-                );
-
-                for bookmark in bookmarks {
-                    let tags = if bookmark.tags.is_empty() {
-                        "".to_string()
-                    } else {
-                        bookmark.tags.join(",")
-                    };
-                    body.push_str(&format!(
-                        r#"<DT><A HREF="{url}" ADD_DATE="{ts}" TAGS="{tags}">{title}</A>"#,
-                        url = bookmark.bookmark.url,
-                        ts = bookmark.bookmark.created_at,
-                        tags = tags,
-                        title = bookmark.bookmark.title
-                    ));
-                    body.push('\n');
-                    if let Some(description) = bookmark.bookmark.description {
-                        body.push_str(&format!("<DD>{}\n", description));
-                    }
-                }
-
-                body.push_str("</DL><p>");
-
-                Ok(BookmarkExportPayload {
-                    filename: format!("bookmarks-{}.html", timestamp),
-                    content_type: "text/html; charset=utf-8".to_string(),
-                    body: body.into_bytes(),
-                })
-            }
-        }
-    }
-
     async fn move_bookmark(
         user_id: i64,
         bookmark_id: i64,
@@ -713,327 +674,5 @@ impl BookmarkService {
         }
 
         Ok(result > 0)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sqlx::SqlitePool;
-
-    async fn create_test_pool() -> SqlitePool {
-        let pool = SqlitePool::connect(":memory:").await.unwrap();
-        
-        // Create tables for testing
-        sqlx::query(
-            r#"
-            CREATE TABLE users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                email TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                avatar_url TEXT,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                email_verified INTEGER NOT NULL DEFAULT 0,
-                email_verification_token TEXT,
-                password_reset_token TEXT,
-                password_reset_expires_at INTEGER,
-                last_login_at INTEGER,
-                created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-                updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER))
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            r#"
-            CREATE TABLE collections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT,
-                color TEXT,
-                icon TEXT,
-                is_default INTEGER NOT NULL DEFAULT 0,
-                created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-                updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            r#"
-            CREATE TABLE tags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-                updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            r#"
-            CREATE TABLE bookmarks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                collection_id INTEGER,
-                title TEXT NOT NULL,
-                url TEXT NOT NULL,
-                description TEXT,
-                favicon_url TEXT,
-                screenshot_url TEXT,
-                thumbnail_url TEXT,
-                is_favorite INTEGER NOT NULL DEFAULT 0,
-                is_archived INTEGER NOT NULL DEFAULT 0,
-                is_private INTEGER NOT NULL DEFAULT 0,
-                is_read INTEGER NOT NULL DEFAULT 0,
-                visit_count INTEGER NOT NULL DEFAULT 0,
-                last_visited INTEGER,
-                reading_time INTEGER,
-                difficulty_level INTEGER,
-                metadata TEXT DEFAULT '{}',
-                created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-                updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE SET NULL
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            r#"
-            CREATE TABLE bookmark_tags (
-                bookmark_id INTEGER NOT NULL,
-                tag_id INTEGER NOT NULL,
-                PRIMARY KEY (bookmark_id, tag_id),
-                FOREIGN KEY (bookmark_id) REFERENCES bookmarks(id) ON DELETE CASCADE,
-                FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        // 创建 FTS5 虚拟表用于全文搜索
-        sqlx::query(
-            r#"
-            CREATE VIRTUAL TABLE bookmarks_fts USING fts5(
-                title,
-                description,
-                tags,
-                url,
-                content='',
-                tokenize='unicode61'
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        // Insert test user
-        sqlx::query(
-            "INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3)"
-        )
-        .bind("testuser")
-        .bind("test@example.com")
-        .bind("hashed_password")
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        pool
-    }
-
-    #[tokio::test]
-    async fn test_create_bookmark_success() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        
-        let bookmark_data = CreateBookmark {
-            collection_id: None,
-            title: "Test Bookmark".to_string(),
-            url: "https://example.com".to_string(),
-            description: Some("Test description".to_string()),
-            is_favorite: Some(true),
-            is_private: Some(false),
-            tags: Some(vec!["test".to_string(), "example".to_string()]),
-        };
-
-        let result = BookmarkService::create_bookmark(user_id, bookmark_data, &pool).await;
-        if let Err(e) = &result {
-            println!("Error creating bookmark: {:?}", e);
-            panic!("Failed to create bookmark: {:?}", e);
-        }
-        assert!(result.is_ok());
-
-        let bookmark = result.unwrap();
-        assert_eq!(bookmark.title, "Test Bookmark");
-        assert_eq!(bookmark.url, "https://example.com");
-        assert_eq!(bookmark.user_id, user_id);
-        assert!(bookmark.is_favorite);
-        assert!(!bookmark.is_private);
-    }
-
-    #[tokio::test]
-    async fn test_create_bookmark_invalid_url() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        
-        let bookmark_data = CreateBookmark {
-            collection_id: None,
-            title: "Test Bookmark".to_string(),
-            url: "invalid-url".to_string(),
-            description: None,
-            is_favorite: None,
-            is_private: None,
-            tags: None,
-        };
-
-        let result = BookmarkService::create_bookmark(user_id, bookmark_data, &pool).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_get_bookmarks_empty() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        
-        let query = BookmarkQuery::default();
-        let result = BookmarkService::get_bookmarks(user_id, query, &pool).await;
-        assert!(result.is_ok());
-
-        let bookmarks = result.unwrap();
-        assert!(bookmarks.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_get_bookmark_by_id_not_found() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        let bookmark_id = 999;
-        
-        let result = BookmarkService::get_bookmark_by_id(user_id, bookmark_id, &pool).await;
-        assert!(result.is_ok());
-
-        let bookmark = result.unwrap();
-        assert!(bookmark.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_update_bookmark_not_found() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        let bookmark_id = 999;
-        
-        let update_data = UpdateBookmark {
-            title: Some("Updated Title".to_string()),
-            url: None,
-            description: None,
-            collection_id: None,
-            clear_collection_id: None,
-            is_favorite: None,
-            is_archived: None,
-            is_private: None,
-            is_read: None,
-            reading_time: None,
-            difficulty_level: None,
-            tags: None,
-        };
-
-        let result = BookmarkService::update_bookmark(user_id, bookmark_id, update_data, &pool).await;
-        assert!(result.is_ok());
-
-        let bookmark = result.unwrap();
-        assert!(bookmark.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_delete_bookmark_not_found() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        let bookmark_id = 999;
-        
-        let result = BookmarkService::delete_bookmark(user_id, bookmark_id, &pool).await;
-        assert!(result.is_ok());
-        assert!(!result.unwrap());
-    }
-
-    #[tokio::test]
-    async fn test_bookmark_exists_false() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        let url = "https://example.com";
-        
-        let result = BookmarkService::bookmark_exists(user_id, url, &pool).await;
-        assert!(result.is_ok());
-        assert!(!result.unwrap());
-    }
-
-    #[tokio::test]
-    async fn test_increment_visit_count_not_found() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        let bookmark_id = 999;
-        
-        let result = BookmarkService::increment_visit_count(user_id, bookmark_id, &pool).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_batch_process_empty() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        
-        let request = BookmarkBatchRequest {
-            action: BookmarkBatchAction::Delete,
-            bookmark_ids: vec![],
-            data: None,
-        };
-
-        let result = BookmarkService::batch_process(user_id, request, &pool).await;
-        assert!(result.is_ok());
-
-        let batch_result = result.unwrap();
-        assert_eq!(batch_result.processed, 0);
-        assert_eq!(batch_result.failed, 0);
-    }
-
-    #[tokio::test]
-    async fn test_export_bookmarks_empty() {
-        let pool = create_test_pool().await;
-        let user_id = 1;
-        
-        let options = BookmarkExportOptions {
-            collection_id: None,
-            format: BookmarkExportFormat::Json,
-            include_archived: false,
-        };
-
-        let result = BookmarkService::export_bookmarks(user_id, options, &pool).await;
-        assert!(result.is_ok());
-
-        let payload = result.unwrap();
-        assert!(payload.filename.starts_with("bookmarks-"));
-        assert!(payload.filename.ends_with(".json"));
-        assert_eq!(payload.content_type, "application/json");
-        assert!(!payload.body.is_empty());
     }
 }

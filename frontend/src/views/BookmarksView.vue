@@ -61,8 +61,18 @@
         </div>
       </div>
 
-      <TagDrawer :is-open="rightDrawerOpen" :tags="allTags" @tag-click="navigateToTag" />
+      <TagDrawer :is-open="rightDrawerOpen" :tags="allTags" :selected-tag="filters.tag" @tag-click="handleTagClick" />
     </div>
+
+    <!-- 书签编辑模态框 -->
+    <BookmarkModal
+      :is-open="isModalOpen"
+      :bookmark="editingBookmark"
+      :collections="collectionsStore.collections || []"
+      :is-submitting="isSubmitting"
+      @close="handleCloseModal"
+      @submit="handleSubmitBookmark"
+    />
   </div>
 </template>
 
@@ -70,18 +80,37 @@
 import { onMounted, reactive, computed } from 'vue'
 import { useBookmarksStore } from '@/stores/bookmarks'
 import { useCollectionsStore } from '@/stores/collections'
+import { useTagsStore } from '@/stores/tags'
 import { useDrawers, useBookmarkActions, useTagStats } from '@/composables/useBookmarks'
+import { BookmarkModal } from '@/components/bookmarks'
 import CollectionDrawer from '@/components/bookmarks/CollectionDrawer.vue'
 import TagDrawer from '@/components/bookmarks/TagDrawer.vue'
 import BookmarkGrid from '@/components/bookmarks/BookmarkGrid.vue'
 
 const bookmarksStore = useBookmarksStore()
 const collectionsStore = useCollectionsStore()
+const tagsStore = useTagsStore()
 
 const { leftDrawerOpen, rightDrawerOpen, toggleLeftDrawer, toggleRightDrawer } = useDrawers()
-const { navigateToTag, toggleFavorite, editBookmark, deleteBookmark, handleAddBookmark } = useBookmarkActions()
+const { 
+  toggleFavorite, 
+  editBookmark, 
+  deleteBookmark, 
+  handleAddBookmark,
+  isModalOpen,
+  editingBookmark,
+  isSubmitting,
+  handleCloseModal,
+  handleSubmitBookmark
+} = useBookmarkActions()
 
-const filters = reactive({ collectionId: '', sortBy: 'created_at' })
+// 本地标签处理函数
+const handleTagClick = (tagName: string) => {
+  filters.tag = filters.tag === tagName ? '' : tagName
+  applyFilters()
+}
+
+const filters = reactive({ collectionId: '', sortBy: 'created_at', tag: '' })
 
 const allTags = computed(() => {
   const bookmarks = bookmarksStore.bookmarks || []
@@ -97,16 +126,23 @@ const selectCollection = (collectionId: string | null) => {
 const applyFilters = async () => {
   const params: any = { sort_by: filters.sortBy }
   if (filters.collectionId) params.collection_id = parseInt(filters.collectionId)
+  if (filters.tag) params.tags = filters.tag // 后端期望字符串，不是数组
+  console.log('应用过滤器参数:', params)
   await bookmarksStore.fetchBookmarks(params, true)
 }
 
 const loadMore = async () => {
   const params: any = { sort_by: filters.sortBy }
   if (filters.collectionId) params.collection_id = parseInt(filters.collectionId)
+  if (filters.tag) params.tags = filters.tag // 后端期望字符串，不是数组
   await bookmarksStore.fetchBookmarks(params, false)
 }
 
 onMounted(async () => {
-  await Promise.all([collectionsStore.fetchCollections(), applyFilters()])
+  await Promise.all([
+    collectionsStore.fetchCollections(), 
+    tagsStore.fetchTags(),
+    applyFilters()
+  ])
 })
 </script>

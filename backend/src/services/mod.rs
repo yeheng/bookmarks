@@ -18,3 +18,4 @@ pub use tag_service::*;
 
 #[cfg(test)]
 mod collection_service_test;
+mod bookmark_service_test;

@@ -3,11 +3,23 @@ use regex::Regex;
 
 // 使用 Lazy 静态变量避免在每次调用时重新编译正则表达式
 // 这些正则表达式只会在第一次使用时编译一次，后续调用直接复用
-static EMAIL_REGEX: Lazy<Regex> =
+pub static EMAIL_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap());
 
-static URL_REGEX: Lazy<Regex> =
+pub static URL_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").unwrap());
+
+// 静态正则表达式，用于解析 Netscape 书签文件
+// 只在第一次使用时编译，避免每次导入时重新编译
+#[allow(unused)]
+pub static LINK_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)<a[^>]*href="(?P<url>[^"]+)"[^>]*>(?P<title>[^<]+)"#)
+        .expect("Failed to compile bookmark regex"));
+
+#[allow(unused)]
+pub static TAG_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)tags="(?P<tags>[^"]+)""#)
+        .expect("Failed to compile tag regex"));
 
 pub fn validate_email(email: &str) -> bool {
     EMAIL_REGEX.is_match(email)
