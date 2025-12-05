@@ -2,7 +2,8 @@ use sqlx::{Row, SqlitePool};
 use std::time::Instant;
 
 use crate::models::{
-    BookmarkWithTags, SearchFilters, SearchPagination, SearchResponse, SearchSuggestion, SearchType,
+    BookmarkWithTags, FilterCriteria, SearchFilters, SearchPagination, SearchResponse,
+    SearchSuggestion, SearchType,
 };
 use crate::utils::error::AppResult;
 use crate::utils::segmenter::prepare_for_search;
@@ -20,104 +21,54 @@ impl SearchService {
         // 使用 jieba 对查询进行分词
         let search_keywords = prepare_for_search(Some(&filters.query));
 
-        // 构建过滤条件 SQL
-        let (filter_sql, binds, last_param) = Self::build_filter_sql(user_id, &filters);
-        let limit_param = last_param + 1;
-        let offset_param = last_param + 2;
+        // 构建查询
+        let query_builder = QueryBuilder::new(user_id, &search_keywords);
+        let (search_sql, count_sql, bind_values) = query_builder
+            .with_search_type(&filters.search_type)
+            .with_filters(&filters.filters)
+            .build();
 
-        // 构建 FTS5 搜索查询
-        // snippet() 函数用于生成高亮片段: snippet(table, column, prefix, suffix, ellipsis, max_tokens)
-        let search_sql = format!(
-            r#"
-            SELECT
-                b.id,
-                b.user_id,
-                b.collection_id,
-                b.title,
-                b.url,
-                b.description,
-                b.favicon_url,
-                b.screenshot_url,
-                b.thumbnail_url,
-                b.is_favorite,
-                b.is_archived,
-                b.is_private,
-                b.is_read,
-                b.visit_count,
-                b.last_visited,
-                b.reading_time,
-                b.difficulty_level,
-                b.metadata,
-                b.created_at,
-                b.updated_at,
-                COALESCE(
-                    CASE
-                        WHEN COUNT(t.name) > 0
-                        THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
-                        ELSE '[]'
-                    END,
-                    '[]'
-                ) as tags,
-                c.name as collection_name,
-                c.color as collection_color
-            FROM bookmarks b
-            JOIN bookmarks_fts fts ON b.id = fts.rowid
-            LEFT JOIN collections c ON b.collection_id = c.id
-            LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-            LEFT JOIN tags t ON bt.tag_id = t.id
-            {filter_sql}
-            GROUP BY b.id, c.name, c.color
-            ORDER BY rank
-            LIMIT ${} OFFSET ${}
-            "#,
-            limit_param, offset_param
-        );
-
-        let mut query_builder = sqlx::query_as::<_, BookmarkWithTags>(&search_sql).bind(user_id);
-
-        // 添加 FTS5 MATCH 参数（始终在第一个过滤参数之前）
-        query_builder = query_builder.bind(&search_keywords);
-
-        // 添加其他过滤器参数
-        for bind in &binds {
-            query_builder = match bind {
-                BindValue::I64(value) => query_builder.bind(*value),
-                BindValue::Text(value) => query_builder.bind(value.clone()),
+        // 执行主查询
+        let mut query = sqlx::query_as::<_, BookmarkWithTags>(&search_sql);
+        query = query.bind(user_id).bind(&search_keywords);
+        for bind in &bind_values {
+            query = match bind {
+                BindValue::I64(value) => query.bind(*value),
+                BindValue::Text(value) => query.bind(value),
             };
         }
 
-        let bookmarks = query_builder
-            .bind(filters.limit)
-            .bind(filters.offset)
+        let bookmarks = query
+            .bind(filters.pagination.limit)
+            .bind(filters.pagination.offset)
             .fetch_all(db_pool)
             .await?;
 
-        // 统计总数（也使用 FTS5 过滤）
-        let count_sql = format!("SELECT COUNT(*) FROM bookmarks b JOIN bookmarks_fts fts ON b.id = fts.rowid {filter_sql}");
-        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql).bind(user_id);
-        count_query = count_query.bind(&search_keywords);
-        for bind in &binds {
+        // 执行计数查询
+        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql);
+        count_query = count_query.bind(user_id).bind(&search_keywords);
+        for bind in &bind_values {
             count_query = match bind {
                 BindValue::I64(value) => count_query.bind(*value),
-                BindValue::Text(value) => count_query.bind(value.clone()),
+                BindValue::Text(value) => count_query.bind(value),
             };
         }
-
         let total = count_query.fetch_one(db_pool).await?;
 
+        // 构建响应
         let elapsed = start.elapsed().as_secs_f64();
-        let page = (filters.offset / filters.limit) + 1;
+        let page = filters.pagination.page();
         let total_pages = if total == 0 {
             0
         } else {
-            (total + filters.limit - 1) / filters.limit
+            (total + filters.pagination.limit - 1) / filters.pagination.limit
         };
 
         Ok(SearchResponse {
             items: bookmarks,
             pagination: SearchPagination {
                 page,
-                limit: filters.limit,
+                limit: filters.pagination.limit,
                 total,
                 total_pages,
                 has_next: page < total_pages,
@@ -185,85 +136,173 @@ impl SearchService {
             })
             .collect())
     }
+}
 
-    /// 构建过滤条件 SQL
-    ///
-    /// 返回: (filter_sql, binds, last_param_index)
-    /// 注意：FTS5 MATCH 参数始终是第 2 个参数（第 1 个是 user_id）
-    fn build_filter_sql(user_id: i64, filters: &SearchFilters) -> (String, Vec<BindValue>, i32) {
-        let mut sql = String::from("WHERE b.user_id = $1");
-        // FTS5 MATCH 参数是 $2，所以从 $3 开始计数其他过滤器
-        let mut param_index = 2;
-        let mut binds = Vec::new();
+/// FTS5 查询构建器 - 消除字符串拼接,提高可维护性
+struct QueryBuilder {
+    user_id: i64,
+    search_type: Option<SearchType>,
+    filters: Option<FilterCriteria>,
+}
+
+impl QueryBuilder {
+    fn new(user_id: i64, _search_keywords: &str) -> Self {
+        Self {
+            user_id,
+            search_type: None,
+            filters: None,
+        }
+    }
+
+    fn with_search_type(mut self, search_type: &SearchType) -> Self {
+        self.search_type = Some(match search_type {
+            SearchType::Title => SearchType::Title,
+            SearchType::Content => SearchType::Content,
+            SearchType::Url => SearchType::Url,
+            SearchType::All => SearchType::All,
+        });
+        self
+    }
+
+    fn with_filters(mut self, filters: &FilterCriteria) -> Self {
+        self.filters = Some(filters.clone());
+        self
+    }
+
+    /// 构建完整的 SQL 查询
+    /// 返回: (search_sql, count_sql, bind_values)
+    fn build(self) -> (String, String, Vec<BindValue>) {
+        let (where_clause, bind_values) = self.build_where_clause();
+
+        // 计算 LIMIT 和 OFFSET 的参数位置
+        // $1 = user_id, $2 = search_keywords, $3+ = filter bind_values
+        let limit_param_index = 3 + bind_values.len();
+        let offset_param_index = limit_param_index + 1;
+
+        let search_sql = format!(
+            r#"
+            SELECT
+                b.id,
+                b.user_id,
+                b.collection_id,
+                b.title,
+                b.url,
+                b.description,
+                b.favicon_url,
+                b.screenshot_url,
+                b.thumbnail_url,
+                b.is_favorite,
+                b.is_archived,
+                b.is_private,
+                b.is_read,
+                b.visit_count,
+                b.last_visited,
+                b.reading_time,
+                b.difficulty_level,
+                b.metadata,
+                b.created_at,
+                b.updated_at,
+                COALESCE(
+                    CASE
+                        WHEN COUNT(t.name) > 0
+                        THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
+                        ELSE '[]'
+                    END,
+                    '[]'
+                ) as tags,
+                c.name as collection_name,
+                c.color as collection_color
+            FROM bookmarks b
+            JOIN bookmarks_fts fts ON b.id = fts.rowid
+            LEFT JOIN collections c ON b.collection_id = c.id
+            LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+            LEFT JOIN tags t ON bt.tag_id = t.id
+            {}
+            GROUP BY b.id, c.name, c.color
+            ORDER BY rank
+            LIMIT ${} OFFSET ${}
+            "#,
+            where_clause, limit_param_index, offset_param_index
+        );
+
+        let count_sql = format!(
+            "SELECT COUNT(*) FROM bookmarks b JOIN bookmarks_fts fts ON b.id = fts.rowid {}",
+            where_clause
+        );
+
+        (search_sql, count_sql, bind_values)
+    }
+
+    /// 构建 WHERE 子句
+    /// 返回: (where_clause, bind_values)
+    fn build_where_clause(&self) -> (String, Vec<BindValue>) {
+        let mut conditions = vec!["b.user_id = $1".to_string()];
+        let mut bind_values = Vec::new();
 
         // 添加 FTS5 MATCH 条件（根据搜索类型）
-        match filters.search_type {
-            SearchType::Title => {
-                sql.push_str(" AND bookmarks_fts MATCH 'title:' || $2");
+        let fts_condition = match self.search_type.as_ref().unwrap_or(&SearchType::All) {
+            SearchType::Title => "bookmarks_fts MATCH 'title:' || $2",
+            SearchType::Content => "bookmarks_fts MATCH 'description:' || $2",
+            SearchType::Url => "bookmarks_fts MATCH 'url:' || $2",
+            SearchType::All => "bookmarks_fts MATCH $2",
+        };
+        conditions.push(fts_condition.to_string());
+
+        // 添加其他过滤条件
+        if let Some(filters) = &self.filters {
+            let mut param_index = 2; // 从 $3 开始（$1 是 user_id，$2 是 FTS MATCH）
+
+            if let Some(collection_id) = filters.collection_id {
+                param_index += 1;
+                conditions.push(format!("b.collection_id = ${}", param_index));
+                bind_values.push(BindValue::I64(collection_id));
             }
-            SearchType::Content => {
-                sql.push_str(" AND bookmarks_fts MATCH 'description:' || $2");
+
+            if !filters.tags.is_empty() {
+                param_index += 1;
+                let tag_user_param = param_index;
+                let tag_placeholders: Vec<String> = filters
+                    .tags
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("${}", param_index + 1 + (i as i32)))
+                    .collect();
+                param_index += filters.tags.len() as i32;
+
+                conditions.push(format!(
+                    "b.id IN (
+                        SELECT bt.bookmark_id
+                        FROM bookmark_tags bt
+                        JOIN tags t2 ON bt.tag_id = t2.id
+                        WHERE t2.user_id = ${} AND t2.name IN ({})
+                        GROUP BY bt.bookmark_id
+                        HAVING COUNT(DISTINCT t2.name) = {}
+                    )",
+                    tag_user_param,
+                    tag_placeholders.join(","),
+                    filters.tags.len()
+                ));
+                bind_values.push(BindValue::I64(self.user_id));
+                for tag in &filters.tags {
+                    bind_values.push(BindValue::Text(tag.clone()));
+                }
             }
-            SearchType::Url => {
-                sql.push_str(" AND bookmarks_fts MATCH 'url:' || $2");
+
+            if let Some(date_from) = filters.date_from {
+                param_index += 1;
+                conditions.push(format!("b.created_at >= ${}", param_index));
+                bind_values.push(BindValue::I64(date_from));
             }
-            SearchType::All => {
-                // 搜索所有字段（title, description, tags, url）
-                sql.push_str(" AND bookmarks_fts MATCH $2");
+
+            if let Some(date_to) = filters.date_to {
+                param_index += 1;
+                conditions.push(format!("b.created_at <= ${}", param_index));
+                bind_values.push(BindValue::I64(date_to));
             }
         }
 
-        // 其他过滤条件
-        if let Some(collection_id) = filters.collection_id {
-            param_index += 1;
-            sql.push_str(&format!(" AND b.collection_id = ${}", param_index));
-            binds.push(BindValue::I64(collection_id));
-        }
-
-        if !filters.tags.is_empty() {
-            param_index += 1;
-            let tag_user_param = param_index;
-            let tag_placeholders = filters
-                .tags
-                .iter()
-                .enumerate()
-                .map(|(i, _)| format!("${}", param_index + 1 + (i as i32)))
-                .collect::<Vec<_>>()
-                .join(",");
-            param_index += filters.tags.len() as i32;
-
-            sql.push_str(&format!(
-                " AND b.id IN (
-                    SELECT bt.bookmark_id
-                    FROM bookmark_tags bt
-                    JOIN tags t2 ON bt.tag_id = t2.id
-                    WHERE t2.user_id = ${} AND t2.name IN ({})
-                    GROUP BY bt.bookmark_id
-                    HAVING COUNT(DISTINCT t2.name) = {}
-                )",
-                tag_user_param,
-                tag_placeholders,
-                filters.tags.len()
-            ));
-            binds.push(BindValue::I64(user_id));
-            for tag in &filters.tags {
-                binds.push(BindValue::Text(tag.clone()));
-            }
-        }
-
-        if let Some(date_from) = filters.date_from {
-            param_index += 1;
-            sql.push_str(&format!(" AND b.created_at >= ${}", param_index));
-            binds.push(BindValue::I64(date_from));
-        }
-
-        if let Some(date_to) = filters.date_to {
-            param_index += 1;
-            sql.push_str(&format!(" AND b.created_at <= ${}", param_index));
-            binds.push(BindValue::I64(date_to));
-        }
-
-        (sql, binds, param_index)
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+        (where_clause, bind_values)
     }
 }
 

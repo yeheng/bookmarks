@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::{
     middleware::AuthenticatedUser,
-    models::{SearchFilters, SearchResponse, SearchType},
+    models::{FilterCriteria, PaginationParams, SearchFilters, SearchResponse, SearchType},
     services::SearchService,
     state::AppState,
     utils::error::AppError,
@@ -69,6 +69,7 @@ fn build_filters(query: &SearchQueryParams) -> Result<SearchFilters, AppError> {
         return Err(AppError::BadRequest("Search query cannot be empty".into()));
     }
 
+    // 解析搜索类型
     let search_type = match query
         .search_type
         .as_deref()
@@ -82,6 +83,7 @@ fn build_filters(query: &SearchQueryParams) -> Result<SearchFilters, AppError> {
         _ => SearchType::All,
     };
 
+    // 解析标签
     let tags = query
         .tags
         .as_ref()
@@ -94,22 +96,23 @@ fn build_filters(query: &SearchQueryParams) -> Result<SearchFilters, AppError> {
         })
         .unwrap_or_default();
 
+    // 构建过滤条件
+    let filters = FilterCriteria {
+        collection_id: query.collection_id,
+        tags,
+        date_from: query.date_from,
+        date_to: query.date_to,
+    };
+
+    // 构建分页参数
     let limit = query.limit.unwrap_or(20).clamp(1, 100);
     let page = query.page.unwrap_or(1).max(1);
-    let offset = (page - 1) * limit;
-
-    let date_from = query.date_from;
-    let date_to = query.date_to;
-    let collection_id = query.collection_id;
+    let pagination = PaginationParams::from_page(page, limit);
 
     Ok(SearchFilters {
         query: query.q.clone(),
         search_type,
-        collection_id,
-        tags,
-        date_from,
-        date_to,
-        limit,
-        offset,
+        filters,
+        pagination,
     })
 }

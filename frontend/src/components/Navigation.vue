@@ -49,24 +49,24 @@
             />
             <!-- Search results dropdown -->
             <div
-              v-if="showSearchResults && (searchQuery || searchResults.length > 0)"
+              v-if="showSearchResults && (searchQuery || (searchResults && searchResults.length > 0))"
               class="absolute top-full left-0 right-0 mt-1 bg-background border border-input rounded-md shadow-lg max-h-80 overflow-y-auto z-50"
             >
               <div v-if="isSearching" class="p-4 text-center text-muted-foreground">
                 搜索中...
               </div>
-              <div v-else-if="searchResults.length === 0 && searchQuery" class="p-4 text-center text-muted-foreground">
+              <div v-else-if="(!searchResults || searchResults.length === 0) && searchQuery" class="p-4 text-center text-muted-foreground">
                 未找到相关书签
               </div>
               <div v-else>
                 <div
-                  v-for="result in searchResults"
-                  :key="result.id"
+                  v-for="result in (searchResults || [])"
+                  :key="result?.id"
                   class="p-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
                   @click="goToBookmark(result)"
                 >
-                  <div class="font-medium text-sm">{{ result.title }}</div>
-                  <div class="text-xs text-muted-foreground truncate">{{ result.url }}</div>
+                  <div class="font-medium text-sm">{{ result?.title || '无标题' }}</div>
+                  <div class="text-xs text-muted-foreground truncate">{{ result?.url || '' }}</div>
                 </div>
               </div>
             </div>
@@ -162,9 +162,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
@@ -185,11 +185,9 @@ const newBookmark = ref({
   description: ''
 })
 
-// 导航项配置（移除搜索页面，因为现在有全局搜索）
+// 导航项配置（简化导航，聚焦书签功能）
 const navigationItems = [
-  { to: '/bookmarks', label: '书签' },
-  { to: '/collections', label: '收藏夹' },
-  { to: '/tags', label: '标签' }
+  { to: '/bookmarks', label: '书签' }
 ]
 
 // 获取用户首字母（用于头像显示）
@@ -214,16 +212,16 @@ const handleSearchInput = async () => {
 
   isSearching.value = true
   try {
-    // 调用真实的搜索API
-    const { useBookmarksStore } = await import('@/stores/bookmarks')
-    const bookmarksStore = useBookmarksStore()
-    
-    await bookmarksStore.searchBookmarks({
+    // 直接调用API，避免影响store状态
+    const { apiService } = await import('@/services/api')
+    const response = await apiService.search({
       q: searchQuery.value.trim(),
       limit: 5
     })
     
-    searchResults.value = bookmarksStore.bookmarks
+    // API返回格式: {data: {items: [...], pagination: {...}}, success: true}
+    const items = response.data?.items || []
+    searchResults.value = items
   } catch (error) {
     console.error('搜索失败:', error)
     searchResults.value = []
@@ -242,7 +240,9 @@ const goToBookmark = (bookmark: any) => {
   showSearchResults.value = false
   searchQuery.value = ''
   // 直接打开书签URL，而不是跳转到详情页
-  window.open(bookmark.url, '_blank')
+  if (bookmark && bookmark.url) {
+    window.open(bookmark.url, '_blank')
+  }
 }
 
 const hideSearchResults = () => {

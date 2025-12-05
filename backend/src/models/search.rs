@@ -13,16 +13,53 @@ pub enum SearchType {
     Url,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SearchFilters {
-    pub query: String,
-    pub search_type: SearchType,
+/// 分页参数
+#[derive(Debug, Clone)]
+pub struct PaginationParams {
+    pub limit: i64,
+    pub offset: i64,
+}
+
+impl PaginationParams {
+    /// 从页码和每页数量创建分页参数
+    pub fn from_page(page: i64, limit: i64) -> Self {
+        let offset = (page - 1) * limit;
+        Self { limit, offset }
+    }
+
+    /// 获取当前页码
+    pub fn page(&self) -> i64 {
+        (self.offset / self.limit) + 1
+    }
+}
+
+/// 过滤条件
+#[derive(Debug, Clone)]
+pub struct FilterCriteria {
     pub collection_id: Option<i64>,
     pub tags: Vec<String>,
     pub date_from: Option<i64>,
     pub date_to: Option<i64>,
-    pub limit: i64,
-    pub offset: i64,
+}
+
+impl Default for FilterCriteria {
+    fn default() -> Self {
+        Self {
+            collection_id: None,
+            tags: Vec::new(),
+            date_from: None,
+            date_to: None,
+        }
+    }
+}
+
+/// 搜索参数（组合了查询文本、搜索类型、过滤条件和分页）
+#[derive(Debug)]
+pub struct SearchFilters {
+    pub query: String,
+    pub search_type: SearchType,
+    pub filters: FilterCriteria,
+    pub pagination: PaginationParams,
 }
 
 #[derive(Debug, Serialize)]

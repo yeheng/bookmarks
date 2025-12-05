@@ -80,26 +80,8 @@ impl BookmarkService {
             }
         }
 
-        // 使用 jieba 分词，准备 FTS5 索引数据
-        let title_keywords = prepare_for_search(Some(&bookmark.title));
-        let description_keywords = prepare_for_search(bookmark.description.as_deref());
-        let tags_keywords = prepare_tags_for_search(&tag_names);
-        let url_text = bookmark.url.clone();
-
-        // 在同一事务中插入 FTS5 索引，使用 bookmark.id 作为 rowid
-        sqlx::query(
-            r#"
-            INSERT INTO bookmarks_fts (rowid, title, description, tags, url)
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-        )
-        .bind(bookmark.id)
-        .bind(title_keywords)
-        .bind(description_keywords)
-        .bind(tags_keywords)
-        .bind(url_text)
-        .execute(&mut *tx)
-        .await?;
+        // 同步 FTS 索引 - 使用封装的私有方法
+        Self::sync_fts_index(&mut tx, &bookmark, &tag_names, false).await?;
 
         // Commit transaction - ACID 保证：要么 bookmarks 和 bookmarks_fts 都成功，要么都失败
         tx.commit().await?;
@@ -464,27 +446,8 @@ impl BookmarkService {
                 .collect();
         }
 
-        // 使用 jieba 分词，准备 FTS5 更新数据
-        let title_keywords = prepare_for_search(Some(&updated_bookmark.title));
-        let description_keywords = prepare_for_search(updated_bookmark.description.as_deref());
-        let tags_keywords = prepare_tags_for_search(&tag_names);
-        let url_text = updated_bookmark.url.clone();
-
-        // 在同一事务中更新 FTS5 索引
-        sqlx::query(
-            r#"
-            UPDATE bookmarks_fts
-            SET title = $1, description = $2, tags = $3, url = $4
-            WHERE rowid = $5
-            "#,
-        )
-        .bind(title_keywords)
-        .bind(description_keywords)
-        .bind(tags_keywords)
-        .bind(url_text)
-        .bind(bookmark_id)
-        .execute(&mut *tx)
-        .await?;
+        // 同步 FTS 索引 - 使用封装的私有方法
+        Self::sync_fts_index(&mut tx, updated_bookmark, &tag_names, true).await?;
 
         // Commit transaction - ACID 保证
         tx.commit().await?;
@@ -803,6 +766,64 @@ impl BookmarkService {
 
         Ok(result > 0)
     }
+
+    /// 同步书签的 FTS 索引
+    ///
+    /// 这个私有方法封装了从书签数据生成分词并更新 FTS 索引的完整逻辑
+    /// 用于 create_bookmark 和 update_bookmark 中，消除代码重复
+    ///
+    /// # 参数
+    /// - tx: 数据库事务
+    /// - bookmark: 书签数据（包含 id, title, description, url）
+    /// - tags: 标签名称列表（用于分词）
+    /// - is_update: 是否为更新操作（true = UPDATE，false = INSERT）
+    async fn sync_fts_index(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        bookmark: &Bookmark,
+        tags: &[String],
+        is_update: bool,
+    ) -> AppResult<()> {
+        // 使用 jieba 分词，准备 FTS5 数据
+        let title_keywords = prepare_for_search(Some(&bookmark.title));
+        let description_keywords = prepare_for_search(bookmark.description.as_deref());
+        let tags_keywords = prepare_tags_for_search(tags);
+        let url_text = bookmark.url.clone();
+
+        if is_update {
+            // 更新现有 FTS 索引
+            sqlx::query(
+                r#"
+                UPDATE bookmarks_fts
+                SET title = $1, description = $2, tags = $3, url = $4
+                WHERE rowid = $5
+                "#,
+            )
+            .bind(title_keywords)
+            .bind(description_keywords)
+            .bind(tags_keywords)
+            .bind(url_text)
+            .bind(bookmark.id)
+            .execute(&mut **tx)
+            .await?;
+        } else {
+            // 插入新的 FTS 索引
+            sqlx::query(
+                r#"
+                INSERT INTO bookmarks_fts (rowid, title, description, tags, url)
+                VALUES ($1, $2, $3, $4, $5)
+                "#,
+            )
+            .bind(bookmark.id)
+            .bind(title_keywords)
+            .bind(description_keywords)
+            .bind(tags_keywords)
+            .bind(url_text)
+            .execute(&mut **tx)
+            .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -913,6 +934,23 @@ mod tests {
                 PRIMARY KEY (bookmark_id, tag_id),
                 FOREIGN KEY (bookmark_id) REFERENCES bookmarks(id) ON DELETE CASCADE,
                 FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 创建 FTS5 虚拟表用于全文搜索
+        sqlx::query(
+            r#"
+            CREATE VIRTUAL TABLE bookmarks_fts USING fts5(
+                title,
+                description,
+                tags,
+                url,
+                content='',
+                tokenize='unicode61'
             )
             "#,
         )

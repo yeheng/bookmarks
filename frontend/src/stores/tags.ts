@@ -1,11 +1,12 @@
+import { apiService } from '@/services/api'
+import type {
+  CreateTagRequest,
+  Tag,
+  TagsQuery,
+  UpdateTagRequest
+} from '@/types'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { apiService } from '@/services/api'
-import type { 
-  Tag, 
-  CreateTagRequest, 
-  UpdateTagRequest 
-} from '@/types'
 
 export const useTagsStore = defineStore('tags', () => {
   const tags = ref<Tag[]>([])
@@ -17,7 +18,7 @@ export const useTagsStore = defineStore('tags', () => {
   const currentPage = ref(0)
   const pageSize = ref(20)
 
-  const fetchTags = async (params?: { limit?: number; offset?: number; search?: string }, reset = true): Promise<void> => {
+  const fetchTags = async (params?: TagsQuery, reset = true): Promise<void> => {
     if (reset) {
       isLoading.value = true
       tags.value = []
@@ -38,14 +39,24 @@ export const useTagsStore = defineStore('tags', () => {
       
       const response = await apiService.getTags(requestParams)
       
+      console.log('Tags API响应:', response)
+      
+      // API返回格式: {data: Array, success: true} 或 {data: {items: [...], pagination: {...}}, success: true}
+      let items: any = []
+      if (Array.isArray(response.data)) {
+        items = response.data
+      } else if (response.data?.items) {
+        items = response.data.items
+      }
+      
       if (reset) {
-        tags.value = response
+        tags.value = items
       } else {
-        tags.value.push(...response)
+        tags.value.push(...items)
       }
       
       // 如果返回的数据少于请求的页面大小，说明没有更多数据了
-      hasMore.value = response.length === pageSize.value
+      hasMore.value = items.length === pageSize.value
       
       if (!reset) {
         currentPage.value++
@@ -64,7 +75,8 @@ export const useTagsStore = defineStore('tags', () => {
     error.value = null
     
     try {
-      const tag = await apiService.getTag(id)
+      const response = await apiService.getTag(id)
+      const tag = response.data
       currentTag.value = tag
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch tag'
@@ -79,7 +91,8 @@ export const useTagsStore = defineStore('tags', () => {
     error.value = null
     
     try {
-      const newTag = await apiService.createTag(data)
+      const response = await apiService.createTag(data)
+      const newTag = response.data
       tags.value.push(newTag)
       return newTag
     } catch (err: any) {
@@ -95,7 +108,8 @@ export const useTagsStore = defineStore('tags', () => {
     error.value = null
     
     try {
-      const updatedTag = await apiService.updateTag(id, data)
+      const response = await apiService.updateTag(id, data)
+      const updatedTag = response.data
       const index = tags.value.findIndex(t => t.id === id)
       if (index !== -1) {
         tags.value[index] = updatedTag

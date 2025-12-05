@@ -1,7 +1,7 @@
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
 import { apiService } from '@/services/api'
-import type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
+import type { LoginRequest, RegisterRequest, User } from '@/types'
+import { defineStore } from 'pinia'
+import { computed, ref } from 'vue'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -13,17 +13,14 @@ export const useAuthStore = defineStore('auth', () => {
 
   const initializeAuth = async () => {
     const savedToken = localStorage.getItem('auth_token')
-    console.log('initializeAuth: savedToken from localStorage:', savedToken ? `${savedToken.substring(0, 20)}...` : 'none')
     
     if (savedToken) {
       token.value = savedToken
       apiService.setToken(savedToken)
-      console.log('initializeAuth: token set to store and API service')
       
       try {
         // Verify token validity by fetching current user
         await fetchCurrentUser()
-        console.log('initializeAuth: token validation successful')
       } catch (error) {
         // If token is invalid, clear it and don't redirect to login immediately
         // Let the router guard handle the redirect
@@ -39,7 +36,7 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null
     
     try {
-      const response: AuthResponse = await apiService.login(credentials)
+      const response = await apiService.login(credentials)
       user.value = response.user
       token.value = response.token
       // API service already handles localStorage
@@ -56,7 +53,7 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null
     
     try {
-      const response: AuthResponse = await apiService.register(userData)
+      const response = await apiService.register(userData)
       user.value = response.user
       token.value = response.token
       // API service already handles localStorage
@@ -89,8 +86,8 @@ export const useAuthStore = defineStore('auth', () => {
     if (!token.value) return
     
     try {
-      const currentUser = await apiService.getCurrentUser()
-      user.value = currentUser
+      const response = await apiService.getCurrentUser()
+      user.value = response.data
     } catch (err: any) {
       // Token might be invalid, clear auth state
       user.value = null

@@ -1,16 +1,20 @@
 import type {
   ApiErrorResponse,
+  ApiResponse,
   AuthResponse,
   Bookmark,
   Collection,
+  CollectionsQuery,
   CreateBookmarkRequest,
   CreateCollectionRequest,
   CreateTagRequest,
   LoginRequest,
+  PaginatedApiResponse,
   RegisterRequest,
   SearchQuery,
   Stats,
   Tag,
+  TagsQuery,
   UpdateBookmarkRequest,
   UpdateCollectionRequest,
   UpdateTagRequest,
@@ -140,15 +144,6 @@ class ApiService {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
 
-    // Debug: Log request details for auth endpoints
-    if (endpoint.includes('/auth/')) {
-      console.log(`Request to ${endpoint}:`, {
-        url,
-        token: this.token ? `${this.token.substring(0, 20)}...` : 'none',
-        authorization: headers.get('Authorization') ? `${headers.get('Authorization')?.substring(0, 30)}...` : 'none'
-      });
-    }
-
     try {
       const response = await fetch(url, {
         ...options,
@@ -183,11 +178,6 @@ class ApiService {
 
       const jsonResponse = await response.json();
       
-      // Handle the new API response format where data is wrapped in a "data" field
-      if (jsonResponse && typeof jsonResponse === 'object' && 'data' in jsonResponse && 'success' in jsonResponse) {
-        return jsonResponse.data;
-      }
-      
       return jsonResponse;
     } catch (error) {
       if (error instanceof ApiError) {
@@ -212,37 +202,30 @@ class ApiService {
   }
 
   setToken(token: string | null) {
-    console.log('setToken called with:', token ? `${token.substring(0, 20)}...` : 'null');
     this.token = token;
     if (typeof window !== 'undefined') {
       if (token) {
         localStorage.setItem('auth_token', token);
-        console.log('Token saved to localStorage');
       } else {
         localStorage.removeItem('auth_token');
-        console.log('Token removed from localStorage');
       }
     }
   }
 
   // Auth endpoints
   async login(data: LoginRequest): Promise<AuthResponse> {
-    console.log('Login request data:', data);
     
     const apiResponse: any = await this.request('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });
 
-    console.log('Login API response:', apiResponse);
-
-    // Handle the actual API response format
+    // Handle the unified API response format
     const authResponse: AuthResponse = {
-      user: apiResponse.user,
-      token: apiResponse.access_token
+      user: apiResponse.data.user,
+      token: apiResponse.data.access_token
     };
 
-    console.log('Processed auth response:', authResponse);
     this.setToken(authResponse.token);
     return authResponse;
   }
@@ -253,10 +236,10 @@ class ApiService {
       body: JSON.stringify(data),
     });
 
-    // Handle the actual API response format
+    // Handle the unified API response format
     const authResponse: AuthResponse = {
-      user: apiResponse.user,
-      token: apiResponse.access_token
+      user: apiResponse.data.user,
+      token: apiResponse.data.access_token
     };
 
     this.setToken(authResponse.token);
@@ -271,13 +254,13 @@ class ApiService {
     }
   }
 
-  async getCurrentUser(): Promise<User> {
-    console.log('getCurrentUser called, token:', this.token);
-    return this.request('/auth/me');
+  async getCurrentUser(): Promise<ApiResponse<User>> {
+    const apiResponse: any = await this.request('/auth/me');
+    return apiResponse;
   }
 
   // Bookmark endpoints
-  async getBookmarks(params?: SearchQuery): Promise<Bookmark[]> {
+  async getBookmarks(params?: SearchQuery): Promise<PaginatedApiResponse<Bookmark>> {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -294,30 +277,30 @@ class ApiService {
     return this.request(`/bookmarks${query ? `?${query}` : ''}`);
   }
 
-  async getBookmark(id: number): Promise<Bookmark> {
+  async getBookmark(id: number): Promise<ApiResponse<Bookmark>> {
     return this.request(`/bookmarks/${id}`);
   }
 
-  async createBookmark(data: CreateBookmarkRequest): Promise<Bookmark> {
+  async createBookmark(request: CreateBookmarkRequest): Promise<ApiResponse<Bookmark>> {
     return this.request('/bookmarks', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(request),
     });
   }
 
-  async updateBookmark(id: number, data: UpdateBookmarkRequest): Promise<Bookmark> {
+  async updateBookmark(id: number, request: UpdateBookmarkRequest): Promise<ApiResponse<Bookmark>> {
     return this.request(`/bookmarks/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: JSON.stringify(request),
     });
   }
 
-  async deleteBookmark(id: number): Promise<void> {
+  async deleteBookmark(id: number): Promise<ApiResponse<void>> {
     return this.request(`/bookmarks/${id}`, { method: 'DELETE' });
   }
 
   // Collection endpoints
-  async getCollections(params?: { limit?: number; offset?: number; parent_id?: number; is_public?: boolean }): Promise<Collection[]> {
+  async getCollections(params?: CollectionsQuery): Promise<PaginatedApiResponse<Collection>> {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -330,30 +313,30 @@ class ApiService {
     return this.request(`/collections${query ? `?${query}` : ''}`);
   }
 
-  async getCollection(id: number): Promise<Collection> {
+  async getCollection(id: number): Promise<ApiResponse<Collection>> {
     return this.request(`/collections/${id}`);
   }
 
-  async createCollection(data: CreateCollectionRequest): Promise<Collection> {
+  async createCollection(request: CreateCollectionRequest): Promise<ApiResponse<Collection>> {
     return this.request('/collections', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(request),
     });
   }
 
-  async updateCollection(id: number, data: UpdateCollectionRequest): Promise<Collection> {
+  async updateCollection(id: number, request: UpdateCollectionRequest): Promise<ApiResponse<Collection>> {
     return this.request(`/collections/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: JSON.stringify(request),
     });
   }
 
-  async deleteCollection(id: number): Promise<void> {
+  async deleteCollection(id: number): Promise<ApiResponse<void>> {
     return this.request(`/collections/${id}`, { method: 'DELETE' });
   }
 
   // Tag endpoints
-  async getTags(params?: { limit?: number; offset?: number; search?: string }): Promise<Tag[]> {
+  async getTags(params?: TagsQuery): Promise<PaginatedApiResponse<Tag>> {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -366,30 +349,30 @@ class ApiService {
     return this.request(`/tags${query ? `?${query}` : ''}`);
   }
 
-  async getTag(id: number): Promise<Tag> {
+  async getTag(id: number): Promise<ApiResponse<Tag>> {
     return this.request(`/tags/${id}`);
   }
 
-  async createTag(data: CreateTagRequest): Promise<Tag> {
+  async createTag(request: CreateTagRequest): Promise<ApiResponse<Tag>> {
     return this.request('/tags', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(request),
     });
   }
 
-  async updateTag(id: number, data: UpdateTagRequest): Promise<Tag> {
+  async updateTag(id: number, request: UpdateTagRequest): Promise<ApiResponse<Tag>> {
     return this.request(`/tags/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: JSON.stringify(request),
     });
   }
 
-  async deleteTag(id: number): Promise<void> {
+  async deleteTag(id: number): Promise<ApiResponse<void>> {
     return this.request(`/tags/${id}`, { method: 'DELETE' });
   }
 
   // Search endpoints
-  async search(params: SearchQuery): Promise<Bookmark[]> {
+  async search(params: SearchQuery): Promise<PaginatedApiResponse<Bookmark>> {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
@@ -404,7 +387,7 @@ class ApiService {
   }
 
   // Stats endpoints
-  async getStats(): Promise<Stats> {
+  async getStats(): Promise<ApiResponse<Stats>> {
     return this.request('/stats/user');
   }
 }

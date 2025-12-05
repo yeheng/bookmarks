@@ -44,33 +44,37 @@ impl CollectionService {
         let limit = query.limit.unwrap_or(50);
         let offset = query.offset.unwrap_or(0);
 
-        let mut sql = "SELECT * FROM collections WHERE user_id = $1".to_string();
-        let mut param_count = 1;
+        // 构建动态查询，使用 sqlx::QueryBuilder 避免手动字符串拼接
+        let mut query_builder =
+            sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT * FROM collections WHERE user_id = ");
 
-        if query.parent_id.is_some() {
-            param_count += 1;
-            sql.push_str(&format!(" AND parent_id = ${}", param_count));
-        }
+        // 添加 user_id 条件
+        query_builder.push_bind(user_id);
 
-        if query.is_public.is_some() {
-            param_count += 1;
-            sql.push_str(&format!(" AND is_public = ${}", param_count));
-        }
-
-        sql.push_str(" ORDER BY sort_order, created_at");
-
-        let mut query_builder = sqlx::query_as::<_, Collection>(&sql).bind(user_id);
-
+        // 动态添加 parent_id 条件
         if let Some(parent_id) = query.parent_id {
-            query_builder = query_builder.bind(parent_id);
-        }
-        if let Some(is_public) = query.is_public {
-            query_builder = query_builder.bind(is_public);
+            query_builder.push(" AND parent_id = ");
+            query_builder.push_bind(parent_id);
         }
 
+        // 动态添加 is_public 条件
+        if let Some(is_public) = query.is_public {
+            query_builder.push(" AND is_public = ");
+            query_builder.push_bind(is_public);
+        }
+
+        // 添加排序
+        query_builder.push(" ORDER BY sort_order, created_at");
+
+        // 添加分页
+        query_builder.push(" LIMIT ");
+        query_builder.push_bind(limit);
+        query_builder.push(" OFFSET ");
+        query_builder.push_bind(offset);
+
+        // 执行查询
         let collections = query_builder
-            .bind(limit)
-            .bind(offset)
+            .build_query_as::<Collection>()
             .fetch_all(db_pool)
             .await?;
 

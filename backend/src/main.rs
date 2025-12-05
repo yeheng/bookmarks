@@ -43,6 +43,10 @@ async fn main() -> anyhow::Result<()> {
     // Run migrations
     sqlx::migrate!("./migrations").run(&db_pool).await?;
 
+    // 检查并重建 FTS 索引（如果需要）
+    // 这个操作在后台异步执行，不会阻塞服务器启动
+    services::check_and_rebuild_fts(db_pool.clone()).await?;
+
     // Initialize shared JWT decoder for middleware
     let jwt_decoder: Decoder<JwtClaims> = Arc::new(JWTService::new(config.auth.jwt_secret.clone()));
 

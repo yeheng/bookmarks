@@ -39,14 +39,22 @@ export const useBookmarksStore = defineStore('bookmarks', () => {
       
       const response = await apiService.getBookmarks(requestParams)
       
+      // API返回格式: {data: Array, success: true} 或 {data: {items: [...], pagination: {...}}, success: true}
+      let items: any = []
+      if (Array.isArray(response.data)) {
+        items = response.data
+      } else if (response.data?.items) {
+        items = response.data.items
+      }
+      
       if (reset) {
-        bookmarks.value = response
+        bookmarks.value = items
       } else {
-        bookmarks.value.push(...response)
+        bookmarks.value.push(...items)
       }
       
       // 如果返回的数据少于请求的页面大小，说明没有更多数据了
-      hasMore.value = response.length === pageSize.value
+      hasMore.value = items.length === pageSize.value
       
       if (!reset) {
         currentPage.value++
@@ -66,7 +74,7 @@ export const useBookmarksStore = defineStore('bookmarks', () => {
     
     try {
       const bookmark = await apiService.getBookmark(id)
-      currentBookmark.value = bookmark
+      currentBookmark.value = bookmark.data
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch bookmark'
       throw err
@@ -80,7 +88,8 @@ export const useBookmarksStore = defineStore('bookmarks', () => {
     error.value = null
     
     try {
-      const newBookmark = await apiService.createBookmark(data)
+      const response = await apiService.createBookmark(data)
+      const newBookmark: Bookmark = response.data
       bookmarks.value.unshift(newBookmark)
       return newBookmark
     } catch (err: any) {
@@ -96,7 +105,8 @@ export const useBookmarksStore = defineStore('bookmarks', () => {
     error.value = null
     
     try {
-      const updatedBookmark = await apiService.updateBookmark(id, data)
+      const response = await apiService.updateBookmark(id, data)
+      const updatedBookmark: Bookmark = response.data
       const index = bookmarks.value.findIndex(b => b.id === id)
       if (index !== -1) {
         bookmarks.value[index] = updatedBookmark
@@ -152,14 +162,17 @@ export const useBookmarksStore = defineStore('bookmarks', () => {
       
       const response = await apiService.search(requestParams)
       
+      // API返回格式: {data: {items: [...], pagination: {...}}, success: true}
+      const items = response.data?.items || []
+      
       if (reset) {
-        bookmarks.value = response
+        bookmarks.value = items
       } else {
-        bookmarks.value.push(...response)
+        bookmarks.value.push(...items)
       }
       
       // 如果返回的数据少于请求的页面大小，说明没有更多数据了
-      hasMore.value = response.length === pageSize.value
+      hasMore.value = items.length === pageSize.value
       
       if (!reset) {
         currentPage.value++

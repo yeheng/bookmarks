@@ -140,19 +140,61 @@ export interface UpdateTagRequest {
 }
 
 export interface SearchQuery {
+  q?: string; // 搜索关键词，用于全局搜索
+  search?: string; // 搜索关键词，用于特定搜索
   collection_id?: number;
   tags?: string[];
   is_favorite?: boolean;
   is_archived?: boolean;
   is_private?: boolean;
   is_read?: boolean;
-  search?: string;
   limit?: number;
   offset?: number;
   sort_by?: string; // "created_at", "updated_at", "title", "visit_count"
   sort_order?: string; // "asc", "desc"
 }
 
+export interface CollectionsQuery {
+  limit?: number;
+  offset?: number;
+  parent_id?: number;
+  is_public?: boolean;
+}
+
+export interface TagsQuery {
+  limit?: number;
+  offset?: number;
+  search?: string;
+}
+
+export interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+  search_time?: number;
+}
+
+export interface PaginatedApiResponse<T> {
+  success: boolean;
+  data: {
+    items: T[];
+    pagination: PaginationInfo;
+    highlights?: any; // 用于搜索高亮
+  };
+  message?: string;
+  search_time?: number;
+}
+
+// 保持向后兼容
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;

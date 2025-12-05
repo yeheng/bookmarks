@@ -35,10 +35,12 @@ interface Props {
   isLoadingMore: boolean
   hasMore: boolean
   threshold?: number
+  debounceMs?: number // 防抖延迟时间（毫秒）
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  threshold: 200
+  threshold: 200,
+  debounceMs: 300
 })
 
 // 确保 items 始终是一个数组
@@ -52,16 +54,52 @@ const containerRef = ref<HTMLElement>()
 const loadTriggerRef = ref<HTMLElement>()
 const observer = ref<IntersectionObserver | null>(null)
 
+// 本地加载状态 - 防止在 emit 后立即重复触发
+const localLoading = ref(false)
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+// 防抖的加载触发函数
+const triggerLoadMore = () => {
+  // 双重检查：props 状态 + 本地状态
+  if (props.isLoading || props.isLoadingMore || !props.hasMore || localLoading.value) {
+    return
+  }
+
+  // 清除之前的防抖计时器
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+  }
+
+  // 设置防抖
+  debounceTimer = setTimeout(() => {
+    // 再次检查状态（防抖期间可能状态已改变）
+    if (props.isLoading || props.isLoadingMore || !props.hasMore || localLoading.value) {
+      return
+    }
+
+    // 设置本地加载标志
+    localLoading.value = true
+
+    // 触发加载事件
+    emit('loadMore')
+
+    // 安全地重置本地加载标志（给父组件足够时间更新 props）
+    setTimeout(() => {
+      localLoading.value = false
+    }, 500)
+  }, props.debounceMs)
+}
+
 const handleScroll = () => {
-  if (!containerRef.value || props.isLoading || props.isLoadingMore || !props.hasMore) {
+  if (!containerRef.value) {
     return
   }
 
   const { scrollTop, scrollHeight, clientHeight } = containerRef.value
-  
+
   // 当滚动到距离底部 threshold 像素时触发加载
   if (scrollHeight - scrollTop - clientHeight < props.threshold) {
-    emit('loadMore')
+    triggerLoadMore()
   }
 }
 
@@ -72,8 +110,8 @@ const setupIntersectionObserver = () => {
   observer.value = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
-        if (entry.isIntersecting && !props.isLoading && !props.isLoadingMore && props.hasMore) {
-          emit('loadMore')
+        if (entry.isIntersecting) {
+          triggerLoadMore()
         }
       })
     },
@@ -94,6 +132,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 清理防抖计时器
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+  }
+
+  // 断开 Intersection Observer
   if (observer.value) {
     observer.value.disconnect()
   }

@@ -1,11 +1,12 @@
+import { apiService } from '@/services/api'
+import type {
+  Collection,
+  CollectionsQuery,
+  CreateCollectionRequest,
+  UpdateCollectionRequest
+} from '@/types'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { apiService } from '@/services/api'
-import type { 
-  Collection, 
-  CreateCollectionRequest, 
-  UpdateCollectionRequest 
-} from '@/types'
 
 export const useCollectionsStore = defineStore('collections', () => {
   const collections = ref<Collection[]>([])
@@ -17,7 +18,7 @@ export const useCollectionsStore = defineStore('collections', () => {
   const currentPage = ref(0)
   const pageSize = ref(20)
 
-  const fetchCollections = async (params?: { limit?: number; offset?: number; parent_id?: number; is_public?: boolean }, reset = true): Promise<void> => {
+  const fetchCollections = async (params?: CollectionsQuery, reset = true): Promise<void> => {
     if (reset) {
       isLoading.value = true
       collections.value = []
@@ -38,14 +39,22 @@ export const useCollectionsStore = defineStore('collections', () => {
       
       const response = await apiService.getCollections(requestParams)
       
+      // API返回格式: {data: Array, success: true} 或 {data: {items: [...], pagination: {...}}, success: true}
+      let items: any = []
+      if (Array.isArray(response.data)) {
+        items = response.data
+      } else if (response.data?.items) {
+        items = response.data.items
+      }
+      
       if (reset) {
-        collections.value = response
+        collections.value = items
       } else {
-        collections.value.push(...response)
+        collections.value.push(...items)
       }
       
       // 如果返回的数据少于请求的页面大小，说明没有更多数据了
-      hasMore.value = response.length === pageSize.value
+      hasMore.value = items.length === pageSize.value
       
       if (!reset) {
         currentPage.value++
@@ -65,7 +74,7 @@ export const useCollectionsStore = defineStore('collections', () => {
     
     try {
       const collection = await apiService.getCollection(id)
-      currentCollection.value = collection
+      currentCollection.value = collection.data
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch collection'
       throw err
@@ -80,8 +89,8 @@ export const useCollectionsStore = defineStore('collections', () => {
     
     try {
       const newCollection = await apiService.createCollection(data)
-      collections.value.push(newCollection)
-      return newCollection
+      collections.value.push(newCollection.data)
+      return newCollection.data
     } catch (err: any) {
       error.value = err.message || 'Failed to create collection'
       throw err
@@ -98,12 +107,12 @@ export const useCollectionsStore = defineStore('collections', () => {
       const updatedCollection = await apiService.updateCollection(id, data)
       const index = collections.value.findIndex(c => c.id === id)
       if (index !== -1) {
-        collections.value[index] = updatedCollection
+        collections.value[index] = updatedCollection.data
       }
       if (currentCollection.value?.id === id) {
-        currentCollection.value = updatedCollection
+        currentCollection.value = updatedCollection.data
       }
-      return updatedCollection
+      return updatedCollection.data
     } catch (err: any) {
       error.value = err.message || 'Failed to update collection'
       throw err
