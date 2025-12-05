@@ -40,24 +40,14 @@
     </div>
 
     <!-- 收藏夹 -->
-    <div class="space-y-2">
-      <Label for="collection">收藏夹</Label>
-      <select
-        id="collection"
-        v-model="form.collection_id"
-        class="w-full h-10 px-3 py-2 text-sm border border-input bg-background rounded-md ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="isSubmitting"
-      >
-        <option value="">无收藏夹</option>
-        <option
-          v-for="collection in collections"
-          :key="collection.id"
-          :value="collection.id"
-        >
-          {{ collection.name }}
-        </option>
-      </select>
-    </div>
+    <CollectionSelector
+      v-model="form.collection_id"
+      :collections="collections"
+      :disabled="isSubmitting || operationStatus.creatingCollection"
+      @collection-created="handleCollectionCreated"
+    />
+    <p v-if="errors.collection" class="text-sm text-destructive">{{ errors.collection }}</p>
+    <p v-if="operationStatus.creatingCollection" class="text-sm text-blue-600">正在创建收藏夹...</p>
 
     <!-- 标签 -->
     <div class="space-y-2">
@@ -65,9 +55,12 @@
       <TagInput
         v-model="form.tags"
         placeholder="输入标签后按回车添加"
-        :disabled="isSubmitting"
+        :disabled="isSubmitting || operationStatus.creatingTag"
         :suggestions="availableTags"
+        @create-tag="handleCreateTag"
       />
+      <p v-if="errors.tags" class="text-sm text-destructive">{{ errors.tags }}</p>
+      <p v-if="operationStatus.creatingTag" class="text-sm text-blue-600">正在创建标签...</p>
     </div>
 
     <!-- 选项 -->
@@ -171,14 +164,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@/components/icons'
-import { TagInput } from '@/components/bookmarks'
+import { CollectionSelector, TagInput } from '@/components/bookmarks'
 import { useTagsStore } from '@/stores/tags'
 import type { Bookmark, Collection, CreateBookmarkRequest, UpdateBookmarkRequest } from '@/types'
 
@@ -227,7 +220,16 @@ const form = reactive({
 
 // 表单验证错误
 const errors = reactive({
-  url: ''
+  url: '',
+  tags: '',
+  collection: ''
+})
+
+// 操作状态
+const operationStatus = reactive({
+  creatingTag: false,
+  creatingCollection: false,
+  lastError: ''
 })
 
 // 监听 bookmark 变化，初始化表单
@@ -262,7 +264,16 @@ const resetForm = () => {
   form.is_archived = false
   form.reading_time = undefined
   form.difficulty_level = undefined
+  
+  // 重置错误状态
   errors.url = ''
+  errors.tags = ''
+  errors.collection = ''
+  
+  // 重置操作状态
+  operationStatus.creatingTag = false
+  operationStatus.creatingCollection = false
+  operationStatus.lastError = ''
 }
 
 // 验证 URL
@@ -291,6 +302,66 @@ watch(() => form.url, (newUrl) => {
   } else {
     errors.url = ''
   }
+})
+
+// 处理创建新标签
+const handleCreateTag = async (tagName: string) => {
+  operationStatus.creatingTag = true
+  errors.tags = ''
+  
+  try {
+    // 创建标签时使用默认颜色
+    const newTag = await tagsStore.createTag({ 
+      name: tagName,
+      color: '#3B82F6' // 默认蓝色
+    })
+    
+    // 标签创建成功后，确保标签在可用列表中
+    if (!availableTags.value.includes(tagName)) {
+      await tagsStore.fetchTags()
+    }
+    
+    console.log(`标签 "${tagName}" 创建成功`)
+  } catch (error: any) {
+    console.error('创建标签失败:', error)
+    errors.tags = `创建标签失败: ${error.message || '未知错误'}`
+    
+    // 移除刚添加的标签，因为创建失败
+    const tagIndex = form.tags.indexOf(tagName)
+    if (tagIndex > -1) {
+      form.tags.splice(tagIndex, 1)
+    }
+    
+    // 不重新抛出错误，让用户继续使用表单
+  } finally {
+    operationStatus.creatingTag = false
+  }
+}
+
+// 处理收藏夹创建成功
+const handleCollectionCreated = (collection: Collection) => {
+  console.log('新收藏夹已创建:', collection)
+  operationStatus.creatingCollection = false
+  errors.collection = ''
+  
+  // 确保新创建的收藏夹在表单中被选中
+  // CollectionSelector 组件已经处理了选择逻辑，这里只需要清理状态
+}
+
+// 初始化标签数据
+const initializeTags = async () => {
+  if (tagsStore.tags.length === 0) {
+    try {
+      await tagsStore.fetchTags()
+    } catch (error) {
+      console.error('加载标签失败:', error)
+    }
+  }
+}
+
+// 组件挂载时初始化
+onMounted(() => {
+  initializeTags()
 })
 
 // 处理提交
