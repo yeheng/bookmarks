@@ -4,6 +4,7 @@ backend/Cargo.lock
 backend/*.pdb
 backend/*.db
 backend/*.db-wal
+backend/*.db-shm
 
 # Node.js
 frontend/node_modules/

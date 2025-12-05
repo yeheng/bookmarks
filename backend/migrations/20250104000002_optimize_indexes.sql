@@ -1,14 +1,3 @@
--- ============================================================
--- 合并的索引优化 Migration
--- 包含所有性能优化索引，移除过度设计
--- 创建时间: 2025-01-04
--- ============================================================
-
--- ============================================================
--- 性能优化索引 (Performance Optimization Indexes)
--- 基于真实查询模式设计的复合索引
--- ============================================================
-
 -- 用户表复合索引
 CREATE INDEX idx_users_active_email_verified ON users(is_active, email_verified);
 CREATE INDEX idx_users_last_login_desc ON users(last_login_at DESC);
@@ -56,18 +45,6 @@ CREATE INDEX idx_collections_name_search ON collections(name);
 
 -- 标签名称搜索索引
 CREATE INDEX idx_tags_name_search ON tags(name);
-
--- ============================================================
--- 已移除的过度设计索引说明
--- 以下索引因过度设计或使用率低而被移除
--- ============================================================
-
--- 移除的索引列表 (不执行，仅作记录):
--- 1. idx_collections_user_parent_sort - 三列复合索引，查询模式不匹配
--- 2. idx_bookmarks_user_collection_created - 过度设计，单列索引已足够
--- 3. idx_bookmarks_user_favorite_created - 过度设计，部分索引更高效
--- 4. idx_bookmarks_user_archived_created - 过度设计，部分索引已覆盖
--- 5. idx_bookmarks_user_read_created - 替换为更实用的 user_read_visited
 
 -- ============================================================
 -- 性能优化原则
