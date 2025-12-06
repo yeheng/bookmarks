@@ -13,7 +13,7 @@ pub enum ResourceType {
 
 impl ResourceType {
     /// 从字符串解析资源类型
-    pub fn from_str(s: &str) -> Result<Self, String> {
+    pub fn from(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
             "link" => Ok(ResourceType::Link),
             "note" => Ok(ResourceType::Note),
@@ -41,7 +41,7 @@ pub struct Resource {
     pub user_id: i64,
     pub collection_id: Option<i64>,
     pub title: String,
-    pub url: Option<String>,           // 改为 Option,支持 note 等无 URL 类型
+    pub url: Option<String>, // 改为 Option,支持 note 等无 URL 类型
     pub description: Option<String>,
     pub favicon_url: Option<String>,
     pub screenshot_url: Option<String>,
@@ -58,10 +58,10 @@ pub struct Resource {
 
     // 新增字段
     #[sqlx(rename = "type")]
-    pub resource_type: String,         // 数据库中的 type 字段
-    pub content: Option<String>,       // 笔记/代码片段内容
-    pub source: Option<String>,        // 文件来源
-    pub mime_type: Option<String>,     // MIME 类型
+    pub resource_type: String, // 数据库中的 type 字段
+    pub content: Option<String>,   // 笔记/代码片段内容
+    pub source: Option<String>,    // 文件来源
+    pub mime_type: Option<String>, // MIME 类型
 
     pub created_at: i64,
     pub updated_at: i64,
@@ -71,7 +71,7 @@ impl Resource {
     /// 获取解析后的资源类型
     #[allow(unused)]
     pub fn get_type(&self) -> Result<ResourceType, String> {
-        ResourceType::from_str(&self.resource_type)
+        ResourceType::from(&self.resource_type)
     }
 }
 
@@ -79,7 +79,7 @@ impl Resource {
 #[derive(Debug, Deserialize)]
 pub struct CreateResource {
     pub title: String,
-    pub url: Option<String>,           // Link 必须,Note/Snippet/File 可选
+    pub url: Option<String>, // Link 必须,Note/Snippet/File 可选
     pub description: Option<String>,
     pub collection_id: Option<i64>,
     pub tags: Option<Vec<String>>,
@@ -88,10 +88,10 @@ pub struct CreateResource {
 
     // 新增字段
     #[serde(rename = "type")]
-    pub resource_type: String,         // "link" | "note" | "snippet" | "file"
-    pub content: Option<String>,       // Note/Snippet 内容
-    pub source: Option<String>,        // File 来源
-    pub mime_type: Option<String>,     // File MIME 类型
+    pub resource_type: String, // "link" | "note" | "snippet" | "file"
+    pub content: Option<String>,   // Note/Snippet 内容
+    pub source: Option<String>,    // File 来源
+    pub mime_type: Option<String>, // File MIME 类型
 }
 
 /// 更新资源请求
@@ -127,7 +127,7 @@ pub struct ResourceWithTags {
     pub collection_name: Option<String>,
     pub collection_color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reference_count: Option<i64>,  // 引用数量统计
+    pub reference_count: Option<i64>, // 引用数量统计
 }
 
 // SQLite compatible FromRow implementation
@@ -191,7 +191,7 @@ pub struct ResourceQuery {
     pub search: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
-    pub sort_by: Option<String>,    // "created_at", "updated_at", "title", "visit_count"
+    pub sort_by: Option<String>, // "created_at", "updated_at", "title", "visit_count"
     pub sort_order: Option<String>, // "asc", "desc"
 
     // 新增: 资源类型过滤
@@ -251,7 +251,7 @@ pub struct ResourceReference {
     pub source_id: i64,
     pub target_id: i64,
     #[serde(rename = "type")]
-    pub reference_type: String,  // "related" | "depends_on" | "references"
+    pub reference_type: String, // "related" | "depends_on" | "references"
     pub created_at: i64,
 }
 
@@ -260,7 +260,7 @@ pub struct ResourceReference {
 pub struct CreateResourceReference {
     pub target_id: i64,
     #[serde(rename = "type")]
-    pub reference_type: Option<String>,  // 默认 "related"
+    pub reference_type: Option<String>, // 默认 "related"
 }
 
 /// 资源引用查询参数
@@ -269,8 +269,8 @@ pub struct ResourceReferenceQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     #[serde(rename = "type")]
-    pub reference_type: Option<String>,  // 过滤引用类型
-    pub direction: Option<String>,        // "source" | "target" | "both"
+    pub reference_type: Option<String>, // 过滤引用类型
+    pub direction: Option<String>, // "source" | "target" | "both"
 }
 
 /// 资源引用列表响应

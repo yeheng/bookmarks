@@ -16,7 +16,7 @@ mod utils;
 use config::AppConfig;
 use middleware::{auth_middleware, logging_middleware};
 use routes::{
-    ano_routes, auth_routes, resource_routes, collection_routes, search_routes, stats_routes,
+    ano_routes, auth_routes, collection_routes, resource_routes, search_routes, stats_routes,
     tag_routes,
 };
 use state::AppState;

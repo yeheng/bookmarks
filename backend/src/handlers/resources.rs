@@ -7,8 +7,8 @@ use sqlx::SqlitePool;
 
 use crate::middleware::AuthenticatedUser;
 use crate::models::{
-    ResourceBatchRequest, ResourceBatchResult, ResourceQuery, CreateResource, UpdateResource,
-    CreateResourceReference, ResourceReferenceQuery,
+    CreateResource, CreateResourceReference, ResourceBatchRequest, ResourceBatchResult,
+    ResourceQuery, ResourceReferenceQuery, UpdateResource,
 };
 use crate::services::ResourceService;
 use crate::state::AppState;
@@ -32,7 +32,6 @@ pub struct ResourceListQuery {
     pub sort_by: Option<String>,
     pub sort_order: Option<String>,
 }
-
 
 /// 获取资源列表
 /// 支持多种过滤条件和排序选项
@@ -84,7 +83,8 @@ pub async fn create_resource(
     AuthenticatedUser(user_id): AuthenticatedUser,
     Json(resource_data): Json<CreateResource>,
 ) -> Result<Response, AppError> {
-    let resource = ResourceService::create_resource(user_id, resource_data, &app_state.db_pool).await?;
+    let resource =
+        ResourceService::create_resource(user_id, resource_data, &app_state.db_pool).await?;
 
     Ok(success_response(resource))
 }
@@ -97,7 +97,8 @@ pub async fn update_resource(
     Json(update_data): Json<UpdateResource>,
 ) -> Result<Response, AppError> {
     let resource =
-        ResourceService::update_resource(user_id, resource_id, update_data, &app_state.db_pool).await?;
+        ResourceService::update_resource(user_id, resource_id, update_data, &app_state.db_pool)
+            .await?;
 
     Ok(success_response(resource))
 }
@@ -108,7 +109,8 @@ pub async fn delete_resource(
     Path(resource_id): Path<i64>,
     AuthenticatedUser(user_id): AuthenticatedUser,
 ) -> Result<Response, AppError> {
-    let deleted = ResourceService::delete_resource(user_id, resource_id, &app_state.db_pool).await?;
+    let deleted =
+        ResourceService::delete_resource(user_id, resource_id, &app_state.db_pool).await?;
 
     if !deleted {
         return Err(AppError::NotFound("Resource not found".to_string()));
@@ -153,7 +155,8 @@ pub async fn create_resource_reference(
     let _source = ResourceService::get_resource_by_id(user_id, resource_id, &db_pool).await?;
 
     // 验证目标资源的所有权
-    let _target = ResourceService::get_resource_by_id(user_id, reference_data.target_id, &db_pool).await?;
+    let _target =
+        ResourceService::get_resource_by_id(user_id, reference_data.target_id, &db_pool).await?;
 
     // 创建引用关系
     let reference_id = ResourceService::create_resource_reference(
@@ -162,7 +165,8 @@ pub async fn create_resource_reference(
         reference_data.reference_type,
         user_id,
         &db_pool,
-    ).await?;
+    )
+    .await?;
 
     Ok(success_response(serde_json::json!({
         "id": reference_id,
@@ -181,13 +185,19 @@ pub async fn delete_resource_reference(
     let _source = ResourceService::get_resource_by_id(user_id, resource_id, &db_pool).await?;
 
     // 删除引用关系
-    let deleted = ResourceService::delete_resource_reference(resource_id, target_id, None, user_id, &db_pool).await?;
+    let deleted =
+        ResourceService::delete_resource_reference(resource_id, target_id, None, user_id, &db_pool)
+            .await?;
 
     if !deleted {
-        return Err(AppError::NotFound("Resource reference not found".to_string()));
+        return Err(AppError::NotFound(
+            "Resource reference not found".to_string(),
+        ));
     }
 
-    Ok(success_message_response("Resource reference deleted successfully"))
+    Ok(success_message_response(
+        "Resource reference deleted successfully",
+    ))
 }
 
 /// 获取资源的引用列表
@@ -202,12 +212,8 @@ pub async fn get_resource_references(
     let _resource = ResourceService::get_resource_by_id(user_id, resource_id, &db_pool).await?;
 
     // 获取引用列表
-    let references = ResourceService::get_resource_references(
-        resource_id,
-        query,
-        user_id,
-        &db_pool,
-    ).await?;
+    let references =
+        ResourceService::get_resource_references(resource_id, query, user_id, &db_pool).await?;
 
     Ok(success_response(references))
 }

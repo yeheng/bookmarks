@@ -41,11 +41,8 @@ pub async fn search_resources(
     let filters = build_filters(&query)?;
 
     // 使用 FTS5 进行搜索
-    let result: SearchResponse = SearchService::search_resources(
-        user_id,
-        filters,
-        &app_state.db_pool,
-    ).await?;
+    let result: SearchResponse =
+        SearchService::search_resources(user_id, filters, &app_state.db_pool).await?;
 
     Ok(success_response(result))
 }

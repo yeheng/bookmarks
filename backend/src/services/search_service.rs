@@ -2,7 +2,7 @@ use sqlx::{Row, SqlitePool};
 use std::time::Instant;
 
 use crate::models::{
-    ResourceWithTags, FilterCriteria, SearchFilters, SearchPagination, SearchResponse,
+    FilterCriteria, ResourceWithTags, SearchFilters, SearchPagination, SearchResponse,
     SearchSuggestion, SearchType,
 };
 use crate::utils::error::AppResult;

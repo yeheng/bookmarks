@@ -84,12 +84,11 @@ impl IndexerService {
         let url_text = resource.url.unwrap_or_default();
 
         // 4. 检查 FTS 记录是否存在
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM resources_fts WHERE rowid = $1)",
-        )
-        .bind(resource_id)
-        .fetch_one(&mut **tx)
-        .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM resources_fts WHERE rowid = $1)")
+                .bind(resource_id)
+                .fetch_one(&mut **tx)
+                .await?;
 
         if exists {
             // 更新现有 FTS 索引
@@ -136,10 +135,7 @@ impl IndexerService {
     /// # 参数
     /// - user_id: 用户 ID (可选, None 表示重建所有用户的索引)
     /// - db_pool: 数据库连接池
-    pub async fn rebuild_index(
-        user_id: Option<i64>,
-        db_pool: &SqlitePool,
-    ) -> AppResult<u64> {
+    pub async fn rebuild_index(user_id: Option<i64>, db_pool: &SqlitePool) -> AppResult<u64> {
         let mut tx = db_pool.begin().await?;
 
         // 清空 FTS 表

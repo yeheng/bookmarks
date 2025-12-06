@@ -2,7 +2,7 @@ use chrono::Utc;
 use sqlx::{Row, SqlitePool};
 
 use crate::models::{
-    ResourceWithTags, RecentActivityEntry, StatsPeriod, TopDomainEntry, TopTagEntry, UserStats,
+    RecentActivityEntry, ResourceWithTags, StatsPeriod, TopDomainEntry, TopTagEntry, UserStats,
 };
 use crate::utils::error::{AppError, AppResult};
 

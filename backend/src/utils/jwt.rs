@@ -97,8 +97,6 @@ impl JwtDecoder<JwtClaims> for JWTService {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,10 +111,10 @@ mod tests {
     fn test_generate_access_token() {
         let service = JWTService::new("test_secret".to_string());
         let user_id = 123;
-        
+
         let token = service.generate_access_token(user_id);
         assert!(token.is_ok());
-        
+
         let token_str = token.unwrap();
         assert!(!token_str.is_empty());
     }
@@ -125,10 +123,10 @@ mod tests {
     fn test_generate_refresh_token() {
         let service = JWTService::new("test_secret".to_string());
         let user_id = 456;
-        
+
         let token = service.generate_refresh_token(user_id);
         assert!(token.is_ok());
-        
+
         let token_str = token.unwrap();
         assert!(!token_str.is_empty());
     }
@@ -137,10 +135,10 @@ mod tests {
     fn test_verify_valid_token() {
         let service = JWTService::new("test_secret".to_string());
         let user_id = 789;
-        
+
         let token = service.generate_access_token(user_id).unwrap();
         let verified_id = service.verify_token(&token).unwrap();
-        
+
         assert_eq!(verified_id, user_id);
     }
 
@@ -148,7 +146,7 @@ mod tests {
     fn test_verify_invalid_token() {
         let service = JWTService::new("test_secret".to_string());
         let invalid_token = "invalid.token.here";
-        
+
         let result = service.verify_token(invalid_token);
         assert!(result.is_err());
     }
@@ -158,10 +156,10 @@ mod tests {
         let service1 = JWTService::new("secret1".to_string());
         let service2 = JWTService::new("secret2".to_string());
         let user_id = 999;
-        
+
         let token = service1.generate_access_token(user_id).unwrap();
         let result = service2.verify_token(&token);
-        
+
         assert!(result.is_err());
     }
 
@@ -169,15 +167,16 @@ mod tests {
     fn test_token_contains_correct_claims() {
         let service = JWTService::new("test_secret".to_string());
         let user_id = 12345;
-        
+
         let token = service.generate_access_token(user_id).unwrap();
-        
+
         let token_data = decode::<JwtClaims>(
             &token,
             &DecodingKey::from_secret(service.secret.as_ref()),
             &Validation::default(),
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert_eq!(token_data.claims.sub, user_id.to_string());
         assert!(token_data.claims.exp > token_data.claims.iat);
     }
@@ -186,17 +185,18 @@ mod tests {
     fn test_access_token_expiration() {
         let service = JWTService::new("test_secret".to_string());
         let user_id = 123;
-        
+
         let token = service.generate_access_token(user_id).unwrap();
         let token_data = decode::<JwtClaims>(
             &token,
             &DecodingKey::from_secret(service.secret.as_ref()),
             &Validation::default(),
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let now = Utc::now().timestamp() as usize;
         let expected_exp = now + 15 * 60; // 15 minutes
-        
+
         // Allow for some time difference (within 1 minute)
         assert!(token_data.claims.exp >= expected_exp - 60);
         assert!(token_data.claims.exp <= expected_exp + 60);
@@ -206,17 +206,18 @@ mod tests {
     fn test_refresh_token_expiration() {
         let service = JWTService::new("test_secret".to_string());
         let user_id = 123;
-        
+
         let token = service.generate_refresh_token(user_id).unwrap();
         let token_data = decode::<JwtClaims>(
             &token,
             &DecodingKey::from_secret(service.secret.as_ref()),
             &Validation::default(),
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let now = Utc::now().timestamp() as usize;
         let expected_exp = now + 7 * 24 * 60 * 60; // 7 days
-        
+
         // Allow for some time difference (within 1 minute)
         assert!(token_data.claims.exp >= expected_exp - 60);
         assert!(token_data.claims.exp <= expected_exp + 60);

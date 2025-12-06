@@ -34,23 +34,12 @@ impl PaginationParams {
 }
 
 /// 过滤条件
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FilterCriteria {
     pub collection_id: Option<i64>,
     pub tags: Vec<String>,
     pub date_from: Option<i64>,
     pub date_to: Option<i64>,
-}
-
-impl Default for FilterCriteria {
-    fn default() -> Self {
-        Self {
-            collection_id: None,
-            tags: Vec::new(),
-            date_from: None,
-            date_to: None,
-        }
-    }
 }
 
 /// 搜索参数（组合了查询文本、搜索类型、过滤条件和分页）
@@ -67,7 +56,8 @@ pub struct SearchResponse {
     pub items: Vec<ResourceWithTags>,
     pub pagination: SearchPagination,
     pub search_time: f64,
-    pub highlights: Option<std::collections::HashMap<i64, std::collections::HashMap<String, Vec<String>>>>, // resource_id -> field -> snippets
+    pub highlights:
+        Option<std::collections::HashMap<i64, std::collections::HashMap<String, Vec<String>>>>, // resource_id -> field -> snippets
 }
 
 /// 带高亮的搜索结果项

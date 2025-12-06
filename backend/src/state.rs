@@ -11,10 +11,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        db_pool: SqlitePool,
-        jwt_decoder: Decoder<JwtClaims>,
-    ) -> Self {
+    pub fn new(db_pool: SqlitePool, jwt_decoder: Decoder<JwtClaims>) -> Self {
         Self {
             db_pool,
             jwt_decoder,

@@ -1,7 +1,5 @@
-/// 维护服务 - 处理数据库维护任务
-///
-/// 包含 FTS 索引重建等后台维护任务
-
+//! 维护服务 - 处理数据库维护任务
+//! 包含 FTS 索引重建等后台维护任务
 use sqlx::SqlitePool;
 use tracing::{error, info, warn};
 
@@ -23,8 +21,8 @@ pub async fn check_and_rebuild_fts(pool: SqlitePool) -> anyhow::Result<()> {
 
     // 如果 FTS 不为空，跳过重建
     // if fts_count > 0 {
-        //info!("FTS 索引已存在 ({} 条记录)，跳过重建", fts_count);
-        // return Ok(());
+    //info!("FTS 索引已存在 ({} 条记录)，跳过重建", fts_count);
+    // return Ok(());
     // }
 
     // 2. 检查 resources 表行数

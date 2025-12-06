@@ -1,9 +1,9 @@
 use sqlx::{Row, SqlitePool};
 
 use crate::models::{
-    Resource, ResourceBatchAction, ResourceBatchError, ResourceBatchRequest, ResourceBatchResult,
-    ResourceQuery, ResourceWithTags, CreateResource, UpdateResource,
-    ResourceReferenceQuery, ResourceReferenceList, ResourceType,
+    CreateResource, Resource, ResourceBatchAction, ResourceBatchError, ResourceBatchRequest,
+    ResourceBatchResult, ResourceQuery, ResourceReferenceList, ResourceReferenceQuery,
+    ResourceType, ResourceWithTags, UpdateResource,
 };
 use crate::services::IndexerService;
 use crate::utils::error::{AppError, AppResult};
@@ -24,28 +24,32 @@ impl ResourceService {
         db_pool: &SqlitePool,
     ) -> AppResult<Resource> {
         // 解析资源类型
-        let resource_type = ResourceType::from_str(&resource_data.resource_type)
-            .map_err(|e| AppError::BadRequest(e))?;
+        let resource_type =
+            ResourceType::from(&resource_data.resource_type).map_err(AppError::BadRequest)?;
 
         // 类型感知验证
         match resource_type {
             ResourceType::Link => {
-                let url = resource_data.url.as_ref()
-                    .ok_or_else(|| AppError::BadRequest("Link type requires url field".to_string()))?;
+                let url = resource_data.url.as_ref().ok_or_else(|| {
+                    AppError::BadRequest("Link type requires url field".to_string())
+                })?;
                 validate_url(url)
                     .then_some(())
                     .ok_or_else(|| AppError::BadRequest(format!("Invalid URL format: {}", url)))?;
             }
             ResourceType::Note | ResourceType::Snippet => {
                 if resource_data.content.is_none() {
-                    return Err(AppError::BadRequest(
-                        format!("{} type requires content field", resource_type.as_str())
-                    ));
+                    return Err(AppError::BadRequest(format!(
+                        "{} type requires content field",
+                        resource_type.as_str()
+                    )));
                 }
             }
             ResourceType::File => {
                 if resource_data.source.is_none() {
-                    return Err(AppError::BadRequest("File type requires source field".to_string()));
+                    return Err(AppError::BadRequest(
+                        "File type requires source field".to_string(),
+                    ));
                 }
             }
         }
@@ -334,15 +338,15 @@ impl ResourceService {
     ) -> AppResult<Option<ResourceWithTags>> {
         // 类型感知验证 (如果更新了类型)
         if let Some(ref resource_type_str) = update_data.resource_type {
-            let resource_type = ResourceType::from_str(resource_type_str)
-                .map_err(|e| AppError::BadRequest(e))?;
+            let resource_type =
+                ResourceType::from(resource_type_str).map_err(AppError::BadRequest)?;
 
             match resource_type {
                 ResourceType::Link => {
                     if let Some(ref url) = update_data.url {
-                        validate_url(url)
-                            .then_some(())
-                            .ok_or_else(|| AppError::BadRequest(format!("Invalid URL format: {}", url)))?;
+                        validate_url(url).then_some(()).ok_or_else(|| {
+                            AppError::BadRequest(format!("Invalid URL format: {}", url))
+                        })?;
                     }
                 }
                 ResourceType::Note | ResourceType::Snippet => {
@@ -508,7 +512,7 @@ impl ResourceService {
                 "SELECT t.name FROM tags t
                  JOIN resource_tags rt ON t.id = rt.tag_id
                  WHERE rt.resource_id = $1
-                 ORDER BY t.name"
+                 ORDER BY t.name",
             )
             .bind(resource.id)
             .fetch_all(db_pool)
@@ -517,7 +521,7 @@ impl ResourceService {
             // 获取收藏夹信息
             let collection_info = if let Some(collection_id) = resource.collection_id {
                 sqlx::query_as::<_, (String, String)>(
-                    "SELECT name, color FROM collections WHERE id = $1"
+                    "SELECT name, color FROM collections WHERE id = $1",
                 )
                 .bind(collection_id)
                 .fetch_optional(db_pool)
@@ -531,7 +535,9 @@ impl ResourceService {
                 resource,
                 tags,
                 collection_name: collection_info.as_ref().map(|(name, _)| name.clone()),
-                collection_color: collection_info.as_ref().and_then(|(_, color)| color.clone()),
+                collection_color: collection_info
+                    .as_ref()
+                    .and_then(|(_, color)| color.clone()),
                 reference_count: None,
             })
         } else {
@@ -761,13 +767,11 @@ impl ResourceService {
             .execute(db_pool)
             .await?
         } else {
-            sqlx::query(
-                "DELETE FROM resource_references WHERE source_id = $1 AND target_id = $2",
-            )
-            .bind(source_id)
-            .bind(target_id)
-            .execute(db_pool)
-            .await?
+            sqlx::query("DELETE FROM resource_references WHERE source_id = $1 AND target_id = $2")
+                .bind(source_id)
+                .bind(target_id)
+                .execute(db_pool)
+                .await?
         };
 
         Ok(result.rows_affected() > 0)
@@ -830,9 +834,8 @@ impl ResourceService {
         // 根据方向构建条件
         match direction {
             "source" => {
-                query_builder.push(
-                    "r.id IN (SELECT target_id FROM resource_references WHERE source_id = ",
-                );
+                query_builder
+                    .push("r.id IN (SELECT target_id FROM resource_references WHERE source_id = ");
                 query_builder.push_bind(resource_id);
                 if let Some(ref ref_type) = query.reference_type {
                     query_builder.push(" AND type = ");
@@ -841,9 +844,8 @@ impl ResourceService {
                 query_builder.push(")");
             }
             "target" => {
-                query_builder.push(
-                    "r.id IN (SELECT source_id FROM resource_references WHERE target_id = ",
-                );
+                query_builder
+                    .push("r.id IN (SELECT source_id FROM resource_references WHERE target_id = ");
                 query_builder.push_bind(resource_id);
                 if let Some(ref ref_type) = query.reference_type {
                     query_builder.push(" AND type = ");
@@ -853,15 +855,16 @@ impl ResourceService {
             }
             _ => {
                 // both
-                query_builder.push(
-                    "r.id IN (SELECT target_id FROM resource_references WHERE source_id = ",
-                );
+                query_builder
+                    .push("r.id IN (SELECT target_id FROM resource_references WHERE source_id = ");
                 query_builder.push_bind(resource_id);
                 if let Some(ref ref_type) = query.reference_type {
                     query_builder.push(" AND type = ");
                     query_builder.push_bind(ref_type);
                 }
-                query_builder.push(") OR r.id IN (SELECT source_id FROM resource_references WHERE target_id = ");
+                query_builder.push(
+                    ") OR r.id IN (SELECT source_id FROM resource_references WHERE target_id = ",
+                );
                 query_builder.push_bind(resource_id);
                 if let Some(ref ref_type) = query.reference_type {
                     query_builder.push(" AND type = ");

@@ -12,16 +12,14 @@ pub fn cors_layer() -> CorsLayer {
     // Parse origins safely, filtering out invalid ones
     let parsed_origins: Vec<_> = origins
         .into_iter()
-        .filter_map(|s| {
-            match s.trim().parse() {
-                Ok(origin) => {
-                    tracing::debug!("CORS: Allowing origin: {:?}", origin);
-                    Some(origin)
-                }
-                Err(e) => {
-                    warn!("CORS: Invalid origin '{}' skipped: {}", s, e);
-                    None
-                }
+        .filter_map(|s| match s.trim().parse() {
+            Ok(origin) => {
+                tracing::debug!("CORS: Allowing origin: {:?}", origin);
+                Some(origin)
+            }
+            Err(e) => {
+                warn!("CORS: Invalid origin '{}' skipped: {}", s, e);
+                None
             }
         })
         .collect();

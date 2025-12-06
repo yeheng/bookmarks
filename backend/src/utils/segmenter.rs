@@ -1,6 +1,6 @@
 /// 文本分词工具模块
 /// 默认使用 SQLite FTS5 内置分词器，可选启用 jieba-rs 进行中文分词
-/// 
+///
 /// 分词策略：
 /// - 默认：依赖 SQLite FTS5 的 unicode61 分词器，不对文本进行预处理
 /// - 启用 jieba feature：使用 jieba 进行中文分词，提供更好的中文搜索体验
@@ -33,7 +33,7 @@ static JIEBA: Lazy<Jieba> = Lazy::new(|| Jieba::new());
 /// // 默认模式：返回原始文本
 /// let result = prepare_for_search(Some("Linux内核开发"));
 /// assert_eq!(result, "Linux内核开发");
-/// 
+///
 /// // jieba 模式：返回分词结果
 /// // 返回类似: "Linux 内核 开发"
 /// ```
@@ -106,7 +106,7 @@ mod tests {
         let result = prepare_for_search(Some("Linux内核开发"));
         // 验证输出不为空
         assert!(!result.is_empty());
-        
+
         #[cfg(feature = "jieba")]
         {
             // jieba 模式：应该包含分词结果
@@ -130,7 +130,7 @@ mod tests {
         let result = prepare_for_search(Some("Rust programming language"));
         // 英文文本应该被正确处理
         assert!(!result.is_empty());
-        
+
         #[cfg(not(feature = "jieba"))]
         {
             // 默认模式：应该返回原始文本
@@ -140,11 +140,7 @@ mod tests {
 
     #[test]
     fn test_prepare_tags_for_search() {
-        let tags = vec![
-            "技术".to_string(),
-            "编程".to_string(),
-            "Rust".to_string(),
-        ];
+        let tags = vec!["技术".to_string(), "编程".to_string(), "Rust".to_string()];
         let result = prepare_tags_for_search(&tags);
         assert!(!result.is_empty());
         // 验证所有标签都被处理
@@ -168,13 +164,13 @@ mod tests {
         ];
         let result = prepare_tags_for_search(&tags);
         assert!(!result.is_empty());
-        
+
         #[cfg(not(feature = "jieba"))]
         {
             // 默认模式：应该直接用空格连接
             assert_eq!(result, "技术 programming Rust语言");
         }
-        
+
         #[cfg(feature = "jieba")]
         {
             // jieba 模式：应该包含分词结果

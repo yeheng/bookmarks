@@ -12,14 +12,14 @@ pub static URL_REGEX: Lazy<Regex> =
 // 静态正则表达式，用于解析 Netscape 书签文件
 // 只在第一次使用时编译，避免每次导入时重新编译
 #[allow(unused)]
-pub static LINK_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)<a[^>]*href="(?P<url>[^"]+)"[^>]*>(?P<title>[^<]+)"#)
-        .expect("Failed to compile bookmark regex"));
+pub static LINK_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?i)<a[^>]*href="(?P<url>[^"]+)"[^>]*>(?P<title>[^<]+)"#)
+        .expect("Failed to compile bookmark regex")
+});
 
 #[allow(unused)]
 pub static TAG_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)tags="(?P<tags>[^"]+)""#)
-        .expect("Failed to compile tag regex"));
+    Lazy::new(|| Regex::new(r#"(?i)tags="(?P<tags>[^"]+)""#).expect("Failed to compile tag regex"));
 
 pub fn validate_email(email: &str) -> bool {
     EMAIL_REGEX.is_match(email)

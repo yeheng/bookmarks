@@ -11,16 +11,12 @@ pub struct AppConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Environment {
+    #[default]
     Development,
     Production,
     Test,
-}
-
-impl Default for Environment {
-    fn default() -> Self {
-        Environment::Development
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
