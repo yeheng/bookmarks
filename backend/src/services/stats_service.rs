@@ -2,7 +2,7 @@ use chrono::Utc;
 use sqlx::{Row, SqlitePool};
 
 use crate::models::{
-    BookmarkWithTags, RecentActivityEntry, StatsPeriod, TopDomainEntry, TopTagEntry, UserStats,
+    ResourceWithTags, RecentActivityEntry, StatsPeriod, TopDomainEntry, TopTagEntry, UserStats,
 };
 use crate::utils::error::{AppError, AppResult};
 
@@ -82,12 +82,12 @@ impl StatsService {
         })
     }
 
-    // 查询最近添加的书签 (最多10条)
+    // 查询最近添加的资源 (最多10条)
     async fn recent_bookmarks(
         user_id: i64,
         db_pool: &SqlitePool,
-    ) -> AppResult<Vec<BookmarkWithTags>> {
-        let bookmarks = sqlx::query_as::<_, BookmarkWithTags>(
+    ) -> AppResult<Vec<ResourceWithTags>> {
+        let bookmarks = sqlx::query_as::<_, ResourceWithTags>(
             r#"
             SELECT
                 b.*,

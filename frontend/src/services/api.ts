@@ -2,9 +2,11 @@ import type {
   ApiErrorResponse,
   ApiResponse,
   AuthResponse,
+  Resource,
   Bookmark,
   Collection,
   CollectionsQuery,
+  CreateResourceRequest,
   CreateBookmarkRequest,
   CreateCollectionRequest,
   CreateTagRequest,
@@ -15,6 +17,7 @@ import type {
   Stats,
   Tag,
   TagsQuery,
+  UpdateResourceRequest,
   UpdateBookmarkRequest,
   UpdateCollectionRequest,
   UpdateTagRequest,
@@ -259,8 +262,8 @@ class ApiService {
     return apiResponse;
   }
 
-  // Bookmark endpoints
-  async getBookmarks(params?: SearchQuery): Promise<PaginatedApiResponse<Bookmark>> {
+  // Resource endpoints (资源管理)
+  async getResources(params?: SearchQuery): Promise<PaginatedApiResponse<Resource>> {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -274,29 +277,84 @@ class ApiService {
       });
     }
     const query = searchParams.toString();
-    return this.request(`/bookmarks${query ? `?${query}` : ''}`);
+    return this.request(`/resources${query ? `?${query}` : ''}`);
   }
 
-  async getBookmark(id: number): Promise<ApiResponse<Bookmark>> {
-    return this.request(`/bookmarks/${id}`);
+  async getResource(id: number): Promise<ApiResponse<Resource>> {
+    return this.request(`/resources/${id}`);
   }
 
-  async createBookmark(request: CreateBookmarkRequest): Promise<ApiResponse<Bookmark>> {
-    return this.request('/bookmarks', {
+  async createResource(request: CreateResourceRequest): Promise<ApiResponse<Resource>> {
+    return this.request('/resources', {
       method: 'POST',
       body: JSON.stringify(request),
     });
   }
 
-  async updateBookmark(id: number, request: UpdateBookmarkRequest): Promise<ApiResponse<Bookmark>> {
-    return this.request(`/bookmarks/${id}`, {
+  async updateResource(id: number, request: UpdateResourceRequest): Promise<ApiResponse<Resource>> {
+    return this.request(`/resources/${id}`, {
       method: 'PUT',
       body: JSON.stringify(request),
     });
   }
 
+  async deleteResource(id: number): Promise<ApiResponse<void>> {
+    return this.request(`/resources/${id}`, { method: 'DELETE' });
+  }
+
+  // 资源引用管理（资源之间的关联）
+  async createResourceReference(
+    resourceId: number,
+    targetId: number,
+    type?: string
+  ): Promise<ApiResponse<void>> {
+    return this.request(`/resources/${resourceId}/references`, {
+      method: 'POST',
+      body: JSON.stringify({ target_id: targetId, type }),
+    });
+  }
+
+  async deleteResourceReference(resourceId: number, targetId: number): Promise<ApiResponse<void>> {
+    return this.request(`/resources/${resourceId}/references/${targetId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getResourceReferences(
+    resourceId: number,
+    params?: { type?: string; limit?: number; offset?: number }
+  ): Promise<PaginatedApiResponse<Resource>> {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          searchParams.append(key, value.toString());
+        }
+      });
+    }
+    const query = searchParams.toString();
+    return this.request(`/resources/${resourceId}/references${query ? `?${query}` : ''}`);
+  }
+
+  // Bookmark endpoints (向下兼容，调用 Resource API)
+  async getBookmarks(params?: SearchQuery): Promise<PaginatedApiResponse<Bookmark>> {
+    return this.getResources(params);
+  }
+
+  async getBookmark(id: number): Promise<ApiResponse<Bookmark>> {
+    return this.getResource(id);
+  }
+
+  async createBookmark(request: CreateBookmarkRequest): Promise<ApiResponse<Bookmark>> {
+    return this.createResource(request);
+  }
+
+  async updateBookmark(id: number, request: UpdateBookmarkRequest): Promise<ApiResponse<Bookmark>> {
+    return this.updateResource(id, request);
+  }
+
   async deleteBookmark(id: number): Promise<ApiResponse<void>> {
-    return this.request(`/bookmarks/${id}`, { method: 'DELETE' });
+    return this.deleteResource(id);
   }
 
   // Collection endpoints
@@ -371,8 +429,8 @@ class ApiService {
     return this.request(`/tags/${id}`, { method: 'DELETE' });
   }
 
-  // Search endpoints
-  async search(params: SearchQuery): Promise<PaginatedApiResponse<Bookmark>> {
+  // Search endpoints (搜索资源)
+  async search(params: SearchQuery): Promise<PaginatedApiResponse<Resource>> {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
@@ -383,7 +441,7 @@ class ApiService {
         }
       }
     });
-    return this.request(`/search/bookmarks?${searchParams.toString()}`);
+    return this.request(`/search/resources?${searchParams.toString()}`);
   }
 
   // Stats endpoints
@@ -393,3 +451,6 @@ class ApiService {
 }
 
 export const apiService = new ApiService();
+
+// 导出一个兼容的 useApi 函数
+export const useApi = () => apiService;

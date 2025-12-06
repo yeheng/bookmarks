@@ -33,7 +33,7 @@ pub struct SuggestionQueryParams {
     pub limit: Option<i64>,
 }
 
-pub async fn search_bookmarks(
+pub async fn search_resources(
     State(app_state): State<AppState>,
     AuthenticatedUser(user_id): AuthenticatedUser,
     Query(query): Query<SearchQueryParams>,
@@ -41,7 +41,7 @@ pub async fn search_bookmarks(
     let filters = build_filters(&query)?;
 
     // 使用 FTS5 进行搜索
-    let result: SearchResponse = SearchService::search_bookmarks(
+    let result: SearchResponse = SearchService::search_resources(
         user_id,
         filters,
         &app_state.db_pool,

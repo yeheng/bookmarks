@@ -174,10 +174,10 @@ impl TagService {
             .fetch_all(&mut *tx)
             .await?;
 
-            // 对每个受影响的书签，重建 FTS 索引
+            // 对每个受影响的资源，重建 FTS 索引
             for row in bookmark_ids {
                 let bookmark_id: i64 = row.get("bookmark_id");
-                IndexerService::index_bookmark(&mut tx, bookmark_id, user_id).await?;
+                IndexerService::index_resource(&mut tx, bookmark_id, user_id).await?;
             }
         }
 

@@ -4,7 +4,7 @@
     <div class="mb-8">
       <div class="max-w-2xl mx-auto">
         <h1 class="text-3xl font-bold tracking-tight text-center mb-4">搜索</h1>
-        <p class="text-muted-foreground text-center mb-8">在您的书签中快速查找内容</p>
+        <p class="text-muted-foreground text-center mb-8">在您的资源中快速查找内容</p>
 
         <!-- Search form -->
         <form @submit.prevent="handleSearch" class="space-y-4">
@@ -16,7 +16,7 @@
             <Input
               v-model="searchQuery"
               type="text"
-              placeholder="搜索书签、收藏夹或标签（至少3个字符）..."
+              placeholder="搜索资源、收藏夹或标签（至少3个字符）..."
               class="pl-10 pr-4 py-3 h-12 text-base"
               autofocus
               @input="handleInput"
@@ -134,7 +134,7 @@
             </span>
           </h2>
           <p class="text-sm text-muted-foreground">
-            {{ bookmarksStore.bookmarks.length }} 个结果
+            {{ resourcesStore.resources?.length || 0 }} 个结果
             <span v-if="searchTime">({{ searchTime }}秒)</span>
           </p>
         </div>
@@ -150,66 +150,89 @@
       </div>
 
       <!-- Results list -->
-      <div v-if="bookmarksStore.bookmarks.length > 0" class="space-y-4">
+      <div v-if="resourcesStore.resources?.length > 0" class="space-y-4">
         <div
-          v-for="bookmark in searchResults"
-          :key="bookmark.id"
+          v-for="resource in searchResults"
+          :key="resource.id"
           class="group bg-card border border-border/50 rounded-lg p-4 hover:shadow-sm transition-all duration-200"
         >
           <div class="flex items-start justify-between gap-4">
-            <!-- Bookmark info -->
+            <!-- Resource info -->
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 mb-1">
-                <h3 class="font-medium truncate hover:text-primary cursor-pointer" @click="openBookmark(bookmark.url)">
-                  {{ highlightText(bookmark.title, searchQuery) }}
+                <!-- Resource type indicator -->
+                <div class="w-4 h-4 rounded flex items-center justify-center flex-shrink-0" :class="getTypeIconClass(resource.type)">
+                  <span class="text-xs">{{ getTypeIcon(resource.type) }}</span>
+                </div>
+                <h3 class="font-medium truncate hover:text-primary cursor-pointer" @click="openResource(resource)">
+                  {{ highlightText(resource.title, searchQuery) }}
                 </h3>
                 <!-- Status indicators -->
                 <div class="flex items-center gap-1">
-                  <span v-if="bookmark.is_favorite" class="text-yellow-500" title="收藏">⭐</span>
-                  <span v-if="bookmark.is_read" class="text-green-500" title="已读">✓</span>
-                  <span v-if="bookmark.is_archived" class="text-gray-500" title="归档">📁</span>
+                  <span v-if="resource.is_favorite" class="text-yellow-500" title="收藏">⭐</span>
+                  <span v-if="resource.is_read" class="text-green-500" title="已读">✓</span>
+                  <span v-if="resource.is_archived" class="text-gray-500" title="归档">📁</span>
+                  <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[10px]">{{ getTypeLabel(resource.type) }}</span>
                 </div>
               </div>
-              
-              <p class="text-sm text-muted-foreground mb-2 truncate">{{ bookmark.url }}</p>
-              
-              <p v-if="bookmark.description" class="text-sm text-muted-foreground mb-2 line-clamp-2">
-                {{ highlightText(bookmark.description, searchQuery) }}
+
+              <!-- Resource-specific content -->
+              <div class="text-sm text-muted-foreground mb-2">
+                <div v-if="resource.type === 'link' && resource.url" class="truncate">
+                  {{ resource.url }}
+                </div>
+                <div v-else-if="resource.type === 'note' && resource.content" class="line-clamp-2">
+                  <span class="text-gray-500 text-xs">📝 笔记片段：</span>
+                  {{ highlightText(truncateText(resource.content, 150), searchQuery) }}
+                </div>
+                <div v-else-if="resource.type === 'snippet' && resource.content" class="line-clamp-2 font-mono bg-gray-50 dark:bg-gray-800 p-1 rounded">
+                  <span class="text-gray-500 text-xs">💻 代码片段：</span>
+                  {{ highlightText(truncateText(resource.content, 120), searchQuery) }}
+                </div>
+                <div v-else-if="resource.type === 'file' && resource.source" class="truncate">
+                  <span class="text-orange-500 text-xs">📄 文件：</span>
+                  {{ resource.source }}
+                  <span v-if="resource.mime_type" class="text-gray-400">({{ resource.mime_type }})</span>
+                </div>
+              </div>
+
+              <p v-if="resource.description" class="text-sm text-muted-foreground mb-2 line-clamp-2">
+                {{ highlightText(resource.description, searchQuery) }}
               </p>
-              
+
               <!-- Tags -->
-              <div v-if="bookmark.tags && bookmark.tags.length > 0" class="flex flex-wrap gap-1 mb-2">
+              <div v-if="resource.tags && resource.tags.length > 0" class="flex flex-wrap gap-1 mb-2">
                 <span
-                  v-for="tag in bookmark.tags"
-                  :key="tag.id"
-                  class="inline-flex items-center px-2 py-0.5 rounded-full text-xs"
-                  :style="{ backgroundColor: tag.color + '20', color: tag.color }"
+                  v-for="tag in resource.tags"
+                  :key="tag"
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-800 hover:bg-blue-200"
                 >
-                  {{ tag.name }}
+                  {{ tag }}
                 </span>
               </div>
-              
+
               <!-- Meta info -->
               <div class="flex items-center gap-4 text-xs text-muted-foreground">
-                <span>{{ formatDate(bookmark.created_at) }}</span>
-                <span v-if="bookmark.visit_count > 0">{{ bookmark.visit_count }} 次访问</span>
-                <span v-if="bookmark.collection_name">{{ bookmark.collection_name }}</span>
+                <span>{{ formatDate(resource.created_at) }}</span>
+                <span v-if="resource.visit_count > 0">{{ resource.visit_count }} 次访问</span>
+                <span v-if="resource.collection_name">{{ resource.collection_name }}</span>
+                <span v-if="resource.reference_count > 0">{{ resource.reference_count }} 个引用</span>
               </div>
             </div>
-            
+
             <!-- Actions -->
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
-                @click="toggleFavorite(bookmark)"
+                @click="toggleFavorite(resource)"
                 class="p-1.5 rounded hover:bg-accent transition-colors"
-                :title="bookmark.is_favorite ? '取消收藏' : '添加收藏'"
+                :title="resource.is_favorite ? '取消收藏' : '添加收藏'"
               >
-                <span :class="bookmark.is_favorite ? 'text-yellow-500' : 'text-muted-foreground'">
-                  {{ bookmark.is_favorite ? '⭐' : '☆' }}
+                <span :class="resource.is_favorite ? 'text-yellow-500' : 'text-muted-foreground'">
+                  {{ resource.is_favorite ? '⭐' : '☆' }}
                 </span>
               </button>
               <button
-                @click="editBookmark(bookmark)"
+                @click="editResource(resource)"
                 class="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground"
                 title="编辑"
               >
@@ -218,9 +241,9 @@
             </div>
           </div>
         </div>
-        
+
         <!-- Load more -->
-        <div v-if="bookmarksStore.hasMore" class="text-center pt-4">
+        <div v-if="resourcesStore.hasMore" class="text-center pt-4">
           <button
             @click="handleLoadMore"
             :disabled="isLoadingMore"
@@ -243,13 +266,13 @@
       </div>
 
       <!-- No results -->
-      <div v-else-if="searchQuery && !bookmarksStore.isLoading && !searchError && bookmarksStore.bookmarks.length === 0" class="text-center py-12">
+      <div v-else-if="searchQuery && !resourcesStore.isLoading && !searchError && (!resourcesStore.resources || resourcesStore.resources.length === 0)" class="text-center py-12">
         <div class="mx-auto h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
           <span class="text-2xl">🔍</span>
         </div>
         <h3 class="text-xl font-semibold mb-2">未找到结果</h3>
         <p class="text-muted-foreground mb-4">
-          没有找到与 "{{ searchQuery }}" 相关的书签
+          没有找到与 "{{ searchQuery }}" 相关的资源
         </p>
         <div class="space-y-2">
           <p class="text-sm text-muted-foreground">建议：</p>
@@ -257,6 +280,7 @@
             <li>• 检查拼写是否正确</li>
             <li>• 尝试使用更通用的关键词</li>
             <li>• 减少筛选条件</li>
+            <li>• 尝试搜索不同类型的资源（笔记、代码片段等）</li>
           </ul>
         </div>
       </div>
@@ -281,15 +305,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
-import { useBookmarksStore } from '@/stores/bookmarks'
+import { useResourcesStore } from '@/stores/resources'
 import { useCollectionsStore } from '@/stores/collections'
 import { useTagsStore } from '@/stores/tags'
 import { useSearch } from '@/composables/useSearch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { Bookmark, SearchFilters } from '@/types'
+import type { Resource, ResourceType, SearchFilters } from '@/types'
 
-const bookmarksStore = useBookmarksStore()
+const resourcesStore = useResourcesStore()
 const collectionsStore = useCollectionsStore()
 const tagsStore = useTagsStore()
 
@@ -315,7 +339,7 @@ const {
 } = useSearch(async (query: string, filters: SearchFilters) => {
   // 构建搜索参数
   const searchParams: any = {
-    search: query,
+    q: query, // 使用新的API参数名
     sort_by: filters.sortBy
   }
 
@@ -324,15 +348,15 @@ const {
   }
 
   if (filters.tagId) {
-    searchParams.tags = [parseInt(filters.tagId)]
+    searchParams.tags = filters.tagId // 使用字符串而不是数组
   }
 
   // 执行搜索
-  await bookmarksStore.searchBookmarks(searchParams, true)
+  await resourcesStore.fetchResources(searchParams, true)
 })
 
 // 搜索结果和建议
-const searchResults = computed(() => bookmarksStore.bookmarks)
+const searchResults = computed(() => resourcesStore.resources || [])
 
 const searchSuggestions = computed(() => {
   const allTags = tagsStore.tags.map(tag => tag.name)
@@ -362,26 +386,69 @@ const highlightText = (text: string, query: string) => {
   return text.replace(regex, '<mark class="bg-yellow-200 text-yellow-800">$1</mark>')
 }
 
-// 打开书签
-const openBookmark = (url: string) => {
-  window.open(url, '_blank')
+// 截断文本
+const truncateText = (text: string, maxLength: number): string => {
+  if (text.length <= maxLength) return text
+  return text.substring(0, maxLength) + '...'
+}
+
+// 获取资源类型图标
+const getTypeIcon = (type: ResourceType): string => {
+  const icons: Record<ResourceType, string> = {
+    link: '🔗',
+    note: '📝',
+    snippet: '💻',
+    file: '📄'
+  }
+  return icons[type] || '📌'
+}
+
+// 获取类型图标样式类
+const getTypeIconClass = (type: ResourceType): string => {
+  const classes: Record<ResourceType, string> = {
+    link: 'bg-blue-100 text-blue-700',
+    note: 'bg-green-100 text-green-700',
+    snippet: 'bg-purple-100 text-purple-700',
+    file: 'bg-gray-100 text-gray-700'
+  }
+  return classes[type] || 'bg-accent text-accent-foreground'
+}
+
+// 获取类型标签
+const getTypeLabel = (type: ResourceType): string => {
+  const labels: Record<ResourceType, string> = {
+    link: '链接',
+    note: '笔记',
+    snippet: '代码',
+    file: '文件'
+  }
+  return labels[type] || '资源'
+}
+
+// 打开资源
+const openResource = (resource: Resource) => {
+  if (resource.type === 'link' && resource.url) {
+    window.open(resource.url, '_blank')
+  } else {
+    // 对于非链接类型，可以打开编辑模态框或显示详情
+    console.log('打开资源详情:', resource)
+  }
 }
 
 // 切换收藏状态
-const toggleFavorite = async (bookmark: Bookmark) => {
+const toggleFavorite = async (resource: Resource) => {
   try {
-    await bookmarksStore.updateBookmark(bookmark.id, {
-      is_favorite: !bookmark.is_favorite
-    })
+    const updateData = { is_favorite: !resource.is_favorite }
+    await resourcesStore.updateResource(resource.id, updateData)
   } catch (error) {
     console.error('切换收藏状态失败:', error)
   }
 }
 
-// 编辑书签
-const editBookmark = (bookmark: Bookmark) => {
-  // TODO: 实现编辑书签功能
-  console.log('编辑书签:', bookmark)
+// 编辑资源
+const editResource = (resource: Resource) => {
+  // TODO: 实现编辑资源功能，可以打开编辑模态框
+  console.log('编辑资源:', resource)
 }
 
 // 手动搜索处理函数（用于表单提交）
@@ -391,13 +458,13 @@ const handleSearch = async () => {
 
 // 处理加载更多（结合store的分页逻辑）
 const handleLoadMore = async () => {
-  if (isLoadingMore.value || !bookmarksStore.hasMore) return
+  if (isLoadingMore.value || !resourcesStore.hasMore) return
 
   isLoadingMore.value = true
 
   try {
     const searchParams: any = {
-      search: searchQuery.value.trim(),
+      q: searchQuery.value.trim(), // 使用新的API参数名
       sort_by: filters.value.sortBy
     }
 
@@ -406,10 +473,10 @@ const handleLoadMore = async () => {
     }
 
     if (filters.value.tagId) {
-      searchParams.tags = [parseInt(filters.value.tagId)]
+      searchParams.tags = filters.value.tagId // 使用字符串而不是数组
     }
 
-    await bookmarksStore.searchBookmarks(searchParams, false)
+    await resourcesStore.fetchResources(searchParams, false)
 
   } catch (error) {
     console.error('加载更多结果失败:', error)

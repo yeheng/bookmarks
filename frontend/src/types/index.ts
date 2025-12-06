@@ -26,10 +26,17 @@ export interface RegisterRequest {
   password: string;
 }
 
-export interface Bookmark {
+// 资源类型：link(链接)、note(笔记)、snippet(代码片段)、file(文件)
+export type ResourceType = 'link' | 'note' | 'snippet' | 'file';
+
+export interface Resource {
   id: number;
   title: string;
-  url: string;
+  type: ResourceType; // 资源类型
+  url?: string; // 链接类型必填，其他可选
+  content?: string; // 笔记/代码片段内容
+  source?: string; // 来源
+  mime_type?: string; // MIME类型（文件类型）
   description?: string;
   user_id: number;
   collection_id?: number;
@@ -51,6 +58,9 @@ export interface Bookmark {
   visit_count: number;
   difficulty_level?: number;
 }
+
+// 向下兼容：Bookmark 作为 Resource 的别名
+export type Bookmark = Resource;
 
 export interface Collection {
   id: number;
@@ -79,14 +89,21 @@ export interface Tag {
   usage_count: number;
 }
 
-export interface BookmarkTag {
-  bookmark_id: number;
+export interface ResourceTag {
+  resource_id: number;
   tag_id: number;
 }
 
-export interface CreateBookmarkRequest {
+// 向下兼容
+export type BookmarkTag = ResourceTag;
+
+export interface CreateResourceRequest {
   title: string;
-  url: string;
+  type: ResourceType; // 资源类型
+  url?: string; // 链接类型必填，其他可选
+  content?: string; // 笔记/代码片段内容
+  source?: string; // 来源
+  mime_type?: string; // MIME类型（文件类型）
   description?: string;
   collection_id?: number;
   tags?: string[];
@@ -94,9 +111,16 @@ export interface CreateBookmarkRequest {
   is_private?: boolean;
 }
 
-export interface UpdateBookmarkRequest {
+// 向下兼容
+export type CreateBookmarkRequest = CreateResourceRequest;
+
+export interface UpdateResourceRequest {
   title?: string;
+  type?: ResourceType;
   url?: string;
+  content?: string;
+  source?: string;
+  mime_type?: string;
   description?: string;
   collection_id?: number;
   clear_collection_id?: boolean;
@@ -108,6 +132,9 @@ export interface UpdateBookmarkRequest {
   reading_time?: number;
   difficulty_level?: number;
 }
+
+// 向下兼容
+export type UpdateBookmarkRequest = UpdateResourceRequest;
 
 export interface CreateCollectionRequest {
   name: string;
@@ -217,13 +244,17 @@ export interface ApiErrorResponse {
 }
 
 export interface Stats {
-  total_bookmarks: number;
+  total_resources: number;
+  total_bookmarks: number; // 向下兼容
   total_collections: number;
   total_tags: number;
-  favorite_bookmarks: number;
-  archived_bookmarks: number;
+  favorite_resources: number;
+  favorite_bookmarks: number; // 向下兼容
+  archived_resources: number;
+  archived_bookmarks: number; // 向下兼容
   total_visits: number;
-  recent_bookmarks: Bookmark[];
+  recent_resources: Resource[];
+  recent_bookmarks: Bookmark[]; // 向下兼容
   recent_activity: RecentActivityEntry[];
   top_tags: TopTagEntry[];
   top_domains: TopDomainEntry[];
@@ -231,8 +262,10 @@ export interface Stats {
 
 export interface RecentActivityEntry {
   date: number;
-  bookmarks_added: number;
-  bookmarks_visited: number;
+  resources_added: number;
+  bookmarks_added: number; // 向下兼容
+  resources_visited: number;
+  bookmarks_visited: number; // 向下兼容
 }
 
 export interface TopTagEntry {
@@ -243,4 +276,34 @@ export interface TopTagEntry {
 export interface TopDomainEntry {
   domain: string;
   count: number;
+}
+
+// 资源引用相关类型
+export type ReferenceType = 'related' | 'depends_on' | 'references';
+
+export interface ResourceReference {
+  id: number;
+  source_id: number;
+  target_id: number;
+  type: ReferenceType;
+  created_at: number;
+}
+
+export interface CreateResourceReferenceRequest {
+  target_id: number;
+  type?: ReferenceType; // 默认 "related"
+}
+
+export interface ResourceReferenceQuery {
+  limit?: number;
+  offset?: number;
+  type?: ReferenceType; // 过滤引用类型
+  direction?: 'source' | 'target' | 'both'; // 查询方向
+}
+
+export interface ResourceReferenceList {
+  items: Resource[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
 }

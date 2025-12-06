@@ -104,3 +104,8 @@ data/
 repomix*
 .repomix*
 .specify
+openspec
+.opencode
+AGENTS.md
+CLAUDE.md
+IFLOW.md

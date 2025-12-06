@@ -27,21 +27,21 @@ pub async fn check_and_rebuild_fts(pool: SqlitePool) -> anyhow::Result<()> {
         // return Ok(());
     // }
 
-    // 2. 检查 bookmarks 表行数
-    let bookmarks_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bookmarks")
+    // 2. 检查 resources 表行数
+    let resources_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources")
         .fetch_one(&pool)
         .await?;
 
-    // 如果 bookmarks 也为空，无需重建
-    if bookmarks_count == 0 {
-        info!("Bookmarks 表为空，无需重建 FTS 索引");
+    // 如果 resources 也为空，无需重建
+    if resources_count == 0 {
+        info!("Resources 表为空，无需重建 FTS 索引");
         return Ok(());
     }
 
     // 3. 启动后台重建任务
     warn!(
-        "检测到 {} 条书签但 FTS 索引为空，启动后台重建任务...",
-        bookmarks_count
+        "检测到 {} 条资源但 FTS 索引为空，启动后台重建任务...",
+        resources_count
     );
 
     // 使用 tokio::spawn 在后台执行重建，不阻塞主应用
@@ -82,11 +82,15 @@ mod tests {
         let result = check_and_rebuild_fts(pool.clone()).await;
         assert!(result.is_ok());
 
-        // 验证 FTS 表仍然为空
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bookmarks_fts")
+        // 验证 FTS 表记录数（如果resources表为空，FTS表也应该为空）
+        let fts_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources_fts")
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(count, 0);
+        let resources_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(fts_count, resources_count); // FTS记录数应该等于resources记录数
     }
 }

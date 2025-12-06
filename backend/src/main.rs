@@ -16,7 +16,7 @@ mod utils;
 use config::AppConfig;
 use middleware::{auth_middleware, logging_middleware};
 use routes::{
-    ano_routes, auth_routes, bookmark_routes, collection_routes, search_routes, stats_routes,
+    ano_routes, auth_routes, resource_routes, collection_routes, search_routes, stats_routes,
     tag_routes,
 };
 use state::AppState;
@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Protected routes requiring authentication
     let protected_routes = Router::new()
-        .nest("/api/bookmarks", bookmark_routes())
+        .nest("/api/resources", resource_routes())
         .nest("/api/collections", collection_routes())
         .nest("/api/tags", tag_routes())
         .nest("/api/search", search_routes())

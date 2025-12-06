@@ -11,8 +11,8 @@
           </button>
 
           <div>
-            <h1 class="text-xl font-bold tracking-tight">书签</h1>
-            <p class="text-sm text-muted-foreground">共 {{ bookmarksStore.bookmarks?.length || 0 }} 个书签</p>
+            <h1 class="text-xl font-bold tracking-tight">资源</h1>
+            <p class="text-sm text-muted-foreground">共 {{ resourcesStore.resources?.length || 0 }} 个资源</p>
           </div>
         </div>
 
@@ -46,17 +46,17 @@
         :class="{ 'ml-64': leftDrawerOpen, 'mr-64': rightDrawerOpen, 'ml-0': !leftDrawerOpen, 'mr-0': !rightDrawerOpen }"
       >
         <div class="p-6">
-          <BookmarkGrid
-            :bookmarks="bookmarksStore.bookmarks || []"
-            :is-loading="bookmarksStore.isLoading"
-            :is-loading-more="bookmarksStore.isLoadingMore"
-            :has-more="bookmarksStore.hasMore"
+          <ResourceGrid
+            :resources="resourcesStore.resources || []"
+            :is-loading="resourcesStore.isLoading"
+            :is-loading-more="resourcesStore.isLoadingMore"
+            :has-more="resourcesStore.hasMore"
             @load-more="loadMore"
             @toggle-favorite="toggleFavorite"
-            @edit="editBookmark"
-            @delete="deleteBookmark"
+            @edit="editResource"
+            @delete="deleteResource"
             @tag-click="navigateToTag"
-            @add-bookmark="handleAddBookmark"
+            @add-resource="handleAddResource"
           />
         </div>
       </div>
@@ -64,45 +64,44 @@
       <TagDrawer :is-open="rightDrawerOpen" :tags="allTags" :selected-tag="filters.tag" @tag-click="handleTagClick" />
     </div>
 
-    <!-- 书签编辑模态框 -->
-    <BookmarkModal
+    <!-- 资源编辑模态框 -->
+    <ResourceModal
       :is-open="isModalOpen"
-      :bookmark="editingBookmark"
+      :resource="editingResource"
       :collections="collectionsStore.collections || []"
       :is-submitting="isSubmitting"
       @close="handleCloseModal"
-      @submit="handleSubmitBookmark"
+      @submit="handleSubmitResource"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, computed } from 'vue'
-import { useBookmarksStore } from '@/stores/bookmarks'
+import { useResourcesStore } from '@/stores/resources'
 import { useCollectionsStore } from '@/stores/collections'
 import { useTagsStore } from '@/stores/tags'
-import { useDrawers, useBookmarkActions, useTagStats } from '@/composables/useBookmarks'
-import { BookmarkModal } from '@/components/bookmarks'
+import { useDrawers, useResourceActions, useTagStats } from '@/composables/useResources'
+import { ResourceModal, ResourceGrid } from '@/components/bookmarks'
 import CollectionDrawer from '@/components/bookmarks/CollectionDrawer.vue'
 import TagDrawer from '@/components/bookmarks/TagDrawer.vue'
-import BookmarkGrid from '@/components/bookmarks/BookmarkGrid.vue'
 
-const bookmarksStore = useBookmarksStore()
+const resourcesStore = useResourcesStore()
 const collectionsStore = useCollectionsStore()
 const tagsStore = useTagsStore()
 
 const { leftDrawerOpen, rightDrawerOpen, toggleLeftDrawer, toggleRightDrawer } = useDrawers()
-const { 
-  toggleFavorite, 
-  editBookmark, 
-  deleteBookmark, 
-  handleAddBookmark,
+const {
+  toggleFavorite,
+  editResource,
+  deleteResource,
+  handleAddResource,
   isModalOpen,
-  editingBookmark,
+  editingResource,
   isSubmitting,
   handleCloseModal,
-  handleSubmitBookmark
-} = useBookmarkActions()
+  handleSubmitResource
+} = useResourceActions()
 
 // 本地标签处理函数
 const handleTagClick = (tagName: string) => {
@@ -113,8 +112,8 @@ const handleTagClick = (tagName: string) => {
 const filters = reactive({ collectionId: '', sortBy: 'created_at', tag: '' })
 
 const allTags = computed(() => {
-  const bookmarks = bookmarksStore.bookmarks || []
-  const { allTags } = useTagStats(bookmarks)
+  const resources = resourcesStore.resources || []
+  const { allTags } = useTagStats(resources)
   return allTags.value
 })
 
@@ -128,14 +127,14 @@ const applyFilters = async () => {
   if (filters.collectionId) params.collection_id = parseInt(filters.collectionId)
   if (filters.tag) params.tags = filters.tag // 后端期望字符串，不是数组
   console.log('应用过滤器参数:', params)
-  await bookmarksStore.fetchBookmarks(params, true)
+  await resourcesStore.fetchResources(params, true)
 }
 
 const loadMore = async () => {
   const params: any = { sort_by: filters.sortBy }
   if (filters.collectionId) params.collection_id = parseInt(filters.collectionId)
   if (filters.tag) params.tags = filters.tag // 后端期望字符串，不是数组
-  await bookmarksStore.fetchBookmarks(params, false)
+  await resourcesStore.fetchResources(params, false)
 }
 
 onMounted(async () => {

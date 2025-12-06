@@ -15,7 +15,7 @@
       <!-- 标题栏 -->
       <div class="flex items-center justify-between p-6 border-b">
         <h2 class="text-lg font-semibold">
-          {{ isEditMode ? '编辑书签' : '添加书签' }}
+          {{ isEditMode ? '编辑资源' : '添加资源' }}
         </h2>
         <button
           type="button"
@@ -30,8 +30,8 @@
 
       <!-- 表单内容 -->
       <div class="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-        <BookmarkForm
-          :bookmark="bookmark"
+        <ResourceForm
+          :resource="resource"
           :collections="collections"
           :is-submitting="isSubmitting"
           @submit="handleSubmit"
@@ -44,29 +44,29 @@
 
 <script setup lang="ts">
 import { computed, nextTick, watch } from 'vue'
-import { BookmarkForm } from '@/components/bookmarks'
-import type { Bookmark, Collection, CreateBookmarkRequest, UpdateBookmarkRequest } from '@/types'
+import { ResourceForm } from '@/components/bookmarks'
+import type { Resource, Collection, CreateResourceRequest, UpdateResourceRequest } from '@/types'
 
 // Props
 interface Props {
   isOpen: boolean
-  bookmark?: Bookmark
+  resource?: Resource
   collections: Collection[]
   isSubmitting: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  bookmark: undefined
+  resource: undefined
 })
 
 // Emits
 const emit = defineEmits<{
   close: []
-  submit: [data: CreateBookmarkRequest | UpdateBookmarkRequest]
+  submit: [data: CreateResourceRequest | UpdateResourceRequest]
 }>()
 
 // 是否为编辑模式
-const isEditMode = computed(() => !!props.bookmark)
+const isEditMode = computed(() => !!props.resource)
 
 // 处理背景点击
 const handleBackdropClick = () => {
@@ -81,7 +81,7 @@ const handleClose = () => {
 }
 
 // 处理提交
-const handleSubmit = (data: CreateBookmarkRequest | UpdateBookmarkRequest) => {
+const handleSubmit = (data: CreateResourceRequest | UpdateResourceRequest) => {
   emit('submit', data)
 }
 

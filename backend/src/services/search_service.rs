@@ -2,7 +2,7 @@ use sqlx::{Row, SqlitePool};
 use std::time::Instant;
 
 use crate::models::{
-    BookmarkWithTags, FilterCriteria, SearchFilters, SearchPagination, SearchResponse,
+    ResourceWithTags, FilterCriteria, SearchFilters, SearchPagination, SearchResponse,
     SearchSuggestion, SearchType,
 };
 use crate::utils::error::AppResult;
@@ -11,7 +11,7 @@ use crate::utils::segmenter::prepare_for_search;
 pub struct SearchService;
 
 impl SearchService {
-    pub async fn search_bookmarks(
+    pub async fn search_resources(
         user_id: i64,
         filters: SearchFilters,
         db_pool: &SqlitePool,
@@ -29,7 +29,7 @@ impl SearchService {
             .build();
 
         // 执行主查询
-        let mut query = sqlx::query_as::<_, BookmarkWithTags>(&search_sql);
+        let mut query = sqlx::query_as::<_, ResourceWithTags>(&search_sql);
         query = query.bind(user_id).bind(&search_keywords);
         for bind in &bind_values {
             query = match bind {
@@ -38,7 +38,7 @@ impl SearchService {
             };
         }
 
-        let bookmarks = query
+        let resources = query
             .bind(filters.pagination.limit)
             .bind(filters.pagination.offset)
             .fetch_all(db_pool)
@@ -65,7 +65,7 @@ impl SearchService {
         };
 
         Ok(SearchResponse {
-            items: bookmarks,
+            items: resources,
             pagination: SearchPagination {
                 page,
                 limit: filters.pagination.limit,
@@ -75,7 +75,7 @@ impl SearchService {
                 has_prev: page > 1,
             },
             search_time: elapsed,
-            highlights: None, // 如果需要高亮，可以使用 snippet() 函数提取
+            highlights: None, // 如果需要高亮,可以使用 snippet() 函数提取
         })
     }
 
@@ -91,23 +91,23 @@ impl SearchService {
             r#"
             SELECT suggestion, suggestion_type, usage_count, last_used_at
             FROM (
-                SELECT b.title as suggestion,
-                       'bookmark' as suggestion_type,
+                SELECT r.title as suggestion,
+                       'resource' as suggestion_type,
                        COUNT(*) as usage_count,
-                       MAX(b.updated_at) as last_used_at
-                FROM bookmarks b
-                WHERE b.user_id = $1
-                  AND lower(b.title) LIKE lower($2 || '%')
-                GROUP BY b.title
+                       MAX(r.updated_at) as last_used_at
+                FROM resources r
+                WHERE r.user_id = $1
+                  AND lower(r.title) LIKE lower($2 || '%')
+                GROUP BY r.title
 
                 UNION ALL
 
                 SELECT t.name as suggestion,
                        'tag' as suggestion_type,
-                       COUNT(bt.bookmark_id) as usage_count,
+                       COUNT(rt.resource_id) as usage_count,
                        MAX(t.updated_at) as last_used_at
                 FROM tags t
-                LEFT JOIN bookmark_tags bt ON t.id = bt.tag_id
+                LEFT JOIN resource_tags rt ON t.id = rt.tag_id
                 WHERE t.user_id = $1
                   AND lower(t.name) LIKE lower($2 || '%')
                 GROUP BY t.name
@@ -130,7 +130,7 @@ impl SearchService {
                     .unwrap_or_default(),
                 suggestion_type: row
                     .get::<Option<String>, _>("suggestion_type")
-                    .unwrap_or_else(|| "bookmark".to_string()),
+                    .unwrap_or_else(|| "resource".to_string()),
                 count: row.get::<Option<i64>, _>("usage_count").unwrap_or(0),
                 last_used_at: row.get("last_used_at"),
             })
@@ -182,26 +182,30 @@ impl QueryBuilder {
         let search_sql = format!(
             r#"
             SELECT
-                b.id,
-                b.user_id,
-                b.collection_id,
-                b.title,
-                b.url,
-                b.description,
-                b.favicon_url,
-                b.screenshot_url,
-                b.thumbnail_url,
-                b.is_favorite,
-                b.is_archived,
-                b.is_private,
-                b.is_read,
-                b.visit_count,
-                b.last_visited,
-                b.reading_time,
-                b.difficulty_level,
-                b.metadata,
-                b.created_at,
-                b.updated_at,
+                r.id,
+                r.user_id,
+                r.collection_id,
+                r.title,
+                r.url,
+                r.description,
+                r.favicon_url,
+                r.screenshot_url,
+                r.thumbnail_url,
+                r.is_favorite,
+                r.is_archived,
+                r.is_private,
+                r.is_read,
+                r.visit_count,
+                r.last_visited,
+                r.reading_time,
+                r.difficulty_level,
+                r.metadata,
+                r.type,
+                r.content,
+                r.source,
+                r.mime_type,
+                r.created_at,
+                r.updated_at,
                 COALESCE(
                     CASE
                         WHEN COUNT(t.name) > 0
@@ -211,14 +215,19 @@ impl QueryBuilder {
                     '[]'
                 ) as tags,
                 c.name as collection_name,
-                c.color as collection_color
-            FROM bookmarks b
-            JOIN bookmarks_fts fts ON b.id = fts.rowid
-            LEFT JOIN collections c ON b.collection_id = c.id
-            LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-            LEFT JOIN tags t ON bt.tag_id = t.id
+                c.color as collection_color,
+                COALESCE(
+                    (SELECT COUNT(*) FROM resource_references rr
+                     WHERE rr.source_id = r.id OR rr.target_id = r.id),
+                    0
+                ) as reference_count
+            FROM resources r
+            JOIN resources_fts fts ON r.id = fts.rowid
+            LEFT JOIN collections c ON r.collection_id = c.id
+            LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+            LEFT JOIN tags t ON rt.tag_id = t.id
             {}
-            GROUP BY b.id, c.name, c.color
+            GROUP BY r.id, c.name, c.color
             ORDER BY rank
             LIMIT ${} OFFSET ${}
             "#,
@@ -226,7 +235,7 @@ impl QueryBuilder {
         );
 
         let count_sql = format!(
-            "SELECT COUNT(*) FROM bookmarks b JOIN bookmarks_fts fts ON b.id = fts.rowid {}",
+            "SELECT COUNT(*) FROM resources r JOIN resources_fts fts ON r.id = fts.rowid {}",
             where_clause
         );
 
@@ -236,25 +245,25 @@ impl QueryBuilder {
     /// 构建 WHERE 子句
     /// 返回: (where_clause, bind_values)
     fn build_where_clause(&self) -> (String, Vec<BindValue>) {
-        let mut conditions = vec!["b.user_id = $1".to_string()];
+        let mut conditions = vec!["r.user_id = $1".to_string()];
         let mut bind_values = Vec::new();
 
-        // 添加 FTS5 MATCH 条件（根据搜索类型）
+        // 添加 FTS5 MATCH 条件 (根据搜索类型)
         let fts_condition = match self.search_type.as_ref().unwrap_or(&SearchType::All) {
-            SearchType::Title => "bookmarks_fts MATCH 'title:' || $2",
-            SearchType::Content => "bookmarks_fts MATCH 'description:' || $2",
-            SearchType::Url => "bookmarks_fts MATCH 'url:' || $2",
-            SearchType::All => "bookmarks_fts MATCH $2",
+            SearchType::Title => "resources_fts MATCH 'title:' || $2",
+            SearchType::Content => "resources_fts MATCH 'content:' || $2",
+            SearchType::Url => "resources_fts MATCH 'url:' || $2",
+            SearchType::All => "resources_fts MATCH $2",
         };
         conditions.push(fts_condition.to_string());
 
         // 添加其他过滤条件
         if let Some(filters) = &self.filters {
-            let mut param_index = 2; // 从 $3 开始（$1 是 user_id，$2 是 FTS MATCH）
+            let mut param_index = 2; // 从 $3 开始 ($1 是 user_id, $2 是 FTS MATCH)
 
             if let Some(collection_id) = filters.collection_id {
                 param_index += 1;
-                conditions.push(format!("b.collection_id = ${}", param_index));
+                conditions.push(format!("r.collection_id = ${}", param_index));
                 bind_values.push(BindValue::I64(collection_id));
             }
 
@@ -270,12 +279,12 @@ impl QueryBuilder {
                 param_index += filters.tags.len() as i32;
 
                 conditions.push(format!(
-                    "b.id IN (
-                        SELECT bt.bookmark_id
-                        FROM bookmark_tags bt
-                        JOIN tags t2 ON bt.tag_id = t2.id
+                    "r.id IN (
+                        SELECT rt.resource_id
+                        FROM resource_tags rt
+                        JOIN tags t2 ON rt.tag_id = t2.id
                         WHERE t2.user_id = ${} AND t2.name IN ({})
-                        GROUP BY bt.bookmark_id
+                        GROUP BY rt.resource_id
                         HAVING COUNT(DISTINCT t2.name) = {}
                     )",
                     tag_user_param,
@@ -290,13 +299,13 @@ impl QueryBuilder {
 
             if let Some(date_from) = filters.date_from {
                 param_index += 1;
-                conditions.push(format!("b.created_at >= ${}", param_index));
+                conditions.push(format!("r.created_at >= ${}", param_index));
                 bind_values.push(BindValue::I64(date_from));
             }
 
             if let Some(date_to) = filters.date_to {
                 param_index += 1;
-                conditions.push(format!("b.created_at <= ${}", param_index));
+                conditions.push(format!("r.created_at <= ${}", param_index));
                 bind_values.push(BindValue::I64(date_to));
             }
         }
