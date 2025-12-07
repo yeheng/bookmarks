@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档详细描述了书签应用的 Rust 后端 API 架构，使用 Axum 框架构建高性能、类型安全的 RESTful API。
+本文档详细描述了多资源聚合系统的 Rust 后端 API 架构，使用 Axum 框架构建高性能、类型安全的 RESTful API。系统支持链接、文件、笔记等多种类型资源的统一管理。
 
 ## 技术栈
 
@@ -33,7 +33,7 @@ backend/
 │   │   └── loader.rs           # 配置加载器
 │   ├── models/
 │   │   ├── mod.rs
-│   │   ├── bookmark.rs         # 书签模型
+│   │   ├── resource.rs         # 资源模型
 │   │   ├── collection.rs       # 收藏夹模型
 │   │   ├── pagination.rs       # 分页模型
 │   │   ├── search.rs           # 搜索模型
@@ -43,7 +43,7 @@ backend/
 │   ├── handlers/
 │   │   ├── mod.rs
 │   │   ├── auth.rs             # 认证处理器
-│   │   ├── bookmarks.rs        # 书签处理器
+│   │   ├── resources.rs        # 资源处理器
 │   │   ├── collections.rs      # 收藏夹处理器
 │   │   ├── search.rs           # 搜索处理器
 │   │   ├── stats.rs            # 统计处理器
@@ -51,7 +51,7 @@ backend/
 │   ├── services/
 │   │   ├── mod.rs
 │   │   ├── auth_service.rs     # 认证服务
-│   │   ├── bookmark_service.rs # 书签服务
+│   │   ├── resource_service.rs # 资源服务
 │   │   ├── collection_service.rs # 收藏夹服务
 │   │   ├── indexer_service.rs  # 索引服务
 │   │   ├── maintenance_service.rs # 维护服务
@@ -73,7 +73,7 @@ backend/
 │   └── routes/
 │       ├── mod.rs
 │       ├── auth.rs             # 认证路由
-│       ├── bookmarks.rs        # 书签路由
+│       ├── resources.rs        # 资源路由
 │       ├── collections.rs      # 收藏夹路由
 │       ├── search.rs           # 搜索路由
 │       ├── stats.rs            # 统计路由
@@ -117,7 +117,7 @@ mod utils;
 use config::AppConfig;
 use middleware::{auth_middleware, logging_middleware};
 use routes::{
-    ano_routes, auth_routes, bookmark_routes, collection_routes, search_routes, stats_routes,
+    ano_routes, auth_routes, resource_routes, collection_routes, search_routes, stats_routes,
     tag_routes,
 };
 use state::AppState;
@@ -154,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Protected routes requiring authentication
     let protected_routes = Router::new()
-        .nest("/api/bookmarks", bookmark_routes())
+        .nest("/api/resources", resource_routes())
         .nest("/api/collections", collection_routes())
         .nest("/api/tags", tag_routes())
         .nest("/api/search", search_routes())
@@ -300,7 +300,7 @@ impl From<User> for UserResponse {
 }
 ```
 
-#### 书签模型 (models/bookmark.rs)
+#### 资源模型 (models/resource.rs)
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -309,15 +309,19 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Bookmark {
+pub struct Resource {
     pub id: Uuid,
     pub user_id: Uuid,
     pub collection_id: Option<Uuid>,
     pub title: String,
-    pub url: String,
+    pub url: Option<String>,
     pub description: Option<String>,
+    pub resource_type: String, // 'link', 'file', 'note'
     pub favicon_url: Option<String>,
     pub screenshot_url: Option<String>,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub file_type: Option<String>,
     pub is_favorite: bool,
     pub is_archived: bool,
     pub visit_count: i32,
@@ -327,37 +331,44 @@ pub struct Bookmark {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateBookmark {
+pub struct CreateResource {
     pub title: String,
-    pub url: String,
+    pub url: Option<String>,
     pub description: Option<String>,
+    pub resource_type: String,
     pub collection_id: Option<Uuid>,
     pub tags: Option<Vec<String>>,
     pub is_favorite: Option<bool>,
+    pub file_path: Option<String>,
+    pub file_content: Option<String>, // for notes
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateBookmark {
+pub struct UpdateResource {
     pub title: Option<String>,
     pub url: Option<String>,
     pub description: Option<String>,
+    pub resource_type: Option<String>,
     pub collection_id: Option<Option<Uuid>>,
     pub tags: Option<Vec<String>>,
     pub is_favorite: Option<bool>,
     pub is_archived: Option<bool>,
+    pub file_path: Option<String>,
+    pub file_content: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BookmarkWithTags {
+pub struct ResourceWithTags {
     #[serde(flatten)]
-    pub bookmark: Bookmark,
+    pub resource: Resource,
     pub tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct BookmarkQuery {
+pub struct ResourceQuery {
     pub collection_id: Option<Uuid>,
     pub tags: Option<Vec<String>>,
+    pub resource_type: Option<String>,
     pub is_favorite: Option<bool>,
     pub is_archived: Option<bool>,
     pub search: Option<String>,
@@ -505,7 +516,7 @@ impl AuthService {
 }
 ```
 
-#### 书签服务 (services/bookmark_service.rs)
+#### 资源服务 (services/resource_service.rs)
 
 ```rust
 use anyhow::Result;
@@ -513,18 +524,18 @@ use uuid::Uuid;
 use sqlx::SqlitePool;
 
 use crate::models::{
-    Bookmark, CreateBookmark, UpdateBookmark, BookmarkWithTags, BookmarkQuery
+    Resource, CreateResource, UpdateResource, ResourceWithTags, ResourceQuery
 };
 use crate::utils::error::AppError;
 
-pub struct BookmarkService;
+pub struct ResourceService;
 
-impl BookmarkService {
-    pub async fn create_bookmark(
+impl ResourceService {
+    pub async fn create_resource(
         user_id: Uuid,
-        bookmark_data: CreateBookmark,
+        resource_data: CreateResource,
         db_pool: &SqlitePool,
-    ) -> Result<Bookmark> {
+    ) -> Result<Resource> {
         // 开始事务
         let mut tx = db_pool.begin().await?;
 
@@ -903,15 +914,15 @@ pub fn auth_routes() -> Router<AuthConfig> {
         .route("/refresh", post(refresh_token))
 }
 
-pub fn bookmark_routes() -> Router<AuthConfig> {
+pub fn resource_routes() -> Router<AuthConfig> {
     Router::new()
-        .route("/", get(get_bookmarks))
-        .route("/", post(create_bookmark))
-        .route("/{:id}", get(get_bookmark))
-        .route("/{:id}", put(update_bookmark))
-        .route("/{:id}", delete(delete_bookmark))
+        .route("/", get(get_resources))
+        .route("/", post(create_resource))
+        .route("/{:id}", get(get_resource))
+        .route("/{:id}", put(update_resource))
+        .route("/{:id}", delete(delete_resource))
         .route("/{:id}/visit", post(increment_visit_count))
-        .route("/import", post(import_bookmarks))
+        .route("/import", post(import_resources))
         .layer(middleware::from_fn(auth_middleware))
 }
 
@@ -1115,18 +1126,18 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/bookmarks-app /usr/local/bin/
+COPY --from=builder /app/target/release/resources-app /usr/local/bin/
 
 EXPOSE 3000
 
-CMD ["bookmarks-app"]
+CMD ["resources-app"]
 ```
 
 ### Cargo.toml 依赖
 
 ```toml
 [package]
-name = "bookmarks-api"
+name = "resources-api"
 version = "0.1.0"
 edition = "2021"
 
@@ -1213,7 +1224,7 @@ tempfile = "3.0"
 项目使用 SQLite FTS5 进行全文搜索，支持中英文混合搜索：
 
 ```sql
-CREATE VIRTUAL TABLE bookmarks_fts USING fts5(
+CREATE VIRTUAL TABLE resources_fts USING fts5(
     title, 
     description,
     tags,

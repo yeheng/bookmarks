@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档定义了书签应用的 RESTful API 接口规范，包括请求格式、响应格式、错误处理和认证机制。API 遵循 REST 设计原则，使用 JSON 格式进行数据交换。该 API 专为 Vue.js 3 + Reka UI 前端架构设计，提供高效的数据交互和良好的开发体验。
+本文档定义了多资源聚合系统的 RESTful API 接口规范，包括请求格式、响应格式、错误处理和认证机制。API 遵循 REST 设计原则，使用 JSON 格式进行数据交换，支持链接、文件、笔记等多种类型资源的统一管理。该 API 专为 Vue.js 3 + Reka UI 前端架构设计，提供高效的数据交互和良好的开发体验。
 
 ## 基础信息
 
@@ -258,13 +258,13 @@ Authorization: Bearer <access_token>
 }
 ```
 
-## 书签接口
+## 资源接口
 
-### 1. 获取书签列表
+### 1. 获取资源列表
 
-**GET** `/bookmarks`
+**GET** `/resources`
 
-获取用户的书签列表，支持分页和过滤。
+获取用户的资源列表，支持分页和过滤。资源包括链接、文件、笔记等多种类型。
 
 **请求头**:
 
@@ -280,6 +280,7 @@ Authorization: Bearer <access_token>
 | offset | integer | 否 | 0 | 偏移量 |
 | collection_id | number | 否 | - | 收藏夹ID |
 | tag_id | number | 否 | - | 标签ID |
+| resource_type | string | 否 | - | 资源类型 (link/file/note) |
 | q | string | 否 | - | 搜索关键词 |
 
 **响应**:
@@ -294,6 +295,7 @@ Authorization: Bearer <access_token>
         "title": "示例网站",
         "url": "https://example.com",
         "description": "这是一个示例网站",
+        "resource_type": "link",
         "user_id": 1,
         "collection_id": 1,
         "collection_name": "技术文档",
@@ -310,7 +312,9 @@ Authorization: Bearer <access_token>
         "metadata": {},
         "reading_time": 3,
         "difficulty_level": 2,
-        "favicon_url": "https://example.com/favicon.ico"
+        "favicon_url": "https://example.com/favicon.ico",
+        "file_size": null,
+        "file_type": null
       }
     ],
     "pagination": {
@@ -326,11 +330,11 @@ Authorization: Bearer <access_token>
 }
 ```
 
-### 2. 获取单个书签
+### 2. 获取单个资源
 
-**GET** `/bookmarks/{id}`
+**GET** `/resources/{id}`
 
-获取指定书签的详细信息。
+获取指定资源的详细信息。
 
 **请求头**:
 
@@ -342,7 +346,7 @@ Authorization: Bearer <access_token>
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| id | string | 书签ID |
+| id | string | 资源ID |
 
 **响应**:
 
@@ -383,7 +387,7 @@ Authorization: Bearer <access_token>
 
 **错误码**:
 
-- `BOOKMARK_NOT_FOUND`: 书签不存在
+- `RESOURCE_NOT_FOUND`: 资源不存在
 - `ACCESS_DENIED`: 无权访问该书签
 
 ### 3. 创建书签
@@ -464,7 +468,7 @@ Authorization: Bearer <access_token>
 **错误码**:
 
 - `INVALID_URL`: URL格式无效
-- `BOOKMARK_EXISTS`: 书签已存在
+- `RESOURCE_EXISTS`: 资源已存在
 - `COLLECTION_NOT_FOUND`: 收藏夹不存在
 
 ### 4. 更新书签
@@ -483,7 +487,7 @@ Authorization: Bearer <access_token>
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| id | string | 书签ID |
+| id | string | 资源ID |
 
 **请求体**:
 
@@ -534,11 +538,11 @@ Authorization: Bearer <access_token>
 }
 ```
 
-### 5. 删除书签
+### 5. 删除资源
 
-**DELETE** `/bookmarks/{id}`
+**DELETE** `/resources/{id}`
 
-删除指定的书签。
+删除指定的资源。
 
 **请求头**:
 
@@ -550,7 +554,7 @@ Authorization: Bearer <access_token>
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| id | string | 书签ID |
+| id | string | 资源ID |
 
 **响应**:
 
@@ -564,9 +568,9 @@ Authorization: Bearer <access_token>
 
 ### 6. 记录访问
 
-**POST** `/bookmarks/{id}/visit`
+**POST** `/resources/{id}/visit`
 
-记录书签访问，增加访问次数。
+记录资源访问，增加访问次数。
 
 **请求头**:
 
@@ -578,7 +582,7 @@ Authorization: Bearer <access_token>
 
 | 参数 | 类型 | 描述 |
 |------|------|------|
-| id | string | 书签ID |
+| id | string | 资源ID |
 
 **响应**:
 
@@ -626,7 +630,7 @@ Authorization: Bearer <access_token>
 | 参数 | 类型 | 必需 | 描述 |
 |------|------|------|------|
 | action | string | 是 | 操作类型 (delete/move/add_tags/remove_tags) |
-| bookmark_ids | number[] | 是 | 书签ID列表 |
+| resource_ids | number[] | 是 | 资源ID列表 |
 | data | object | 否 | 操作数据 |
 
 **响应**:
@@ -643,11 +647,11 @@ Authorization: Bearer <access_token>
 }
 ```
 
-### 8. 导入书签
+### 8. 导入资源
 
-**POST** `/bookmarks/import`
+**POST** `/resources/import`
 
-从文件导入书签。
+从文件导入资源。
 
 **请求头**:
 
@@ -679,11 +683,11 @@ collection_id: <collection_id> (可选)
 }
 ```
 
-### 9. 导出书签
+### 9. 导出资源
 
-**GET** `/bookmarks/export`
+**GET** `/resources/export`
 
-导出用户书签。
+导出用户资源。
 
 **请求头**:
 
@@ -978,11 +982,11 @@ Authorization: Bearer <access_token>
 
 ## 搜索接口
 
-### 1. 搜索书签
+### 1. 搜索资源
 
-**GET** `/search/bookmarks`
+**GET** `/search/resources`
 
-全文搜索书签。
+全文搜索资源，支持链接、文件、笔记等多种类型。
 
 **请求头**:
 
@@ -1121,13 +1125,13 @@ Authorization: Bearer <access_token>
 {
   "success": true,
   "data": {
-    "total_bookmarks": 150,
+    "total_resources": 150,
     "total_collections": 8,
     "total_tags": 25,
-    "favorite_bookmarks": 20,
-    "archived_bookmarks": 10,
+    "favorite_resources": 20,
+    "archived_resources": 10,
     "total_visits": 1250,
-    "recent_bookmarks": [
+    "recent_resources": [
       {
         "id": 1,
         "title": "最近添加的书签",
@@ -1138,8 +1142,8 @@ Authorization: Bearer <access_token>
     "recent_activity": [
       {
         "date": 1735584000,
-        "bookmarks_added": 3,
-        "bookmarks_visited": 12
+        "resources_added": 3,
+        "resources_visited": 12
       }
     ],
     "top_tags": [
@@ -1172,13 +1176,13 @@ Authorization: Bearer <access_token>
 | `TOKEN_REVOKED` | 401 | 令牌已被撤销 |
 | `ACCESS_DENIED` | 403 | 权限不足 |
 | `RESOURCE_NOT_FOUND` | 404 | 资源不存在 |
-| `BOOKMARK_NOT_FOUND` | 404 | 书签不存在 |
+| `RESOURCE_NOT_FOUND` | 404 | 资源不存在 |
 | `COLLECTION_NOT_FOUND` | 404 | 收藏夹不存在 |
 | `TAG_NOT_FOUND` | 404 | 标签不存在 |
 | `USER_NOT_FOUND` | 404 | 用户不存在 |
 | `RESOURCE_EXISTS` | 409 | 资源已存在 |
 | `USER_EXISTS` | 409 | 用户已存在 |
-| `BOOKMARK_EXISTS` | 409 | 书签已存在 |
+| `RESOURCE_EXISTS` | 409 | 资源已存在 |
 | `TAG_EXISTS` | 409 | 标签已存在 |
 | `RATE_LIMIT_EXCEEDED` | 429 | 请求频率过高 |
 | `INTERNAL_ERROR` | 500 | 内部服务器错误 |
@@ -1240,4 +1244,4 @@ API 同时提供 OpenAPI 3.0 规范文件，可用于：
 
 ---
 
-这个 API 接口规范为书签应用提供了完整、标准化的接口定义，支持所有核心功能，并考虑了安全性、性能和可扩展性。
+这个 API 接口规范为多资源聚合系统提供了完整、标准化的接口定义，支持链接、文件、笔记等多种类型资源的管理，并考虑了安全性、性能和可扩展性。

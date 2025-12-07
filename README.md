@@ -1,13 +1,14 @@
-# Bookmarks Management System
+# 多资源聚合系统
 
-一个现代化的书签管理系统，采用 Rust 后端和 Vue.js 3 前端构建，提供高效的书签组织、搜索和管理功能。
+一个现代化的多资源聚合系统，采用 Rust 后端和 Vue.js 3 前端构建，支持链接、文件、笔记等多种类型资源的统一管理、组织和搜索。
 
 ## 🚀 特性
 
 - **现代化技术栈**: Rust + Axum 后端，Vue.js 3 + TypeScript 前端
+- **多资源支持**: 统一管理链接、文件、笔记等多种类型资源
 - **极简设计**: 专注核心功能，减少学习成本
-- **快速搜索**: 全局搜索 + 快捷键支持
-- **灵活组织**: 收藏夹和标签系统
+- **快速搜索**: 全局搜索 + 快捷键支持，支持中英文混合搜索
+- **灵活组织**: 收藏夹和标签系统，支持资源分类管理
 - **响应式设计**: 支持桌面和移动设备
 - **类型安全**: 全栈 TypeScript 支持
 - **轻量级部署**: SQLite 数据库，零配置
@@ -117,20 +118,20 @@ API 接口文档位于 [docs/api-interface-specification.md](docs/api-interface-
 主要端点：
 
 - `POST /api/auth/login` - 用户登录
-- `GET /api/bookmarks` - 获取书签列表
-- `POST /api/bookmarks` - 创建书签
+- `GET /api/resources` - 获取资源列表
+- `POST /api/resources` - 创建资源
 - `GET /api/collections` - 获取收藏夹
 - `GET /api/tags` - 获取标签
 
 ## 🎯 核心功能
 
-### 书签管理
+### 资源管理
 
-- ✅ 创建、编辑、删除书签
+- ✅ 创建、编辑、删除多种类型资源（链接、文件、笔记）
 - ✅ 添加描述和标签
 - ✅ 收藏夹组织
-- ✅ 快速搜索（⌘K）
-- ✅ 访问统计
+- ✅ 快速搜索（⌘K），支持全文搜索
+- ✅ 访问统计和使用分析
 
 ### 用户界面
 
@@ -277,4 +278,4 @@ npm run build
 
 ---
 
-**Built with ❤️ by the Bookmarks Team**
+**Built with ❤️ by the Resources Team**

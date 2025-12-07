@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档详细描述了书签应用的数据库设计，使用 SQLite 作为主数据库。设计遵循第三范式，确保数据一致性和完整性，同时考虑性能优化和扩展性。
+本文档详细描述了多资源聚合系统的数据库设计，使用 SQLite 作为主数据库。设计遵循第三范式，确保数据一致性和完整性，同时考虑性能优化和扩展性。系统支持链接、文件、笔记等多种类型资源的统一管理。
 
 ## 数据库选择
 
@@ -24,10 +24,10 @@
 ```
 Users (用户)
 ├── Collections (收藏夹) [1:N]
-├── Bookmarks (书签) [1:N]
+├── Resources (资源) [1:N]
 └── Tags (标签) [1:N]
-    └── Bookmark_Tags (书签标签关联) [N:M]
-        └── Bookmarks (书签) [N:1]
+    └── Resource_Tags (资源标签关联) [N:M]
+        └── Resources (资源) [N:1]
 ```
 
 ## 表结构设计
@@ -122,19 +122,23 @@ CREATE INDEX idx_collections_user_public_default ON collections(user_id, is_publ
 - `created_at`: 创建时间（Unix时间戳）
 - `updated_at`: 更新时间（Unix时间戳）
 
-### 3. 书签表 (bookmarks)
+### 3. 资源表 (resources)
 
 ```sql
-CREATE TABLE bookmarks (
+CREATE TABLE resources (
     id INTEGER PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
-    url TEXT NOT NULL,
+    url TEXT,
     description TEXT,
+    resource_type TEXT NOT NULL DEFAULT 'link', -- 'link', 'file', 'note'
     favicon_url TEXT,
     screenshot_url TEXT,
     thumbnail_url TEXT,
+    file_path TEXT,
+    file_size INTEGER,
+    file_type TEXT,
     is_favorite INTEGER DEFAULT 0,
     is_archived INTEGER DEFAULT 0,
     is_private INTEGER DEFAULT 0,
@@ -149,55 +153,57 @@ CREATE TABLE bookmarks (
 );
 
 -- 索引
-CREATE INDEX idx_bookmarks_user_id ON bookmarks(user_id);
-CREATE INDEX idx_bookmarks_collection_id ON bookmarks(collection_id);
-CREATE INDEX idx_bookmarks_is_favorite ON bookmarks(is_favorite);
-CREATE INDEX idx_bookmarks_is_archived ON bookmarks(is_archived);
-CREATE INDEX idx_bookmarks_is_private ON bookmarks(is_private);
-CREATE INDEX idx_bookmarks_is_read ON bookmarks(is_read);
-CREATE INDEX idx_bookmarks_created_at ON bookmarks(created_at DESC);
-CREATE INDEX idx_bookmarks_last_visited ON bookmarks(last_visited DESC);
-CREATE INDEX idx_bookmarks_visit_count ON bookmarks(visit_count DESC);
-CREATE INDEX idx_bookmarks_url ON bookmarks(url);
+CREATE INDEX idx_resources_user_id ON resources(user_id);
+CREATE INDEX idx_resources_collection_id ON resources(collection_id);
+CREATE INDEX idx_resources_resource_type ON resources(resource_type);
+CREATE INDEX idx_resources_is_favorite ON resources(is_favorite);
+CREATE INDEX idx_resources_is_archived ON resources(is_archived);
+CREATE INDEX idx_resources_is_private ON resources(is_private);
+CREATE INDEX idx_resources_is_read ON resources(is_read);
+CREATE INDEX idx_resources_created_at ON resources(created_at DESC);
+CREATE INDEX idx_resources_last_visited ON resources(last_visited DESC);
+CREATE INDEX idx_resources_visit_count ON resources(visit_count DESC);
+CREATE INDEX idx_resources_url ON resources(url);
 
 -- 部分索引 (针对常见查询场景的优化)
-CREATE INDEX idx_bookmarks_active_users ON bookmarks(user_id, created_at DESC)
+CREATE INDEX idx_resources_active_users ON resources(user_id, created_at DESC)
 WHERE is_archived = 0;
 
-CREATE INDEX idx_bookmarks_favorites ON bookmarks(user_id, created_at DESC)
+CREATE INDEX idx_resources_favorites ON resources(user_id, created_at DESC)
 WHERE is_favorite = 1;
 
-CREATE INDEX idx_bookmarks_unread ON bookmarks(user_id, created_at DESC)
+CREATE INDEX idx_resources_unread ON resources(user_id, created_at DESC)
 WHERE is_read = 0;
 
 -- 复合索引
-CREATE INDEX idx_bookmarks_user_read_visited ON bookmarks(user_id, is_read, last_visited DESC);
+CREATE INDEX idx_resources_user_read_visited ON resources(user_id, is_read, last_visited DESC);
 
 -- 全文搜索索引 (SQLite FTS5)
-CREATE VIRTUAL TABLE bookmarks_fts USING fts5(
+CREATE VIRTUAL TABLE resources_fts USING fts5(
     title, 
     description,
     tags,
     url,
+    content,
     tokenize = 'unicode61 remove_diacritics 2'
 );
 
 -- FTS 触发器
-CREATE TRIGGER bookmarks_fts_insert AFTER INSERT ON bookmarks BEGIN
-    INSERT INTO bookmarks_fts(rowid, title, description, tags, url) 
-    VALUES (new.id, new.title, new.description, '', new.url);
+CREATE TRIGGER resources_fts_insert AFTER INSERT ON resources BEGIN
+    INSERT INTO resources_fts(rowid, title, description, tags, url, content) 
+    VALUES (new.id, new.title, new.description, '', new.url, new.content);
 END;
 
-CREATE TRIGGER bookmarks_fts_delete AFTER DELETE ON bookmarks BEGIN
-    INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, description, tags, url) 
-    VALUES ('delete', old.id, old.title, old.description, '', old.url);
+CREATE TRIGGER resources_fts_delete AFTER DELETE ON resources BEGIN
+    INSERT INTO resources_fts(resources_fts, rowid, title, description, tags, url, content) 
+    VALUES ('delete', old.id, old.title, old.description, '', old.url, old.content);
 END;
 
-CREATE TRIGGER bookmarks_fts_update AFTER UPDATE ON bookmarks BEGIN
-    INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, description, tags, url) 
-    VALUES ('delete', old.id, old.title, old.description, '', old.url);
-    INSERT INTO bookmarks_fts(rowid, title, description, tags, url) 
-    VALUES (new.id, new.title, new.description, '', new.url);
+CREATE TRIGGER resources_fts_update AFTER UPDATE ON resources BEGIN
+    INSERT INTO resources_fts(resources_fts, rowid, title, description, tags, url, content) 
+    VALUES ('delete', old.id, old.title, old.description, '', old.url, old.content);
+    INSERT INTO resources_fts(rowid, title, description, tags, url, content) 
+    VALUES (new.id, new.title, new.description, '', new.url, new.content);
 END;
 ```
 
@@ -206,12 +212,16 @@ END;
 - `id`: 主键，自增整数
 - `user_id`: 用户 ID
 - `collection_id`: 收藏夹 ID（可选）
-- `title`: 书签标题
-- `url`: 书签 URL
-- `description`: 书签描述（可选）
+- `title`: 资源标题
+- `url`: 资源 URL（链接类型资源必填）
+- `description`: 资源描述（可选）
+- `resource_type`: 资源类型（'link', 'file', 'note'）
 - `favicon_url`: 网站图标 URL
 - `screenshot_url`: 网页截图 URL
 - `thumbnail_url`: 缩略图 URL
+- `file_path`: 文件路径（文件类型资源）
+- `file_size`: 文件大小（字节）
+- `file_type`: 文件类型（MIME类型）
 - `is_favorite`: 是否收藏（INTEGER，1=收藏，0=未收藏）
 - `is_archived`: 是否归档（INTEGER，1=归档，0=未归档）
 - `is_private`: 是否私有（INTEGER，1=私有，0=公开）
@@ -260,27 +270,27 @@ CREATE INDEX idx_tags_user_usage_created ON tags(user_id, usage_count DESC, crea
 - `created_at`: 创建时间（Unix时间戳）
 - `updated_at`: 更新时间（Unix时间戳）
 
-### 5. 书签标签关联表 (bookmark_tags)
+### 5. 资源标签关联表 (resource_tags)
 
 ```sql
-CREATE TABLE bookmark_tags (
-    bookmark_id INTEGER NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+CREATE TABLE resource_tags (
+    resource_id INTEGER NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
     tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
     created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
     
-    PRIMARY KEY (bookmark_id, tag_id)
+    PRIMARY KEY (resource_id, tag_id)
 );
 
 -- 索引
-CREATE INDEX idx_bookmark_tags_bookmark_id ON bookmark_tags(bookmark_id);
-CREATE INDEX idx_bookmark_tags_tag_id ON bookmark_tags(tag_id);
-CREATE INDEX idx_bookmark_tags_bookmark_created ON bookmark_tags(bookmark_id, created_at DESC);
-CREATE INDEX idx_bookmark_tags_tag_created ON bookmark_tags(tag_id, created_at DESC);
+CREATE INDEX idx_resource_tags_resource_id ON resource_tags(resource_id);
+CREATE INDEX idx_resource_tags_tag_id ON resource_tags(tag_id);
+CREATE INDEX idx_resource_tags_resource_created ON resource_tags(resource_id, created_at DESC);
+CREATE INDEX idx_resource_tags_tag_created ON resource_tags(tag_id, created_at DESC);
 ```
 
 **字段说明：**
 
-- `bookmark_id`: 书签 ID
+- `resource_id`: 资源 ID
 - `tag_id`: 标签 ID
 - `created_at`: 关联创建时间（Unix时间戳）
 
@@ -294,18 +304,18 @@ SQLite版本暂不包含审计日志表，审计功能可通过应用层日志�
 
 ## 视图设计
 
-### 1. 书签详情视图
+### 1. 资源详情视图
 
 ```sql
-CREATE VIEW bookmark_details AS
+CREATE VIEW resource_details AS
 SELECT 
-    b.*,
+    r.*,
     c.name as collection_name,
     c.color as collection_color,
     u.username as owner_username
-FROM bookmarks b
-LEFT JOIN collections c ON b.collection_id = c.id
-LEFT JOIN users u ON b.user_id = u.id;
+FROM resources r
+LEFT JOIN collections c ON r.collection_id = c.id
+LEFT JOIN users u ON r.user_id = u.id;
 ```
 
 注意：SQLite不支持array_agg函数，标签聚合需要通过应用层实现。
@@ -318,16 +328,16 @@ SELECT
     u.id,
     u.username,
     u.email,
-    COUNT(DISTINCT b.id) as total_bookmarks,
+    COUNT(DISTINCT r.id) as total_resources,
     COUNT(DISTINCT c.id) as total_collections,
     COUNT(DISTINCT t.id) as total_tags,
-    COUNT(DISTINCT CASE WHEN b.is_favorite = 1 THEN b.id END) as favorite_bookmarks,
-    COUNT(DISTINCT CASE WHEN b.is_archived = 1 THEN b.id END) as archived_bookmarks,
-    COALESCE(SUM(b.visit_count), 0) as total_visits,
-    MAX(b.last_visited) as last_bookmark_visit,
+    COUNT(DISTINCT CASE WHEN r.is_favorite = 1 THEN r.id END) as favorite_resources,
+    COUNT(DISTINCT CASE WHEN r.is_archived = 1 THEN r.id END) as archived_resources,
+    COALESCE(SUM(r.visit_count), 0) as total_visits,
+    MAX(r.last_visited) as last_resource_visit,
     u.created_at as user_created_at
 FROM users u
-LEFT JOIN bookmarks b ON u.id = b.user_id
+LEFT JOIN resources r ON u.id = r.user_id
 LEFT JOIN collections c ON u.id = c.user_id
 LEFT JOIN tags t ON u.id = t.user_id
 GROUP BY u.id, u.username, u.email, u.created_at;
@@ -342,12 +352,12 @@ SELECT
     t.name,
     t.color,
     t.usage_count,
-    COUNT(bt.bookmark_id) as actual_bookmark_count,
-    COUNT(CASE WHEN b.is_favorite = 1 THEN 1 END) as favorite_bookmark_count,
-    MAX(b.created_at) as last_used_at
+    COUNT(rt.resource_id) as actual_resource_count,
+    COUNT(CASE WHEN r.is_favorite = 1 THEN 1 END) as favorite_resource_count,
+    MAX(r.created_at) as last_used_at
 FROM tags t
-LEFT JOIN bookmark_tags bt ON t.id = bt.tag_id
-LEFT JOIN bookmarks b ON bt.bookmark_id = b.id
+LEFT JOIN resource_tags rt ON t.id = rt.tag_id
+LEFT JOIN resources r ON rt.resource_id = r.id
 GROUP BY t.id, t.name, t.color, t.usage_count;
 ```
 
@@ -383,21 +393,21 @@ CREATE TRIGGER update_tags_updated_at BEFORE UPDATE ON tags
     END;
 ```
 
-### 2. 收藏夹书签计数触发器
+### 2. 收藏夹资源计数触发器
 
 ```sql
--- 插入书签时更新收藏夹计数
-CREATE TRIGGER update_collection_bookmark_count_insert
-    AFTER INSERT ON bookmarks
+-- 插入资源时更新收藏夹计数
+CREATE TRIGGER update_collection_resource_count_insert
+    AFTER INSERT ON resources
     FOR EACH ROW BEGIN
         UPDATE collections 
         SET bookmark_count = bookmark_count + 1 
         WHERE id = NEW.collection_id;
     END;
 
--- 更新书签时更新收藏夹计数
-CREATE TRIGGER update_collection_bookmark_count_update
-    AFTER UPDATE ON bookmarks
+-- 更新资源时更新收藏夹计数
+CREATE TRIGGER update_collection_resource_count_update
+    AFTER UPDATE ON resources
     FOR EACH ROW BEGIN
         IF OLD.collection_id IS NOT NEW.collection_id THEN
             IF OLD.collection_id IS NOT NULL THEN
@@ -413,9 +423,9 @@ CREATE TRIGGER update_collection_bookmark_count_update
         END IF;
     END;
 
--- 删除书签时更新收藏夹计数
-CREATE TRIGGER update_collection_bookmark_count_delete
-    AFTER DELETE ON bookmarks
+-- 删除资源时更新收藏夹计数
+CREATE TRIGGER update_collection_resource_count_delete
+    AFTER DELETE ON resources
     FOR EACH ROW BEGIN
         IF OLD.collection_id IS NOT NULL THEN
             UPDATE collections 
@@ -428,18 +438,18 @@ CREATE TRIGGER update_collection_bookmark_count_delete
 ### 3. 标签使用计数触发器
 
 ```sql
--- 插入书签标签关联时更新标签使用计数
+-- 插入资源标签关联时更新标签使用计数
 CREATE TRIGGER update_tag_usage_count_insert
-    AFTER INSERT ON bookmark_tags
+    AFTER INSERT ON resource_tags
     FOR EACH ROW BEGIN
         UPDATE tags 
         SET usage_count = usage_count + 1 
         WHERE id = NEW.tag_id;
     END;
 
--- 删除书签标签关联时更新标签使用计数
+-- 删除资源标签关联时更新标签使用计数
 CREATE TRIGGER update_tag_usage_count_delete
-    AFTER DELETE ON bookmark_tags
+    AFTER DELETE ON resource_tags
     FOR EACH ROW BEGIN
         UPDATE tags 
         SET usage_count = usage_count - 1 
@@ -459,12 +469,12 @@ SQLite不支持存储过程和自定义函数，复杂的业务逻辑建议在�
 
 ```sql
 -- 使用FTS5进行全文搜索
-SELECT b.*, c.name as collection_name
-FROM bookmarks b
-LEFT JOIN collections c ON b.collection_id = c.id
-JOIN bookmarks_fts fts ON b.rowid = fts.rowid
-WHERE b.user_id = ? 
-  AND bookmarks_fts MATCH ?
+SELECT r.*, c.name as collection_name
+FROM resources r
+LEFT JOIN collections c ON r.collection_id = c.id
+JOIN resources_fts fts ON r.rowid = fts.rowid
+WHERE r.user_id = ? 
+  AND resources_fts MATCH ?
 ORDER BY rank
 LIMIT ? OFFSET ?;
 ```
@@ -472,21 +482,21 @@ LIMIT ? OFFSET ?;
 ### 2. 统计分析查询
 
 ```sql
--- 用户书签统计
+-- 用户资源统计
 SELECT 
-    COUNT(*) as total_bookmarks,
+    COUNT(*) as total_resources,
     COUNT(CASE WHEN is_favorite = 1 THEN 1 END) as favorite_count,
     COUNT(CASE WHEN is_archived = 1 THEN 1 END) as archived_count,
     COUNT(CASE WHEN is_read = 0 THEN 1 END) as unread_count,
     SUM(visit_count) as total_visits
-FROM bookmarks 
+FROM resources 
 WHERE user_id = ?;
 
--- 按日期统计书签添加
+-- 按日期统计资源添加
 SELECT 
     DATE(created_at) as date,
-    COUNT(*) as bookmarks_added
-FROM bookmarks 
+    COUNT(*) as resources_added
+FROM resources 
 WHERE user_id = ? 
   AND DATE(created_at) >= DATE('now', '-30 days')
 GROUP BY DATE(created_at)
@@ -569,16 +579,16 @@ WHERE difficulty_level IS NOT NULL OR reading_time IS NOT NULL;
 
 ```sql
 -- 复合索引优化查询
-CREATE INDEX idx_bookmarks_user_collection_created ON bookmarks(user_id, collection_id, created_at DESC);
-CREATE INDEX idx_bookmarks_user_favorite_created ON bookmarks(user_id, is_favorite, created_at DESC);
-CREATE INDEX idx_bookmarks_user_archived_created ON bookmarks(user_id, is_archived, created_at DESC);
+CREATE INDEX idx_resources_user_collection_created ON resources(user_id, collection_id, created_at DESC);
+CREATE INDEX idx_resources_user_favorite_created ON resources(user_id, is_favorite, created_at DESC);
+CREATE INDEX idx_resources_user_archived_created ON resources(user_id, is_archived, created_at DESC);
 
 -- 部分索引（SQLite不支持部分索引，使用标准索引替代）
-CREATE INDEX idx_bookmarks_unread ON bookmarks(user_id, is_read, created_at DESC);
-CREATE INDEX idx_bookmarks_recently_visited ON bookmarks(user_id, last_visited DESC);
+CREATE INDEX idx_resources_unread ON resources(user_id, is_read, created_at DESC);
+CREATE INDEX idx_resources_recently_visited ON resources(user_id, last_visited DESC);
 
 -- JSON查询优化（SQLite使用JSON1扩展）
-CREATE INDEX idx_bookmarks_metadata ON bookmarks(metadata);
+CREATE INDEX idx_resources_metadata ON resources(metadata);
 ```
 
 ### 2. 分区策略
@@ -593,25 +603,25 @@ SQLite不支持原生表分区，如需大数据量处理可考虑：
 ```sql
 -- 使用子查询优化复杂查询
 SELECT 
-    b.*,
+    r.*,
     c.name as collection_name
-FROM bookmarks b
-LEFT JOIN collections c ON b.collection_id = c.id
-WHERE b.user_id = ? 
-  AND b.is_archived = 0
-ORDER BY b.created_at DESC
+FROM resources r
+LEFT JOIN collections c ON r.collection_id = c.id
+WHERE r.user_id = ? 
+  AND r.is_archived = 0
+ORDER BY r.created_at DESC
 LIMIT ? OFFSET ?;
 
 -- 标签聚合查询
 SELECT 
-    b.*,
+    r.*,
     GROUP_CONCAT(t.name, ',') as tags
-FROM bookmarks b
-LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-LEFT JOIN tags t ON bt.tag_id = t.id
-WHERE b.user_id = ?
-GROUP BY b.id
-ORDER BY b.created_at DESC;
+FROM resources r
+LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+LEFT JOIN tags t ON rt.tag_id = t.id
+WHERE r.user_id = ?
+GROUP BY r.id
+ORDER BY r.created_at DESC;
 ```
 
 ## 备份和恢复
@@ -795,4 +805,4 @@ PRAGMA temp_store = MEMORY;
 
 ---
 
-这个数据库设计基于SQLite提供了完整、轻量级和高性能的数据存储解决方案，支持书签应用的所有核心功能，并为未来的功能扩展预留了空间。SQLite的选择使得部署和维护更加简单，适合中小型应用和快速开发迭代。
+这个数据库设计基于SQLite提供了完整、轻量级和高性能的数据存储解决方案，支持多资源聚合系统的所有核心功能，包括链接、文件、笔记等多种类型资源的统一管理，并为未来的功能扩展预留了空间。SQLite的选择使得部署和维护更加简单，适合中小型应用和快速开发迭代。

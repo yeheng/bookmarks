@@ -1,6 +1,6 @@
 # 开发者指南
 
-本指南为开发者提供参与书签管理系统开发的详细信息，包括代码规范、开发流程、架构说明和最佳实践。
+本指南为开发者提供参与多资源聚合系统开发的详细信息，包括代码规范、开发流程、架构说明和最佳实践。系统支持链接、文件、笔记等多种类型资源的统一管理。
 
 ## 📋 目录
 
@@ -117,18 +117,18 @@ npm run dev
 ├─────────────────────────────────────────────────┤
 │  Handler Layer                                  │
 │  ├─ Auth Handlers                              │
-│  ├─ Bookmark Handlers                          │
+│  ├─ Resource Handlers                          │
 │  ├─ Collection Handlers                        │
 │  └─ Tag Handlers                               │
 ├─────────────────────────────────────────────────┤
 │  Service Layer                                  │
 │  ├─ Auth Service                               │
-│  ├─ Bookmark Service                           │
+│  ├─ Resource Service                           │
 │  └─ Search Service                             │
 ├─────────────────────────────────────────────────┤
 │  Model Layer                                    │
 │  ├─ User Model                                 │
-│  ├─ Bookmark Model                             │
+│  ├─ Resource Model                             │
 │  ├─ Collection Model                           │
 │  └─ Tag Model                                  │
 ├─────────────────────────────────────────────────┤
@@ -184,7 +184,7 @@ release/*     # 发布分支
 
 ```bash
 # 功能开发
-git commit -m "feat: add bookmark search functionality"
+git commit -m "feat: add resource search functionality"
 
 # 问题修复
 git commit -m "fix: resolve authentication issue"
@@ -203,7 +203,7 @@ git commit -m "refactor: optimize database queries"
 ```bash
 git checkout develop
 git pull origin develop
-git checkout -b feature/bookmark-search
+git checkout -b feature/resource-search
 ```
 
 2. **开发和测试**
@@ -222,8 +222,8 @@ npm run test
 
 ```bash
 git add .
-git commit -m "feat: implement bookmark search"
-git push origin feature/bookmark-search
+git commit -m "feat: implement resource search"
+git push origin feature/resource-search
 ```
 
 4. **创建 Pull Request**
@@ -240,6 +240,7 @@ git push origin feature/bookmark-search
 - [ ] 没有硬编码的配置
 - [ ] 错误处理完善
 - [ ] 性能考虑合理
+- [ ] 支持多种资源类型（链接、文件、笔记）
 
 ## 📝 代码规范
 
@@ -585,7 +586,7 @@ use crate::state::AppState;
 pub fn stats_routes() -> Router<AppState> {
     Router::new()
         .route("/user", get(get_user_stats))
-        .route("/bookmarks", get(get_bookmark_stats))
+        .route("/resources", get(get_resource_stats))
 }
 ```
 
@@ -603,15 +604,15 @@ pub async fn get_user_stats(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let user_id = 1; // 从认证中间件获取
     
-    let total_bookmarks = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM bookmarks WHERE user_id = ?",
+    let total_resources = sqlx::query_scalar!(
+    "SELECT COUNT(*) FROM resources WHERE user_id = ?",
         user_id
     )
     .fetch_one(&state.db_pool)
     .await?;
     
     Ok(Json(json!({
-        "total_bookmarks": total_bookmarks,
+        "total_resources": total_resources,
         "total_collections": 0,
         "total_tags": 0
     })))
@@ -622,11 +623,11 @@ pub async fn get_user_stats(
 
 ```rust
 // src/main.rs
-use crate::routes::{auth_routes, bookmark_routes, stats_routes};
+use crate::routes::{auth_routes, resource_routes, stats_routes};
 
 // 在主路由中添加
 let protected_routes = Router::new()
-    .nest("/api/bookmarks", bookmark_routes())
+    .nest("/api/resources", resource_routes())
     .nest("/api/stats", stats_routes())
     .layer(mw::from_fn_with_state(app_state.clone(), auth_middleware));
 ```
@@ -685,17 +686,20 @@ impl IntoResponse for AppError {
 #### 1. 组件结构
 
 ```vue
-<!-- src/components/BookmarkCard.vue -->
+<!-- src/components/ResourceCard.vue -->
 <template>
-  <div class="bookmark-card" @click="handleClick">
-    <h3 class="bookmark-title">{{ bookmark.title }}</h3>
-    <p class="bookmark-url">{{ bookmark.url }}</p>
-    <p v-if="bookmark.description" class="bookmark-description">
-      {{ bookmark.description }}
+  <div class="resource-card" @click="handleClick">
+    <div class="resource-type">
+      <span class="type-badge">{{ resourceTypeLabel }}</span>
+    </div>
+    <h3 class="resource-title">{{ resource.title }}</h3>
+    <p v-if="resource.url" class="resource-url">{{ resource.url }}</p>
+    <p v-if="resource.description" class="resource-description">
+      {{ resource.description }}
     </p>
-    <div class="bookmark-tags">
+    <div class="resource-tags">
       <span 
-        v-for="tag in bookmark.tags" 
+        v-for="tag in resource.tags" 
         :key="tag.id"
         class="tag"
       >
@@ -707,15 +711,15 @@ impl IntoResponse for AppError {
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Bookmark } from '@/types'
+import type { Resource } from '@/types'
 
 interface Props {
-  bookmark: Bookmark
+  resource: Resource
   clickable?: boolean
 }
 
 interface Emits {
-  click: [bookmark: Bookmark]
+  click: [resource: Resource]
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -724,35 +728,48 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<Emits>()
 
+const resourceTypeLabel = computed(() => {
+  const labels = {
+    link: '链接',
+    file: '文件',
+    note: '笔记'
+  }
+  return labels[props.resource.resource_type] || '其他'
+})
+
 const handleClick = () => {
   if (props.clickable) {
-    emit('click', props.bookmark)
+    emit('click', props.resource)
   }
 }
-
-const formattedUrl = computed(() => {
-  return new URL(props.bookmark.url).hostname
-})
 </script>
 
 <style scoped>
-.bookmark-card {
+.resource-card {
   @apply p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer;
 }
 
-.bookmark-title {
+.resource-type {
+  @apply mb-2;
+}
+
+.type-badge {
+  @apply px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium;
+}
+
+.resource-title {
   @apply font-semibold text-lg mb-2;
 }
 
-.bookmark-url {
+.resource-url {
   @apply text-sm text-muted-foreground mb-2;
 }
 
-.bookmark-description {
+.resource-description {
   @apply text-sm mb-3;
 }
 
-.bookmark-tags {
+.resource-tags {
   @apply flex flex-wrap gap-2;
 }
 
@@ -765,35 +782,35 @@ const formattedUrl = computed(() => {
 #### 2. 使用组件
 
 ```vue
-<!-- src/views/BookmarksView.vue -->
+<!-- src/views/ResourcesView.vue -->
 <template>
-  <div class="bookmarks-view">
-    <BookmarkCard
-      v-for="bookmark in bookmarks"
-      :key="bookmark.id"
-      :bookmark="bookmark"
-      @click="handleBookmarkClick"
+  <div class="resources-view">
+    <ResourceCard
+      v-for="resource in resources"
+      :key="resource.id"
+      :resource="resource"
+      @click="handleResourceClick"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import BookmarkCard from '@/components/BookmarkCard.vue'
+import ResourceCard from '@/components/ResourceCard.vue'
 import { apiService } from '@/services/api'
-import type { Bookmark } from '@/types'
+import type { Resource } from '@/types'
 
-const bookmarks = ref<Bookmark[]>([])
+const resources = ref<Resource[]>([])
 
-const handleBookmarkClick = (bookmark: Bookmark) => {
-  console.log('Clicked bookmark:', bookmark.title)
+const handleResourceClick = (resource: Resource) => {
+  console.log('Clicked resource:', resource.title)
 }
 
 onMounted(async () => {
   try {
-    bookmarks.value = await apiService.getBookmarks()
+    resources.value = await apiService.getResources()
   } catch (error) {
-    console.error('Failed to load bookmarks:', error)
+    console.error('Failed to load resources:', error)
   }
 })
 </script>
@@ -804,84 +821,97 @@ onMounted(async () => {
 #### Pinia Store
 
 ```typescript
-// src/stores/bookmarks.ts
+// src/stores/resources.ts
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { apiService } from '@/services/api'
-import type { Bookmark, CreateBookmarkRequest } from '@/types'
+import type { Resource, CreateResourceRequest } from '@/types'
 
-export const useBookmarkStore = defineStore('bookmarks', () => {
+export const useResourceStore = defineStore('resources', () => {
   // State
-  const bookmarks = ref<Bookmark[]>([])
+  const resources = ref<Resource[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
   // Getters
-  const favoriteBookmarks = computed(() => 
-    bookmarks.value.filter(b => b.is_favorite)
+  const favoriteResources = computed(() => 
+    resources.value.filter(r => r.is_favorite)
   )
   
-  const bookmarksByCollection = computed(() => {
-    const grouped: Record<number, Bookmark[]> = {}
-    bookmarks.value.forEach(bookmark => {
-      const collectionId = bookmark.collection_id || 0
+  const resourcesByCollection = computed(() => {
+    const grouped: Record<number, Resource[]> = {}
+    resources.value.forEach(resource => {
+      const collectionId = resource.collection_id || 0
       if (!grouped[collectionId]) {
         grouped[collectionId] = []
       }
-      grouped[collectionId].push(bookmark)
+      grouped[collectionId].push(resource)
+    })
+    return grouped
+  })
+
+  const resourcesByType = computed(() => {
+    const grouped: Record<string, Resource[]> = {}
+    resources.value.forEach(resource => {
+      const type = resource.resource_type
+      if (!grouped[type]) {
+        grouped[type] = []
+      }
+      grouped[type].push(resource)
     })
     return grouped
   })
 
   // Actions
-  const fetchBookmarks = async () => {
+  const fetchResources = async () => {
     loading.value = true
     error.value = null
     
     try {
-      bookmarks.value = await apiService.getBookmarks()
+      resources.value = await apiService.getResources()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to fetch bookmarks'
+      error.value = err instanceof Error ? err.message : 'Failed to fetch resources'
     } finally {
       loading.value = false
     }
   }
 
-  const createBookmark = async (data: CreateBookmarkRequest) => {
+  const createResource = async (data: CreateResourceRequest) => {
     try {
-      const newBookmark = await apiService.createBookmark(data)
-      bookmarks.value.unshift(newBookmark)
-      return newBookmark
+      const newResource = await apiService.createResource(data)
+      resources.value.unshift(newResource)
+      return newResource
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to create bookmark'
+      error.value = err instanceof Error ? err.message : 'Failed to create resource'
       throw err
     }
   }
 
-  const deleteBookmark = async (id: number) => {
+  const deleteResource = async (id: number) => {
     try {
-      await apiService.deleteBookmark(id)
-      bookmarks.value = bookmarks.value.filter(b => b.id !== id)
+      await apiService.deleteResource(id)
+      resources.value = resources.value.filter(r => r.id !== id)
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to delete bookmark'
+      error.value = err instanceof Error ? err.message : 'Failed to delete resource'
       throw err
     }
   }
 
   return {
     // State
-    bookmarks,
+    resources,
     loading,
     error,
     
     // Getters
-    favoriteBookmarks,
-    bookmarksByCollection,
+    favoriteResources,
+    resourcesByCollection,
+    resourcesByType,
     
     // Actions
-    fetchBookmarks,
-    createBookmark,
-    deleteBookmark
+    fetchResources,
+    createResource,
+    deleteResource
   }
 })
 ```
@@ -891,29 +921,38 @@ export const useBookmarkStore = defineStore('bookmarks', () => {
 ### 创建迁移
 
 ```sql
--- migrations/20231201000007_add_bookmark_metadata.sql
--- 添加元数据字段
-ALTER TABLE bookmarks ADD COLUMN metadata TEXT DEFAULT '{}';
+-- migrations/20231201000007_add_resource_metadata.sql
+-- 添加资源类型和元数据字段
+ALTER TABLE resources ADD COLUMN resource_type TEXT NOT NULL DEFAULT 'link';
+ALTER TABLE resources ADD COLUMN file_path TEXT;
+ALTER TABLE resources ADD COLUMN file_size INTEGER;
+ALTER TABLE resources ADD COLUMN file_type TEXT;
+ALTER TABLE resources ADD COLUMN metadata TEXT DEFAULT '{}';
 
 -- 创建索引
-CREATE INDEX idx_bookmarks_metadata ON bookmarks(metadata);
+CREATE INDEX idx_resources_metadata ON resources(metadata);
+CREATE INDEX idx_resources_type ON resources(resource_type);
 ```
 
 ### 数据库模型
 
 ```rust
-// src/models/bookmark.rs
+// src/models/resource.rs
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
-pub struct Bookmark {
+pub struct Resource {
     pub id: i64,
     pub title: String,
-    pub url: String,
+    pub url: Option<String>,
     pub description: Option<String>,
+    pub resource_type: String, // 'link', 'file', 'note'
     pub user_id: i64,
     pub collection_id: Option<i64>,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub file_type: Option<String>,
     pub is_favorite: bool,
     pub is_archived: bool,
     pub is_read: bool,
@@ -927,85 +966,95 @@ pub struct Bookmark {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateBookmarkRequest {
+pub struct CreateResourceRequest {
     pub title: String,
-    pub url: String,
+    pub url: Option<String>,
     pub description: Option<String>,
+    pub resource_type: String,
     pub collection_id: Option<i64>,
     pub tags: Option<Vec<String>>,
     pub is_favorite: Option<bool>,
     pub reading_time: Option<i32>,
     pub difficulty_level: Option<i32>,
     pub metadata: Option<serde_json::Value>,
+    pub file_path: Option<String>,
+    pub file_content: Option<String>, // for notes
 }
 ```
 
 ### 数据库服务
 
 ```rust
-// src/services/bookmark_service.rs
+// src/services/resource_service.rs
 use sqlx::SqlitePool;
-use crate::models::bookmark::{Bookmark, CreateBookmarkRequest};
+use crate::models::resource::{Resource, CreateResourceRequest};
 use crate::utils::error::AppError;
 
-pub struct BookmarkService {
-    pool: SqlitePool,
-}
+pub struct ResourceService;
 
-impl BookmarkService {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-
-    pub async fn create_bookmark(
-        &self,
+impl ResourceService {
+    pub async fn create_resource(
         user_id: i64,
-        request: CreateBookmarkRequest,
-    ) -> Result<Bookmark, AppError> {
-        let bookmark = sqlx::query_as!(
-            Bookmark,
+        request: CreateResourceRequest,
+        db_pool: &SqlitePool,
+    ) -> Result<Resource, AppError> {
+        let resource = sqlx::query_as!(
+            Resource,
             r#"
-            INSERT INTO bookmarks (
-                title, url, description, user_id, collection_id,
-                is_favorite, reading_time, difficulty_level, metadata
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO resources (
+                title, url, description, resource_type, user_id, collection_id,
+                file_path, file_size, file_type, is_favorite, reading_time, 
+                difficulty_level, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING *
             "#,
             request.title,
             request.url,
             request.description,
+            request.resource_type,
             user_id,
             request.collection_id,
+            request.file_path,
+            None, // file_size calculated from file_path
+            None, // file_type determined from file_path
             request.is_favorite.unwrap_or(false),
             request.reading_time,
             request.difficulty_level,
             request.metadata.map(|v| v.to_string())
         )
-        .fetch_one(&self.pool)
+        .fetch_one(db_pool)
         .await?;
 
-        Ok(bookmark)
+        Ok(resource)
     }
 
-    pub async fn get_user_bookmarks(
-        &self,
+    pub async fn get_user_resources(
         user_id: i64,
+        resource_type: Option<String>,
         limit: Option<i64>,
         offset: Option<i64>,
-    ) -> Result<Vec<Bookmark>, AppError> {
+    ) -> Result<Vec<Resource>, AppError> {
+        let mut query = "
+            SELECT * FROM resources 
+            WHERE user_id = ?".to_string();
+        
+        let mut params = vec![user_id];
+        
+        if let Some(rt) = resource_type {
+            query.push_str(" AND resource_type = ?");
+            params.push(rt.parse().unwrap_or(0));
+        }
+        
+        query.push_str(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        
         let bookmarks = sqlx::query_as!(
-            Bookmark,
-            r#"
-            SELECT * FROM bookmarks 
-            WHERE user_id = ? 
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-            "#,
-            user_id,
+            Resource,
+            &query,
+            params[0],
             limit.unwrap_or(20),
             offset.unwrap_or(0)
         )
-        .fetch_all(&self.pool)
+        .fetch_all(db_pool)
         .await?;
 
         Ok(bookmarks)
@@ -1043,16 +1092,32 @@ async fn main() -> anyhow::Result<()> {
 ```rust
 use tracing::{debug, error, info, warn};
 
-pub async fn process_bookmark(bookmark: &Bookmark) -> Result<(), AppError> {
-    debug!("Processing bookmark: {}", bookmark.title);
+pub async fn process_resource(resource: &Resource) -> Result<(), AppError> {
+    debug!("Processing resource: {} ({})", resource.title, resource.resource_type);
     
-    if bookmark.url.is_empty() {
-        warn!("Bookmark has empty URL: {}", bookmark.id);
-        return Err(AppError::InvalidInput("URL cannot be empty".to_string()));
+    match resource.resource_type.as_str() {
+        "link" => {
+            if resource.url.as_ref().map_or(true, |u| u.is_empty()) {
+                warn!("Link resource has empty URL: {}", resource.id);
+                return Err(AppError::InvalidInput("URL cannot be empty for link resources".to_string()));
+            }
+        },
+        "file" => {
+            if resource.file_path.is_none() {
+                warn!("File resource has no file path: {}", resource.id);
+                return Err(AppError::InvalidInput("File path is required for file resources".to_string()));
+            }
+        },
+        "note" => {
+            // 处理笔记内容
+        },
+        _ => {
+            warn!("Unknown resource type: {}", resource.resource_type);
+        }
     }
     
     // 处理逻辑
-    info!("Successfully processed bookmark: {}", bookmark.id);
+    info!("Successfully processed resource: {}", resource.id);
     Ok(())
 }
 ```
@@ -1138,59 +1203,63 @@ class ApiService {
 
 ```rust
 // 使用索引
-CREATE INDEX idx_bookmarks_user_created ON bookmarks(user_id, created_at DESC);
+CREATE INDEX idx_resources_user_created ON resources(user_id, created_at DESC);
 
 // 分页查询
-pub async fn get_bookmarks_paginated(
-    &self,
+pub async fn get_resources_paginated(
     user_id: i64,
+    resource_type: Option<String>,
     page: i64,
     limit: i64,
-) -> Result<Vec<Bookmark>, AppError> {
+) -> Result<Vec<Resource>, AppError> {
     let offset = (page - 1) * limit;
     
-    let bookmarks = sqlx::query_as!(
-        Bookmark,
-        r#"
-        SELECT * FROM bookmarks 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-        "#,
-        user_id,
+    let mut query = "SELECT * FROM resources WHERE user_id = ?".to_string();
+    let mut params = vec![user_id];
+    
+    if let Some(rt) = resource_type {
+        query.push_str(" AND resource_type = ?");
+        params.push(rt.parse().unwrap_or(0));
+    }
+    
+    query.push_str(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+    
+    let resources = sqlx::query_as!(
+        Resource,
+        &query,
+        params[0],
         limit,
         offset
     )
-    .fetch_all(&self.pool)
+    .fetch_all(db_pool)
     .await?;
 
-    Ok(bookmarks)
+    Ok(resources)
 }
 
 // 批量操作
-pub async fn get_bookmarks_with_tags(
-    &self,
+pub async fn get_resources_with_tags(
     user_id: i64,
-) -> Result<Vec<BookmarkWithTags>, AppError> {
-    let bookmarks = sqlx::query_as!(
-        BookmarkWithTags,
+) -> Result<Vec<ResourceWithTags>, AppError> {
+    let resources = sqlx::query_as!(
+        ResourceWithTags,
         r#"
         SELECT 
-            b.*,
+            r.*,
             GROUP_CONCAT(t.name, ',') as tags
-        FROM bookmarks b
-        LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-        LEFT JOIN tags t ON bt.tag_id = t.id
-        WHERE b.user_id = ?
-        GROUP BY b.id
-        ORDER BY b.created_at DESC
+        FROM resources r
+        LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+        LEFT JOIN tags t ON rt.tag_id = t.id
+        WHERE r.user_id = ?
+        GROUP BY r.id
+        ORDER BY r.created_at DESC
         "#,
         user_id
     )
-    .fetch_all(&self.pool)
+    .fetch_all(db_pool)
     .await?;
 
-    Ok(bookmarks)
+    Ok(resources)
 }
 ```
 
@@ -1232,9 +1301,9 @@ const router = createRouter({
       component: () => import('@/views/HomeView.vue')
     },
     {
-      path: '/bookmarks',
-      name: 'bookmarks',
-      component: () => import('@/views/BookmarksView.vue')
+      path: '/resources',
+      name: 'resources',
+      component: () => import('@/views/ResourcesView.vue')
     }
   ]
 })
