@@ -49,12 +49,12 @@ export const useResourcesStore = defineStore('resources', () => {
 
       const response = await apiService.getResources(requestParams)
 
-      // API返回格式: {data: Array, success: true} 或 {data: {items: [...], pagination: {...}}, success: true}
+      // API返回格式: {items: [...], pagination: {...}} 或直接是数组
       let items: any = []
-      if (Array.isArray(response.data)) {
-        items = response.data
-      } else if (response.data?.items) {
-        items = response.data.items
+      if (Array.isArray(response)) {
+        items = response
+      } else if (response.items) {
+        items = response.items
       }
 
       if (reset) {
@@ -88,7 +88,7 @@ export const useResourcesStore = defineStore('resources', () => {
 
     try {
       const resource = await apiService.getResource(id)
-      currentResource.value = resource.data
+      currentResource.value = resource
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch resource'
       throw err
@@ -107,8 +107,7 @@ export const useResourcesStore = defineStore('resources', () => {
     error.value = null
 
     try {
-      const response = await apiService.createResource(data)
-      const newResource: Resource = response.data
+      const newResource: Resource = await apiService.createResource(data)
       resources.value.unshift(newResource)
       return newResource
     } catch (err: any) {
@@ -130,8 +129,7 @@ export const useResourcesStore = defineStore('resources', () => {
     error.value = null
 
     try {
-      const response = await apiService.updateResource(id, data)
-      const updatedResource: Resource = response.data
+      const updatedResource: Resource = await apiService.updateResource(id, data)
       const index = resources.value.findIndex(r => r.id === id)
       if (index !== -1) {
         resources.value[index] = updatedResource
@@ -196,8 +194,8 @@ export const useResourcesStore = defineStore('resources', () => {
 
       const response = await apiService.search(requestParams)
 
-      // API返回格式: {data: {items: [...], pagination: {...}}, success: true}
-      const items = response.data?.items || []
+      // API返回格式: {items: [...], pagination: {...}}
+      const items = response.items || []
 
       if (reset) {
         resources.value = items

@@ -41,12 +41,12 @@ export const useTagsStore = defineStore('tags', () => {
       
       console.log('Tags API响应:', response)
       
-      // API返回格式: {data: Array, success: true} 或 {data: {items: [...], pagination: {...}}, success: true}
+      // API返回格式: Array 或 {items: [...], pagination: {...}}
       let items: any = []
-      if (Array.isArray(response.data)) {
-        items = response.data
-      } else if (response.data?.items) {
-        items = response.data.items
+      if (Array.isArray(response)) {
+        items = response
+      } else if (response.items) {
+        items = response.items
       }
       
       if (reset) {
@@ -75,8 +75,7 @@ export const useTagsStore = defineStore('tags', () => {
     error.value = null
     
     try {
-      const response = await apiService.getTag(id)
-      const tag = response.data
+      const tag = await apiService.getTag(id)
       currentTag.value = tag
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch tag'
@@ -91,8 +90,7 @@ export const useTagsStore = defineStore('tags', () => {
     error.value = null
     
     try {
-      const response = await apiService.createTag(data)
-      const newTag = response.data
+      const newTag = await apiService.createTag(data)
       tags.value.push(newTag)
       return newTag
     } catch (err: any) {
@@ -108,8 +106,7 @@ export const useTagsStore = defineStore('tags', () => {
     error.value = null
     
     try {
-      const response = await apiService.updateTag(id, data)
-      const updatedTag = response.data
+      const updatedTag = await apiService.updateTag(id, data)
       const index = tags.value.findIndex(t => t.id === id)
       if (index !== -1) {
         tags.value[index] = updatedTag

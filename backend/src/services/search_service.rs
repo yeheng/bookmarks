@@ -1,12 +1,15 @@
-use sqlx::{Row, SqlitePool};
+use sqlx::{query_as, query_scalar, Row, SqlitePool, QueryBuilder as SqlxQueryBuilder, sqlite::Sqlite};
 use std::time::Instant;
 
 use crate::models::{
-    FilterCriteria, ResourceWithTags, SearchFilters, SearchPagination, SearchResponse,
+    FilterCriteria, PaginationParams, ResourceWithTags, SearchFilters, SearchPagination, SearchResponse,
     SearchSuggestion, SearchType,
 };
 use crate::utils::error::AppResult;
 use crate::utils::segmenter::prepare_for_search;
+
+// 搜索验证常量
+const MIN_SEARCH_QUERY_LENGTH: usize = 3;
 
 pub struct SearchService;
 
@@ -16,43 +19,39 @@ impl SearchService {
         filters: SearchFilters,
         db_pool: &SqlitePool,
     ) -> AppResult<SearchResponse> {
+        // 验证搜索词最小长度
+        if filters.query.trim().len() < MIN_SEARCH_QUERY_LENGTH {
+            return Err(crate::utils::error::AppError::BadRequest(format!(
+                "Search query must be at least {} characters",
+                MIN_SEARCH_QUERY_LENGTH
+            )));
+        }
+
         let start = Instant::now();
 
         // 根据配置对查询进行分词处理
         let search_keywords = prepare_for_search(Some(&filters.query));
 
-        // 构建查询
-        let query_builder = QueryBuilder::new(user_id, &search_keywords);
-        let (search_sql, count_sql, bind_values) = query_builder
-            .with_search_type(&filters.search_type)
-            .with_filters(&filters.filters)
-            .build();
-
+        // 构建搜索查询
+        let (search_sql, bind_values) = build_search_query(user_id, &search_keywords, &filters.search_type, &filters.filters, &filters.pagination);
+        
         // 执行主查询
-        let mut query = sqlx::query_as::<_, ResourceWithTags>(&search_sql);
-        query = query.bind(user_id).bind(&search_keywords);
-        for bind in &bind_values {
-            query = match bind {
-                BindValue::I64(value) => query.bind(*value),
-                BindValue::Text(value) => query.bind(value),
-            };
+        let mut query = query_as::<_, ResourceWithTags>(&search_sql);
+        for value in &bind_values {
+            query = bind_query_value(query, value);
         }
+        query = query.bind(filters.pagination.limit).bind(filters.pagination.offset);
+        
+        let resources = query.fetch_all(db_pool).await?;
 
-        let resources = query
-            .bind(filters.pagination.limit)
-            .bind(filters.pagination.offset)
-            .fetch_all(db_pool)
-            .await?;
-
-        // 执行计数查询
-        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql);
-        count_query = count_query.bind(user_id).bind(&search_keywords);
-        for bind in &bind_values {
-            count_query = match bind {
-                BindValue::I64(value) => count_query.bind(*value),
-                BindValue::Text(value) => count_query.bind(value),
-            };
+        // 构建计数查询
+        let (count_sql, count_bind_values) = build_count_query(user_id, &search_keywords, &filters.search_type, &filters.filters);
+        
+        let mut count_query = query_scalar::<_, i64>(&count_sql);
+        for value in &count_bind_values {
+            count_query = bind_query_value_scalar(count_query, value);
         }
+        
         let total = count_query.fetch_one(db_pool).await?;
 
         // 构建响应
@@ -138,185 +137,241 @@ impl SearchService {
     }
 }
 
-/// FTS5 查询构建器 - 消除字符串拼接,提高可维护性
-struct QueryBuilder {
+// Helper function to build search query using sqlx::QueryBuilder
+fn build_search_query(
     user_id: i64,
-    search_type: Option<SearchType>,
-    filters: Option<FilterCriteria>,
+    search_keywords: &str,
+    search_type: &SearchType,
+    filters: &FilterCriteria,
+    pagination: &PaginationParams,
+) -> (String, Vec<QueryValue>) {
+    let mut bind_values = Vec::new();
+    bind_values.push(QueryValue::I64(user_id));
+    bind_values.push(QueryValue::Text(search_keywords.to_string()));
+
+    let mut query: SqlxQueryBuilder<'_, Sqlite> = SqlxQueryBuilder::new(
+        r#"
+        SELECT
+            r.id,
+            r.user_id,
+            r.collection_id,
+            r.title,
+            r.url,
+            r.description,
+            r.favicon_url,
+            r.screenshot_url,
+            r.thumbnail_url,
+            r.is_favorite,
+            r.is_archived,
+            r.is_private,
+            r.is_read,
+            r.visit_count,
+            r.last_visited,
+            r.metadata,
+            r.type,
+            r.content,
+            r.source,
+            r.mime_type,
+            r.created_at,
+            r.updated_at,
+            COALESCE(
+                CASE
+                    WHEN COUNT(t.name) > 0
+                    THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
+                    ELSE '[]'
+                END,
+                '[]'
+            ) as tags,
+            c.name as collection_name,
+            c.color as collection_color,
+            COALESCE(
+                (SELECT COUNT(*) FROM resource_references rr
+                 WHERE rr.source_id = r.id OR rr.target_id = r.id),
+                0
+            ) as reference_count
+        FROM resources r
+        JOIN resources_fts fts ON r.id = fts.rowid
+        LEFT JOIN collections c ON r.collection_id = c.id
+        LEFT JOIN resource_tags rt ON r.id = rt.resource_id
+        LEFT JOIN tags t ON rt.tag_id = t.id
+        "#,
+    );
+
+    // Build WHERE clause
+    query.push(" WHERE r.user_id = ");
+    query.push_bind(user_id);
+    query.push(" AND ");
+
+    // Add FTS5 MATCH condition
+    let fts_match = match search_type {
+        SearchType::Title => "resources_fts MATCH 'title:' || ",
+        SearchType::Content => "resources_fts MATCH 'content:' || ",
+        SearchType::Url => "resources_fts MATCH 'url:' || ",
+        SearchType::All => "resources_fts MATCH ",
+    };
+    query.push(fts_match);
+    query.push_bind(search_keywords);
+
+    // Add additional filters
+    if let Some(collection_id) = filters.collection_id {
+        query.push(" AND r.collection_id = ");
+        query.push_bind(collection_id);
+        bind_values.push(QueryValue::I64(collection_id));
+    }
+
+    if !filters.tags.is_empty() {
+        query.push(" AND r.id IN (");
+        query.push(
+            r#"
+            SELECT rt.resource_id
+            FROM resource_tags rt
+            JOIN tags t2 ON rt.tag_id = t2.id
+            WHERE t2.user_id = "#,
+        );
+        query.push_bind(user_id);
+        query.push(" AND t2.name IN (");
+        
+        for (i, tag) in filters.tags.iter().enumerate() {
+            if i > 0 {
+                query.push(", ");
+            }
+            query.push_bind(tag);
+            bind_values.push(QueryValue::Text(tag.clone()));
+        }
+        
+        query.push(") GROUP BY rt.resource_id HAVING COUNT(DISTINCT t2.name) = ");
+        query.push_bind(filters.tags.len() as i64);
+        query.push(")");
+        bind_values.push(QueryValue::I64(user_id));
+        bind_values.push(QueryValue::I64(filters.tags.len() as i64));
+    }
+
+    if let Some(date_from) = filters.date_from {
+        query.push(" AND r.created_at >= ");
+        query.push_bind(date_from);
+        bind_values.push(QueryValue::I64(date_from));
+    }
+
+    if let Some(date_to) = filters.date_to {
+        query.push(" AND r.created_at <= ");
+        query.push_bind(date_to);
+        bind_values.push(QueryValue::I64(date_to));
+    }
+
+    query.push(
+        r#"
+        GROUP BY r.id, c.name, c.color
+        ORDER BY rank
+        LIMIT "#,
+    );
+    query.push_bind(pagination.limit);
+    query.push(" OFFSET ");
+    query.push_bind(pagination.offset);
+
+    bind_values.push(QueryValue::I64(pagination.limit));
+    bind_values.push(QueryValue::I64(pagination.offset));
+
+    (query.sql().to_string(), bind_values)
 }
 
-impl QueryBuilder {
-    fn new(user_id: i64, _search_keywords: &str) -> Self {
-        Self {
-            user_id,
-            search_type: None,
-            filters: None,
-        }
+// Helper function to build count query
+fn build_count_query(
+    user_id: i64,
+    search_keywords: &str,
+    search_type: &SearchType,
+    filters: &FilterCriteria,
+) -> (String, Vec<QueryValue>) {
+    let mut bind_values = Vec::new();
+    bind_values.push(QueryValue::I64(user_id));
+    bind_values.push(QueryValue::Text(search_keywords.to_string()));
+
+    let mut query: SqlxQueryBuilder<'_, Sqlite> = SqlxQueryBuilder::new(
+        "SELECT COUNT(*) FROM resources r JOIN resources_fts fts ON r.id = fts.rowid",
+    );
+
+    query.push(" WHERE r.user_id = ");
+    query.push_bind(user_id);
+    query.push(" AND ");
+
+    // Add FTS5 MATCH condition
+    let fts_match = match search_type {
+        SearchType::Title => "resources_fts MATCH 'title:' || ",
+        SearchType::Content => "resources_fts MATCH 'content:' || ",
+        SearchType::Url => "resources_fts MATCH 'url:' || ",
+        SearchType::All => "resources_fts MATCH ",
+    };
+    query.push(fts_match);
+    query.push_bind(search_keywords);
+
+    // Add additional filters (same as search query)
+    if let Some(collection_id) = filters.collection_id {
+        query.push(" AND r.collection_id = ");
+        query.push_bind(collection_id);
+        bind_values.push(QueryValue::I64(collection_id));
     }
 
-    fn with_search_type(mut self, search_type: &SearchType) -> Self {
-        self.search_type = Some(match search_type {
-            SearchType::Title => SearchType::Title,
-            SearchType::Content => SearchType::Content,
-            SearchType::Url => SearchType::Url,
-            SearchType::All => SearchType::All,
-        });
-        self
-    }
-
-    fn with_filters(mut self, filters: &FilterCriteria) -> Self {
-        self.filters = Some(filters.clone());
-        self
-    }
-
-    /// 构建完整的 SQL 查询
-    /// 返回: (search_sql, count_sql, bind_values)
-    fn build(self) -> (String, String, Vec<BindValue>) {
-        let (where_clause, bind_values) = self.build_where_clause();
-
-        // 计算 LIMIT 和 OFFSET 的参数位置
-        // $1 = user_id, $2 = search_keywords, $3+ = filter bind_values
-        let limit_param_index = 3 + bind_values.len();
-        let offset_param_index = limit_param_index + 1;
-
-        let search_sql = format!(
+    if !filters.tags.is_empty() {
+        query.push(" AND r.id IN (");
+        query.push(
             r#"
-            SELECT
-                r.id,
-                r.user_id,
-                r.collection_id,
-                r.title,
-                r.url,
-                r.description,
-                r.favicon_url,
-                r.screenshot_url,
-                r.thumbnail_url,
-                r.is_favorite,
-                r.is_archived,
-                r.is_private,
-                r.is_read,
-                r.visit_count,
-                r.last_visited,
-                r.reading_time,
-                r.difficulty_level,
-                r.metadata,
-                r.type,
-                r.content,
-                r.source,
-                r.mime_type,
-                r.created_at,
-                r.updated_at,
-                COALESCE(
-                    CASE
-                        WHEN COUNT(t.name) > 0
-                        THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
-                        ELSE '[]'
-                    END,
-                    '[]'
-                ) as tags,
-                c.name as collection_name,
-                c.color as collection_color,
-                COALESCE(
-                    (SELECT COUNT(*) FROM resource_references rr
-                     WHERE rr.source_id = r.id OR rr.target_id = r.id),
-                    0
-                ) as reference_count
-            FROM resources r
-            JOIN resources_fts fts ON r.id = fts.rowid
-            LEFT JOIN collections c ON r.collection_id = c.id
-            LEFT JOIN resource_tags rt ON r.id = rt.resource_id
-            LEFT JOIN tags t ON rt.tag_id = t.id
-            {}
-            GROUP BY r.id, c.name, c.color
-            ORDER BY rank
-            LIMIT ${} OFFSET ${}
-            "#,
-            where_clause, limit_param_index, offset_param_index
+            SELECT rt.resource_id
+            FROM resource_tags rt
+            JOIN tags t2 ON rt.tag_id = t2.id
+            WHERE t2.user_id = "#,
         );
-
-        let count_sql = format!(
-            "SELECT COUNT(*) FROM resources r JOIN resources_fts fts ON r.id = fts.rowid {}",
-            where_clause
-        );
-
-        (search_sql, count_sql, bind_values)
+        query.push_bind(user_id);
+        query.push(" AND t2.name IN (");
+        
+        for tag in &filters.tags {
+            query.push_bind(tag);
+            bind_values.push(QueryValue::Text(tag.clone()));
+        }
+        
+        query.push(") GROUP BY rt.resource_id HAVING COUNT(DISTINCT t2.name) = ");
+        query.push_bind(filters.tags.len() as i64);
+        query.push(")");
+        bind_values.push(QueryValue::I64(user_id));
+        bind_values.push(QueryValue::I64(filters.tags.len() as i64));
     }
 
-    /// 构建 WHERE 子句
-    /// 返回: (where_clause, bind_values)
-    fn build_where_clause(&self) -> (String, Vec<BindValue>) {
-        let mut conditions = vec!["r.user_id = $1".to_string()];
-        let mut bind_values = Vec::new();
+    if let Some(date_from) = filters.date_from {
+        query.push(" AND r.created_at >= ");
+        query.push_bind(date_from);
+        bind_values.push(QueryValue::I64(date_from));
+    }
 
-        // 添加 FTS5 MATCH 条件 (根据搜索类型)
-        let fts_condition = match self.search_type.as_ref().unwrap_or(&SearchType::All) {
-            SearchType::Title => "resources_fts MATCH 'title:' || $2",
-            SearchType::Content => "resources_fts MATCH 'content:' || $2",
-            SearchType::Url => "resources_fts MATCH 'url:' || $2",
-            SearchType::All => "resources_fts MATCH $2",
-        };
-        conditions.push(fts_condition.to_string());
+    if let Some(date_to) = filters.date_to {
+        query.push(" AND r.created_at <= ");
+        query.push_bind(date_to);
+        bind_values.push(QueryValue::I64(date_to));
+    }
 
-        // 添加其他过滤条件
-        if let Some(filters) = &self.filters {
-            let mut param_index = 2; // 从 $3 开始 ($1 是 user_id, $2 是 FTS MATCH)
+    (query.sql().to_string(), bind_values)
+}
 
-            if let Some(collection_id) = filters.collection_id {
-                param_index += 1;
-                conditions.push(format!("r.collection_id = ${}", param_index));
-                bind_values.push(BindValue::I64(collection_id));
-            }
+// Helper functions to bind values to queries
+fn bind_query_value<'a>(
+    query: sqlx::query::QueryAs<'a, sqlx::Sqlite, ResourceWithTags, sqlx::sqlite::SqliteArguments<'a>>,
+    value: &'a QueryValue,
+) -> sqlx::query::QueryAs<'a, sqlx::Sqlite, ResourceWithTags, sqlx::sqlite::SqliteArguments<'a>> {
+    match value {
+        QueryValue::I64(v) => query.bind(*v),
+        QueryValue::Text(v) => query.bind(v),
+    }
+}
 
-            if !filters.tags.is_empty() {
-                param_index += 1;
-                let tag_user_param = param_index;
-                let tag_placeholders: Vec<String> = filters
-                    .tags
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", param_index + 1 + (i as i32)))
-                    .collect();
-                param_index += filters.tags.len() as i32;
-
-                conditions.push(format!(
-                    "r.id IN (
-                        SELECT rt.resource_id
-                        FROM resource_tags rt
-                        JOIN tags t2 ON rt.tag_id = t2.id
-                        WHERE t2.user_id = ${} AND t2.name IN ({})
-                        GROUP BY rt.resource_id
-                        HAVING COUNT(DISTINCT t2.name) = {}
-                    )",
-                    tag_user_param,
-                    tag_placeholders.join(","),
-                    filters.tags.len()
-                ));
-                bind_values.push(BindValue::I64(self.user_id));
-                for tag in &filters.tags {
-                    bind_values.push(BindValue::Text(tag.clone()));
-                }
-            }
-
-            if let Some(date_from) = filters.date_from {
-                param_index += 1;
-                conditions.push(format!("r.created_at >= ${}", param_index));
-                bind_values.push(BindValue::I64(date_from));
-            }
-
-            if let Some(date_to) = filters.date_to {
-                param_index += 1;
-                conditions.push(format!("r.created_at <= ${}", param_index));
-                bind_values.push(BindValue::I64(date_to));
-            }
-        }
-
-        let where_clause = format!("WHERE {}", conditions.join(" AND "));
-        (where_clause, bind_values)
+fn bind_query_value_scalar<'a>(
+    query: sqlx::query::QueryScalar<'a, sqlx::Sqlite, i64, sqlx::sqlite::SqliteArguments<'a>>,
+    value: &'a QueryValue,
+) -> sqlx::query::QueryScalar<'a, sqlx::Sqlite, i64, sqlx::sqlite::SqliteArguments<'a>> {
+    match value {
+        QueryValue::I64(v) => query.bind(*v),
+        QueryValue::Text(v) => query.bind(v),
     }
 }
 
 #[derive(Clone)]
-enum BindValue {
+enum QueryValue {
     I64(i64),
     Text(String),
 }

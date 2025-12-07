@@ -9,6 +9,13 @@ use crate::services::IndexerService;
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::validation::validate_url;
 
+// 输入验证常量
+const MAX_TITLE_LENGTH: usize = 500;
+const MAX_DESCRIPTION_LENGTH: usize = 2000;
+const MAX_CONTENT_LENGTH: usize = 100_000;
+const MAX_URL_LENGTH: usize = 2048;
+const MAX_BATCH_SIZE: usize = 100;
+
 pub struct ResourceService;
 
 impl ResourceService {
@@ -23,6 +30,41 @@ impl ResourceService {
         resource_data: CreateResource,
         db_pool: &SqlitePool,
     ) -> AppResult<Resource> {
+        // 输入长度验证
+        if resource_data.title.len() > MAX_TITLE_LENGTH {
+            return Err(AppError::BadRequest(format!(
+                "Title exceeds maximum length of {} characters",
+                MAX_TITLE_LENGTH
+            )));
+        }
+
+        if let Some(ref description) = resource_data.description {
+            if description.len() > MAX_DESCRIPTION_LENGTH {
+                return Err(AppError::BadRequest(format!(
+                    "Description exceeds maximum length of {} characters",
+                    MAX_DESCRIPTION_LENGTH
+                )));
+            }
+        }
+
+        if let Some(ref content) = resource_data.content {
+            if content.len() > MAX_CONTENT_LENGTH {
+                return Err(AppError::BadRequest(format!(
+                    "Content exceeds maximum length of {} characters",
+                    MAX_CONTENT_LENGTH
+                )));
+            }
+        }
+
+        if let Some(ref url) = resource_data.url {
+            if url.len() > MAX_URL_LENGTH {
+                return Err(AppError::BadRequest(format!(
+                    "URL exceeds maximum length of {} characters",
+                    MAX_URL_LENGTH
+                )));
+            }
+        }
+
         // 解析资源类型
         let resource_type =
             ResourceType::from(&resource_data.resource_type).map_err(AppError::BadRequest)?;
@@ -64,7 +106,7 @@ impl ResourceService {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id, user_id, collection_id, title, url, description, favicon_url, screenshot_url,
                       thumbnail_url, is_favorite, is_archived, is_private, is_read, visit_count,
-                      last_visited, reading_time, difficulty_level, metadata, type, content, source, mime_type,
+                      last_visited, metadata, type, content, source, mime_type,
                       created_at, updated_at
             "#,
         )
@@ -163,7 +205,7 @@ impl ResourceService {
                 r.id, r.user_id, r.collection_id, r.title, r.url, r.description,
                 r.favicon_url, r.screenshot_url, r.thumbnail_url,
                 r.is_favorite, r.is_archived, r.is_private, r.is_read,
-                r.visit_count, r.last_visited, r.reading_time, r.difficulty_level,
+                r.visit_count, r.last_visited,
                 r.metadata, r.type, r.content, r.source, r.mime_type,
                 r.created_at, r.updated_at,
                 COALESCE(
@@ -300,7 +342,7 @@ impl ResourceService {
                 r.id, r.user_id, r.collection_id, r.title, r.url, r.description,
                 r.favicon_url, r.screenshot_url, r.thumbnail_url,
                 r.is_favorite, r.is_archived, r.is_private, r.is_read,
-                r.visit_count, r.last_visited, r.reading_time, r.difficulty_level,
+                r.visit_count, r.last_visited,
                 r.metadata, r.type, r.content, r.source, r.mime_type,
                 r.created_at, r.updated_at,
                 COALESCE(
@@ -378,8 +420,6 @@ impl ResourceService {
             || update_data.is_archived.is_some()
             || update_data.is_private.is_some()
             || update_data.is_read.is_some()
-            || update_data.reading_time.is_some()
-            || update_data.difficulty_level.is_some()
             || update_data.resource_type.is_some()
             || update_data.content.is_some()
             || update_data.source.is_some()
@@ -408,9 +448,7 @@ impl ResourceService {
                     is_archived = COALESCE($7, is_archived),
                     is_private = COALESCE($8, is_private),
                     is_read = COALESCE($9, is_read),
-                    reading_time = COALESCE($10, reading_time),
-                    difficulty_level = COALESCE($11, difficulty_level),
-                    type = COALESCE($12, type),
+                    type = COALESCE($10, type),
                     content = COALESCE($13, content),
                     source = COALESCE($14, source),
                     mime_type = COALESCE($15, mime_type),
@@ -418,9 +456,9 @@ impl ResourceService {
                 WHERE id = $16 AND user_id = $17
                 RETURNING id, user_id, collection_id, title, url, description, favicon_url,
                           screenshot_url, thumbnail_url, is_favorite,
-                          is_archived, is_private, is_read, visit_count, last_visited,
-                          reading_time, difficulty_level, metadata, type, content, source, mime_type,
-                          created_at, updated_at
+                           is_archived, is_private, is_read, visit_count, last_visited,
+                           metadata, type, content, source, mime_type,
+                           created_at, updated_at
                 "#,
             )
             .bind(update_data.title.as_ref())
@@ -432,8 +470,6 @@ impl ResourceService {
             .bind(update_data.is_archived)
             .bind(update_data.is_private)
             .bind(update_data.is_read)
-            .bind(update_data.reading_time)
-            .bind(update_data.difficulty_level)
             .bind(update_data.resource_type.as_ref())
             .bind(update_data.content.as_ref())
             .bind(update_data.source.as_ref())
@@ -446,10 +482,10 @@ impl ResourceService {
             // 如果只更新标签,先获取现有资源
             sqlx::query_as::<_, Resource>(
                 r#"
-                SELECT id, user_id, collection_id, title, url, description, favicon_url,
-                       screenshot_url, thumbnail_url, is_favorite, is_archived, is_private,
-                       is_read, visit_count, last_visited, reading_time, difficulty_level,
-                       metadata, type, content, source, mime_type, created_at, updated_at
+                 SELECT id, user_id, collection_id, title, url, description, favicon_url,
+                        screenshot_url, thumbnail_url, is_favorite, is_archived, is_private,
+                        is_read, visit_count, last_visited,
+                        metadata, type, content, source, mime_type, created_at, updated_at
                 FROM resources
                 WHERE id = $1 AND user_id = $2
                 "#,
@@ -597,6 +633,14 @@ impl ResourceService {
         request: ResourceBatchRequest,
         db_pool: &SqlitePool,
     ) -> AppResult<ResourceBatchResult> {
+        // 批量操作数量限制
+        if request.resource_ids.len() > MAX_BATCH_SIZE {
+            return Err(AppError::BadRequest(format!(
+                "Batch size exceeds maximum of {} resources",
+                MAX_BATCH_SIZE
+            )));
+        }
+
         let ResourceBatchRequest {
             action,
             resource_ids,
@@ -804,11 +848,11 @@ impl ResourceService {
         // 构建查询
         let mut query_builder = sqlx::QueryBuilder::new(
             r#"
-            SELECT DISTINCT
+            SELECT
                 r.id, r.user_id, r.collection_id, r.title, r.url, r.description,
                 r.favicon_url, r.screenshot_url, r.thumbnail_url,
                 r.is_favorite, r.is_archived, r.is_private, r.is_read,
-                r.visit_count, r.last_visited, r.reading_time, r.difficulty_level,
+                r.visit_count, r.last_visited,
                 r.metadata, r.type, r.content, r.source, r.mime_type,
                 r.created_at, r.updated_at,
                 COALESCE(

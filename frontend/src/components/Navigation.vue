@@ -303,14 +303,15 @@ const handleAddBookmark = async () => {
   if (!newBookmark.value.title || !newBookmark.value.url) return
 
   try {
-    // 调用真实的添加书签API
-    const { useBookmarksStore } = await import('@/stores/bookmarks')
-    const bookmarksStore = useBookmarksStore()
+    // 调用真实的添加资源API
+    const { useResourcesStore } = await import('@/stores/resources')
+    const resourcesStore = useResourcesStore()
     
-    await bookmarksStore.createBookmark({
+    await resourcesStore.createResource({
       title: newBookmark.value.title,
       url: newBookmark.value.url,
-      description: newBookmark.value.description
+      description: newBookmark.value.description,
+      type: 'link'
     })
     
     // 重置表单

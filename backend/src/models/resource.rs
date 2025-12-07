@@ -52,8 +52,6 @@ pub struct Resource {
     pub is_read: bool,
     pub visit_count: i64,
     pub last_visited: Option<i64>,
-    pub reading_time: Option<i32>,
-    pub difficulty_level: Option<i32>,
     pub metadata: serde_json::Value,
 
     // 新增字段
@@ -107,8 +105,6 @@ pub struct UpdateResource {
     pub is_archived: Option<bool>,
     pub is_private: Option<bool>,
     pub is_read: Option<bool>,
-    pub reading_time: Option<i32>,
-    pub difficulty_level: Option<i32>,
 
     // 新增字段
     #[serde(rename = "type")]
@@ -161,8 +157,6 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for ResourceWithTags {
                 is_read: row.try_get("is_read")?,
                 visit_count: row.try_get("visit_count")?,
                 last_visited: row.try_get("last_visited")?,
-                reading_time: row.try_get("reading_time")?,
-                difficulty_level: row.try_get("difficulty_level")?,
                 metadata: row.try_get("metadata")?,
                 resource_type: row.try_get("type")?,
                 content: row.try_get("content")?,

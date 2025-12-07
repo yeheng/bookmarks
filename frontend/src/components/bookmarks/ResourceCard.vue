@@ -54,62 +54,8 @@
       {{ resource.title }}
     </h3>
 
-    <!-- 内容预览 -->
-    <div v-if="resource.type === 'link' && resource.url" class="text-xs text-muted-foreground mb-2 truncate">
-      {{ resource.url }}
-    </div>
-    <div v-else-if="resource.type === 'note' && resource.content" class="text-xs text-muted-foreground mb-2 line-clamp-3">
-      {{ truncateContent(resource.content, 100) }}
-    </div>
-    <div v-else-if="resource.type === 'snippet' && resource.content" class="text-xs text-muted-foreground mb-2">
-      <div class="bg-gray-50 dark:bg-gray-800 border rounded p-2 font-mono leading-relaxed">
-        <div class="flex items-start justify-between mb-1">
-          <span class="text-gray-500 text-[10px]">💻 代码片段</span>
-          <button
-            @click.stop="copyToClipboard(resource.content)"
-            class="text-gray-400 hover:text-gray-600 text-[10px] px-1 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            title="复制代码"
-          >
-            📋
-          </button>
-        </div>
-        <pre class="whitespace-pre-wrap break-words line-clamp-3">{{ truncateContent(resource.content, 120) }}</pre>
-        <div v-if="resource.content.length > 120" class="text-blue-600 text-[10px] mt-1">
-          ... 点击查看更多
-        </div>
-      </div>
-    </div>
-    <div v-else-if="resource.type === 'file'" class="text-xs text-muted-foreground mb-2">
-      <div class="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded p-2">
-        <div class="flex items-center justify-between mb-1">
-          <span class="text-orange-600 dark:text-orange-400 text-[10px]">📄 文件</span>
-          <div class="flex gap-1">
-            <button
-              v-if="resource.source"
-              @click.stop="copyFilePath(resource.source)"
-              class="text-orange-400 hover:text-orange-600 text-[10px] px-1 py-0.5 rounded hover:bg-orange-200 dark:hover:bg-orange-800 transition-colors"
-              title="复制路径"
-            >
-              📋
-            </button>
-            <button
-              v-if="resource.url"
-              @click.stop="downloadFile(resource.url)"
-              class="text-orange-400 hover:text-orange-600 text-[10px] px-1 py-0.5 rounded hover:bg-orange-200 dark:hover:bg-orange-800 transition-colors"
-              title="下载文件"
-            >
-              ⬇️
-            </button>
-          </div>
-        </div>
-        <div class="font-medium truncate">
-          {{ resource.source || resource.mime_type || '未知文件' }}
-        </div>
-        <div v-if="resource.mime_type" class="text-orange-500 text-[10px] mt-1">
-          类型: {{ resource.mime_type }}
-        </div>
-      </div>
-    </div>
+    <!-- 动态内容组件 -->
+    <component :is="resourceComponent" :resource="resource" />
 
     <!-- 描述 -->
     <p v-if="resource.description" class="text-xs text-muted-foreground mb-3 line-clamp-3">
@@ -140,7 +86,9 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Resource, ResourceType } from '@/types'
+import { ResourceLink, ResourceNote, ResourceSnippet, ResourceFile } from '@/components/resources'
 
 const props = defineProps<{
   resource: Resource
@@ -152,6 +100,19 @@ const emit = defineEmits<{
   delete: [id: number]
   tagClick: [tagName: string]
 }>()
+
+// 动态组件映射
+const resourceComponents = {
+  link: ResourceLink,
+  note: ResourceNote,
+  snippet: ResourceSnippet,
+  file: ResourceFile
+}
+
+// 计算当前资源对应的组件
+const resourceComponent = computed(() => {
+  return resourceComponents[props.resource.type] || ResourceNote
+})
 
 // 处理资源点击
 const handleResourceClick = () => {
@@ -168,7 +129,7 @@ const getTypeIcon = (type: ResourceType): string => {
   const icons: Record<ResourceType, string> = {
     link: '🔗',
     note: '📝',
-    snippet: '💻', // Changed from 💻 for compatibility
+    snippet: '💻',
     file: '📄'
   }
   return icons[type] || '📌'
@@ -194,59 +155,6 @@ const getTypeLabel = (type: ResourceType): string => {
     file: '文件'
   }
   return labels[type] || '资源'
-}
-
-// 截断内容
-const truncateContent = (content: string, maxLength: number): string => {
-  if (!content) return ''
-  if (content.length <= maxLength) return content
-  return content.substring(0, maxLength) + '...'
-}
-
-// 复制到剪贴板
-const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text)
-    // 可以添加 toast 提示，这里简化处理
-    console.log('代码已复制到剪贴板')
-  } catch (err) {
-    console.error('复制失败:', err)
-    // 降级处理
-    const textArea = document.createElement('textarea')
-    textArea.value = text
-    document.body.appendChild(textArea)
-    textArea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textArea)
-  }
-}
-
-// 复制文件路径
-const copyFilePath = async (filePath: string) => {
-  try {
-    await navigator.clipboard.writeText(filePath)
-    console.log('文件路径已复制到剪贴板')
-  } catch (err) {
-    console.error('复制失败:', err)
-  }
-}
-
-// 下载文件
-const downloadFile = (url: string) => {
-  try {
-    const link = document.createElement('a')
-    link.href = url
-    link.download = '' // 让浏览器自动从 URL 推断文件名
-    link.target = '_blank'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    console.log('文件下载已开始')
-  } catch (err) {
-    console.error('下载失败:', err)
-    // 降级处理：直接在新标签页打开
-    window.open(url, '_blank')
-  }
 }
 
 // 格式化日期

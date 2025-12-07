@@ -39,12 +39,12 @@ export const useCollectionsStore = defineStore('collections', () => {
       
       const response = await apiService.getCollections(requestParams)
       
-      // API返回格式: {data: Array, success: true} 或 {data: {items: [...], pagination: {...}}, success: true}
+      // API返回格式: Array 或 {items: [...], pagination: {...}}
       let items: any = []
-      if (Array.isArray(response.data)) {
-        items = response.data
-      } else if (response.data?.items) {
-        items = response.data.items
+      if (Array.isArray(response)) {
+        items = response
+      } else if (response.items) {
+        items = response.items
       }
       
       if (reset) {
@@ -74,7 +74,7 @@ export const useCollectionsStore = defineStore('collections', () => {
     
     try {
       const collection = await apiService.getCollection(id)
-      currentCollection.value = collection.data
+      currentCollection.value = collection
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch collection'
       throw err
@@ -89,8 +89,8 @@ export const useCollectionsStore = defineStore('collections', () => {
     
     try {
       const newCollection = await apiService.createCollection(data)
-      collections.value.push(newCollection.data)
-      return newCollection.data
+      collections.value.push(newCollection)
+      return newCollection
     } catch (err: any) {
       error.value = err.message || 'Failed to create collection'
       throw err
@@ -107,12 +107,12 @@ export const useCollectionsStore = defineStore('collections', () => {
       const updatedCollection = await apiService.updateCollection(id, data)
       const index = collections.value.findIndex(c => c.id === id)
       if (index !== -1) {
-        collections.value[index] = updatedCollection.data
+        collections.value[index] = updatedCollection
       }
       if (currentCollection.value?.id === id) {
-        currentCollection.value = updatedCollection.data
+        currentCollection.value = updatedCollection
       }
-      return updatedCollection.data
+      return updatedCollection
     } catch (err: any) {
       error.value = err.message || 'Failed to update collection'
       throw err

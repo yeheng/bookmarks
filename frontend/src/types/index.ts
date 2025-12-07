@@ -51,15 +51,16 @@ export interface Resource {
   is_read: boolean;
   last_visited?: number;
   metadata: Record<string, any>;
-  reading_time?: number;
   favicon_url?: string;
   screenshot_url?: string;
   thumbnail_url?: string;
   visit_count: number;
-  difficulty_level?: number;
 }
 
-// 向下兼容：Bookmark 作为 Resource 的别名
+/**
+ * @deprecated Use Resource instead. This type alias is maintained for backward compatibility only.
+ * Will be removed in a future version.
+ */
 export type Bookmark = Resource;
 
 export interface Collection {
@@ -94,7 +95,10 @@ export interface ResourceTag {
   tag_id: number;
 }
 
-// 向下兼容
+/**
+ * @deprecated Use ResourceTag instead. This type alias is maintained for backward compatibility only.
+ * Will be removed in a future version.
+ */
 export type BookmarkTag = ResourceTag;
 
 export interface CreateResourceRequest {
@@ -111,7 +115,10 @@ export interface CreateResourceRequest {
   is_private?: boolean;
 }
 
-// 向下兼容
+/**
+ * @deprecated Use CreateResourceRequest instead. This type alias is maintained for backward compatibility only.
+ * Will be removed in a future version.
+ */
 export type CreateBookmarkRequest = CreateResourceRequest;
 
 export interface UpdateResourceRequest {
@@ -129,11 +136,12 @@ export interface UpdateResourceRequest {
   is_archived?: boolean;
   is_private?: boolean;
   is_read?: boolean;
-  reading_time?: number;
-  difficulty_level?: number;
 }
 
-// 向下兼容
+/**
+ * @deprecated Use UpdateResourceRequest instead. This type alias is maintained for backward compatibility only.
+ * Will be removed in a future version.
+ */
 export type UpdateBookmarkRequest = UpdateResourceRequest;
 
 export interface CreateCollectionRequest {
@@ -213,6 +221,13 @@ export interface PaginationInfo {
 export interface ApiResponse<T> {
   success: boolean;
   data: T;
+  message?: string;
+  search_time?: number;
+}
+
+// Simplified response types for new API format
+export interface SimpleApiResponse<T> {
+  data?: T;
   message?: string;
   search_time?: number;
 }

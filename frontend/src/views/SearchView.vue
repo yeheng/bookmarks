@@ -378,12 +378,29 @@ const formatDate = (timestamp: number) => {
   return date.toLocaleDateString()
 }
 
-// 高亮搜索文本
-const highlightText = (text: string, query: string) => {
-  if (!query.trim()) return text
+// 转义正则表达式特殊字符
+const escapeRegex = (str: string): string => {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
-  const regex = new RegExp(`(${query})`, 'gi')
-  return text.replace(regex, '<mark class="bg-yellow-200 text-yellow-800">$1</mark>')
+// 转义 HTML 特殊字符
+const escapeHtml = (str: string): string => {
+  const htmlEscapeMap: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  }
+  return str.replace(/[&<>"']/g, c => htmlEscapeMap[c] || c)
+}
+
+// 高亮搜索文本（XSS 安全）
+const highlightText = (text: string, query: string) => {
+  if (!query.trim()) return escapeHtml(text)
+
+  const regex = new RegExp(`(${escapeRegex(query)})`, 'gi')
+  return escapeHtml(text).replace(regex, '<mark class="bg-yellow-200 text-yellow-800">$1</mark>')
 }
 
 // 截断文本
@@ -429,10 +446,8 @@ const getTypeLabel = (type: ResourceType): string => {
 const openResource = (resource: Resource) => {
   if (resource.type === 'link' && resource.url) {
     window.open(resource.url, '_blank')
-  } else {
-    // 对于非链接类型，可以打开编辑模态框或显示详情
-    console.log('打开资源详情:', resource)
   }
+  // 对于非链接类型，暂不处理（可以扩展为打开详情页）
 }
 
 // 切换收藏状态
@@ -448,7 +463,6 @@ const toggleFavorite = async (resource: Resource) => {
 // 编辑资源
 const editResource = (resource: Resource) => {
   // TODO: 实现编辑资源功能，可以打开编辑模态框
-  console.log('编辑资源:', resource)
 }
 
 // 手动搜索处理函数（用于表单提交）

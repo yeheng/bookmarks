@@ -158,37 +158,7 @@
       </div>
     </div>
 
-    <!-- 高级选项 -->
-    <div class="space-y-4">
-      <div class="space-y-2">
-        <Label for="reading_time">阅读时间（分钟）</Label>
-        <Input
-          id="reading_time"
-          v-model.number="form.reading_time"
-          type="number"
-          min="0"
-          placeholder="预计阅读时间"
-          :disabled="isSubmitting"
-        />
-      </div>
 
-      <div class="space-y-2">
-        <Label for="difficulty_level">难度等级</Label>
-        <select
-          id="difficulty_level"
-          v-model="form.difficulty_level"
-          class="w-full h-10 px-3 py-2 text-sm border border-input bg-background rounded-md ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          :disabled="isSubmitting"
-        >
-          <option value="">未设置</option>
-          <option value="1">1 - 简单</option>
-          <option value="2">2 - 较简单</option>
-          <option value="3">3 - 中等</option>
-          <option value="4">4 - 较难</option>
-          <option value="5">5 - 困难</option>
-        </select>
-      </div>
-    </div>
 
     <!-- 引用管理（仅在编辑模式显示） -->
     <div v-if="isEditMode && props.resource" class="space-y-4 pt-4 border-t">
@@ -277,9 +247,7 @@ const form = reactive({
   is_favorite: false,
   is_private: false,
   is_read: false,
-  is_archived: false,
-  reading_time: undefined as number | undefined,
-  difficulty_level: undefined as number | undefined
+  is_archived: false
 })
 
 // 表单验证错误
@@ -313,8 +281,6 @@ watch(() => props.resource, (resource) => {
     form.is_private = resource.is_private
     form.is_read = resource.is_read
     form.is_archived = resource.is_archived
-    form.reading_time = resource.reading_time
-    form.difficulty_level = resource.difficulty_level
   } else {
     resetForm()
   }
@@ -334,8 +300,6 @@ const resetForm = () => {
   form.is_private = false
   form.is_read = false
   form.is_archived = false
-  form.reading_time = undefined
-  form.difficulty_level = undefined
 
   // 重置错误状态
   errors.url = ''
@@ -523,12 +487,7 @@ const handleSubmit = () => {
     if (form.is_archived !== props.resource.is_archived) {
       submitData.is_archived = form.is_archived
     }
-    if (form.reading_time !== props.resource.reading_time) {
-      submitData.reading_time = form.reading_time || undefined
-    }
-    if (form.difficulty_level !== props.resource.difficulty_level) {
-      submitData.difficulty_level = form.difficulty_level || undefined
-    }
+
 
     // 如果没有字段变化，至少发送一个字段以避免空提交错误
     if (Object.keys(submitData).length === 0) {
@@ -551,9 +510,7 @@ const handleSubmit = () => {
       is_favorite: form.is_favorite,
       is_private: form.is_private,
       is_read: form.is_read,
-      is_archived: form.is_archived,
-      reading_time: form.reading_time || undefined,
-      difficulty_level: form.difficulty_level || undefined
+      is_archived: form.is_archived
     }
 
     console.log('创建模式提交数据:', submitData)

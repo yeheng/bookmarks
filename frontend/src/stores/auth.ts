@@ -86,8 +86,8 @@ export const useAuthStore = defineStore('auth', () => {
     if (!token.value) return
     
     try {
-      const response = await apiService.getCurrentUser()
-      user.value = response.data
+      const user = await apiService.getCurrentUser()
+      user.value = user
     } catch (err: any) {
       // Token might be invalid, clear auth state
       user.value = null

@@ -42,7 +42,7 @@ impl IndexerService {
             r#"
             SELECT id, user_id, collection_id, title, url, description, favicon_url,
                    screenshot_url, thumbnail_url, is_favorite, is_archived, is_private,
-                   is_read, visit_count, last_visited, reading_time, difficulty_level,
+                   is_read, visit_count, last_visited,
                    metadata, type, content, source, mime_type, created_at, updated_at
             FROM resources
             WHERE id = $1 AND user_id = $2

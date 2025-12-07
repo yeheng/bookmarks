@@ -75,7 +75,7 @@ FRONTEND_URL=http://localhost:5173
 VITE_API_BASE_URL=http://localhost:3000/api
 
 # 应用标题
-VITE_APP_TITLE=Bookmarks Manager
+VITE_APP_TITLE=Resources Manager
 
 # 功能开关
 VITE_ENABLE_ANALYTICS=false
@@ -230,7 +230,7 @@ FRONTEND_URL=http://localhost:5173
 VITE_API_BASE_URL=http://localhost:3000/api
 
 # 应用标题
-VITE_APP_TITLE=Bookmarks Manager
+VITE_APP_TITLE=Resources Manager
 
 # 功能开关
 VITE_ENABLE_ANALYTICS=false

@@ -223,10 +223,10 @@ class ApiService {
       body: JSON.stringify(data),
     });
 
-    // Handle the unified API response format
+    // Handle the simplified API response format
     const authResponse: AuthResponse = {
-      user: apiResponse.data.user,
-      token: apiResponse.data.access_token
+      user: apiResponse.user,
+      token: apiResponse.access_token
     };
 
     this.setToken(authResponse.token);
@@ -239,10 +239,10 @@ class ApiService {
       body: JSON.stringify(data),
     });
 
-    // Handle the unified API response format
+    // Handle the simplified API response format
     const authResponse: AuthResponse = {
-      user: apiResponse.data.user,
-      token: apiResponse.data.access_token
+      user: apiResponse.user,
+      token: apiResponse.access_token
     };
 
     this.setToken(authResponse.token);
@@ -257,9 +257,8 @@ class ApiService {
     }
   }
 
-  async getCurrentUser(): Promise<ApiResponse<User>> {
-    const apiResponse: any = await this.request('/auth/me');
-    return apiResponse;
+  async getCurrentUser(): Promise<User> {
+    return this.request('/auth/me');
   }
 
   // Resource endpoints (资源管理)
@@ -280,25 +279,25 @@ class ApiService {
     return this.request(`/resources${query ? `?${query}` : ''}`);
   }
 
-  async getResource(id: number): Promise<ApiResponse<Resource>> {
+  async getResource(id: number): Promise<Resource> {
     return this.request(`/resources/${id}`);
   }
 
-  async createResource(request: CreateResourceRequest): Promise<ApiResponse<Resource>> {
+  async createResource(request: CreateResourceRequest): Promise<Resource> {
     return this.request('/resources', {
       method: 'POST',
       body: JSON.stringify(request),
     });
   }
 
-  async updateResource(id: number, request: UpdateResourceRequest): Promise<ApiResponse<Resource>> {
+  async updateResource(id: number, request: UpdateResourceRequest): Promise<Resource> {
     return this.request(`/resources/${id}`, {
       method: 'PUT',
       body: JSON.stringify(request),
     });
   }
 
-  async deleteResource(id: number): Promise<ApiResponse<void>> {
+  async deleteResource(id: number): Promise<void> {
     return this.request(`/resources/${id}`, { method: 'DELETE' });
   }
 
@@ -307,14 +306,14 @@ class ApiService {
     resourceId: number,
     targetId: number,
     type?: string
-  ): Promise<ApiResponse<void>> {
+  ): Promise<void> {
     return this.request(`/resources/${resourceId}/references`, {
       method: 'POST',
       body: JSON.stringify({ target_id: targetId, type }),
     });
   }
 
-  async deleteResourceReference(resourceId: number, targetId: number): Promise<ApiResponse<void>> {
+  async deleteResourceReference(resourceId: number, targetId: number): Promise<void> {
     return this.request(`/resources/${resourceId}/references/${targetId}`, {
       method: 'DELETE',
     });
@@ -341,19 +340,19 @@ class ApiService {
     return this.getResources(params);
   }
 
-  async getBookmark(id: number): Promise<ApiResponse<Bookmark>> {
+  async getBookmark(id: number): Promise<Bookmark> {
     return this.getResource(id);
   }
 
-  async createBookmark(request: CreateBookmarkRequest): Promise<ApiResponse<Bookmark>> {
+  async createBookmark(request: CreateBookmarkRequest): Promise<Bookmark> {
     return this.createResource(request);
   }
 
-  async updateBookmark(id: number, request: UpdateBookmarkRequest): Promise<ApiResponse<Bookmark>> {
+  async updateBookmark(id: number, request: UpdateBookmarkRequest): Promise<Bookmark> {
     return this.updateResource(id, request);
   }
 
-  async deleteBookmark(id: number): Promise<ApiResponse<void>> {
+  async deleteBookmark(id: number): Promise<void> {
     return this.deleteResource(id);
   }
 
@@ -371,25 +370,25 @@ class ApiService {
     return this.request(`/collections${query ? `?${query}` : ''}`);
   }
 
-  async getCollection(id: number): Promise<ApiResponse<Collection>> {
+  async getCollection(id: number): Promise<Collection> {
     return this.request(`/collections/${id}`);
   }
 
-  async createCollection(request: CreateCollectionRequest): Promise<ApiResponse<Collection>> {
+  async createCollection(request: CreateCollectionRequest): Promise<Collection> {
     return this.request('/collections', {
       method: 'POST',
       body: JSON.stringify(request),
     });
   }
 
-  async updateCollection(id: number, request: UpdateCollectionRequest): Promise<ApiResponse<Collection>> {
+  async updateCollection(id: number, request: UpdateCollectionRequest): Promise<Collection> {
     return this.request(`/collections/${id}`, {
       method: 'PUT',
       body: JSON.stringify(request),
     });
   }
 
-  async deleteCollection(id: number): Promise<ApiResponse<void>> {
+  async deleteCollection(id: number): Promise<void> {
     return this.request(`/collections/${id}`, { method: 'DELETE' });
   }
 
@@ -407,25 +406,25 @@ class ApiService {
     return this.request(`/tags${query ? `?${query}` : ''}`);
   }
 
-  async getTag(id: number): Promise<ApiResponse<Tag>> {
+  async getTag(id: number): Promise<Tag> {
     return this.request(`/tags/${id}`);
   }
 
-  async createTag(request: CreateTagRequest): Promise<ApiResponse<Tag>> {
+  async createTag(request: CreateTagRequest): Promise<Tag> {
     return this.request('/tags', {
       method: 'POST',
       body: JSON.stringify(request),
     });
   }
 
-  async updateTag(id: number, request: UpdateTagRequest): Promise<ApiResponse<Tag>> {
+  async updateTag(id: number, request: UpdateTagRequest): Promise<Tag> {
     return this.request(`/tags/${id}`, {
       method: 'PUT',
       body: JSON.stringify(request),
     });
   }
 
-  async deleteTag(id: number): Promise<ApiResponse<void>> {
+  async deleteTag(id: number): Promise<void> {
     return this.request(`/tags/${id}`, { method: 'DELETE' });
   }
 
@@ -445,7 +444,7 @@ class ApiService {
   }
 
   // Stats endpoints
-  async getStats(): Promise<ApiResponse<Stats>> {
+  async getStats(): Promise<Stats> {
     return this.request('/stats/user');
   }
 }
