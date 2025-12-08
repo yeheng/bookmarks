@@ -37,7 +37,7 @@ impl DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            url: "sqlite:bookmarks.db".to_string(),
+            url: "sqlite:resources.db".to_string(),
             max_connections: 10,
         }
     }

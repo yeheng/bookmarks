@@ -32,7 +32,7 @@ pub struct UpdateTag {
 pub struct TagWithUsage {
     #[serde(flatten)]
     pub tag: Tag,
-    pub bookmark_count: i64,
+    pub resource_count: i64,
 }
 
 #[derive(Debug, Deserialize)]

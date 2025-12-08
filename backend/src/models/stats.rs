@@ -29,13 +29,13 @@ impl StatsPeriod {
 
 #[derive(Debug, Serialize)]
 pub struct UserStats {
-    pub total_bookmarks: i64,
+    pub total_resources: i64,
     pub total_collections: i64,
     pub total_tags: i64,
-    pub favorite_bookmarks: i64,
-    pub archived_bookmarks: i64,
+    pub favorite_resources: i64,
+    pub archived_resources: i64,
     pub total_visits: i64,
-    pub recent_bookmarks: Vec<ResourceWithTags>, // 添加最近书签列表(现为资源列表)
+    pub recent_resources: Vec<ResourceWithTags>, // 最近资源列表
     pub recent_activity: Vec<RecentActivityEntry>,
     pub top_tags: Vec<TopTagEntry>,
     pub top_domains: Vec<TopDomainEntry>,
@@ -44,8 +44,8 @@ pub struct UserStats {
 #[derive(Debug, Serialize)]
 pub struct RecentActivityEntry {
     pub date: i64,
-    pub bookmarks_added: i64,
-    pub bookmarks_visited: i64,
+    pub resources_added: i64,
+    pub resources_visited: i64,
 }
 
 #[derive(Debug, Serialize)]

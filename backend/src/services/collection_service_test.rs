@@ -42,7 +42,7 @@ async fn create_test_pool() -> SqlitePool {
             is_default INTEGER NOT NULL DEFAULT 0,
             is_public INTEGER NOT NULL DEFAULT 0,
             parent_id INTEGER,
-            bookmark_count INTEGER DEFAULT 0,
+            resource_count INTEGER DEFAULT 0,
             created_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
             updated_at INTEGER DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -100,7 +100,7 @@ async fn test_create_collection_success() {
     assert_eq!(collection.icon, "folder");
     assert!(!collection.is_default);
     assert!(!collection.is_public);
-    assert_eq!(collection.bookmark_count, 0);
+    assert_eq!(collection.resource_count, 0);
 }
 
 #[tokio::test]

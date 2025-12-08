@@ -9,12 +9,12 @@ pub static EMAIL_REGEX: Lazy<Regex> =
 pub static URL_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").unwrap());
 
-// 静态正则表达式，用于解析 Netscape 书签文件
+// 静态正则表达式，用于解析 Netscape 资源文件
 // 只在第一次使用时编译，避免每次导入时重新编译
 #[allow(unused)]
 pub static LINK_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)<a[^>]*href="(?P<url>[^"]+)"[^>]*>(?P<title>[^<]+)"#)
-        .expect("Failed to compile bookmark regex")
+        .expect("Failed to compile resource regex")
 });
 
 #[allow(unused)]

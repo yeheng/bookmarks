@@ -1,9 +1,11 @@
-use sqlx::{query_as, query_scalar, Row, SqlitePool, QueryBuilder as SqlxQueryBuilder, sqlite::Sqlite};
+use sqlx::{
+    query_as, query_scalar, sqlite::Sqlite, QueryBuilder as SqlxQueryBuilder, Row, SqlitePool,
+};
 use std::time::Instant;
 
 use crate::models::{
-    FilterCriteria, PaginationParams, ResourceWithTags, SearchFilters, SearchPagination, SearchResponse,
-    SearchSuggestion, SearchType,
+    FilterCriteria, PaginationParams, ResourceWithTags, SearchFilters, SearchPagination,
+    SearchResponse, SearchSuggestion, SearchType,
 };
 use crate::utils::error::AppResult;
 use crate::utils::segmenter::prepare_for_search;
@@ -33,25 +35,38 @@ impl SearchService {
         let search_keywords = prepare_for_search(Some(&filters.query));
 
         // 构建搜索查询
-        let (search_sql, bind_values) = build_search_query(user_id, &search_keywords, &filters.search_type, &filters.filters, &filters.pagination);
-        
+        let (search_sql, bind_values) = build_search_query(
+            user_id,
+            &search_keywords,
+            &filters.search_type,
+            &filters.filters,
+            &filters.pagination,
+        );
+
         // 执行主查询
         let mut query = query_as::<_, ResourceWithTags>(&search_sql);
         for value in &bind_values {
             query = bind_query_value(query, value);
         }
-        query = query.bind(filters.pagination.limit).bind(filters.pagination.offset);
-        
+        query = query
+            .bind(filters.pagination.limit)
+            .bind(filters.pagination.offset);
+
         let resources = query.fetch_all(db_pool).await?;
 
         // 构建计数查询
-        let (count_sql, count_bind_values) = build_count_query(user_id, &search_keywords, &filters.search_type, &filters.filters);
-        
+        let (count_sql, count_bind_values) = build_count_query(
+            user_id,
+            &search_keywords,
+            &filters.search_type,
+            &filters.filters,
+        );
+
         let mut count_query = query_scalar::<_, i64>(&count_sql);
         for value in &count_bind_values {
             count_query = bind_query_value_scalar(count_query, value);
         }
-        
+
         let total = count_query.fetch_one(db_pool).await?;
 
         // 构建响应
@@ -230,7 +245,7 @@ fn build_search_query(
         );
         query.push_bind(user_id);
         query.push(" AND t2.name IN (");
-        
+
         for (i, tag) in filters.tags.iter().enumerate() {
             if i > 0 {
                 query.push(", ");
@@ -238,7 +253,7 @@ fn build_search_query(
             query.push_bind(tag);
             bind_values.push(QueryValue::Text(tag.clone()));
         }
-        
+
         query.push(") GROUP BY rt.resource_id HAVING COUNT(DISTINCT t2.name) = ");
         query.push_bind(filters.tags.len() as i64);
         query.push(")");
@@ -321,12 +336,12 @@ fn build_count_query(
         );
         query.push_bind(user_id);
         query.push(" AND t2.name IN (");
-        
+
         for tag in &filters.tags {
             query.push_bind(tag);
             bind_values.push(QueryValue::Text(tag.clone()));
         }
-        
+
         query.push(") GROUP BY rt.resource_id HAVING COUNT(DISTINCT t2.name) = ");
         query.push_bind(filters.tags.len() as i64);
         query.push(")");
@@ -351,7 +366,12 @@ fn build_count_query(
 
 // Helper functions to bind values to queries
 fn bind_query_value<'a>(
-    query: sqlx::query::QueryAs<'a, sqlx::Sqlite, ResourceWithTags, sqlx::sqlite::SqliteArguments<'a>>,
+    query: sqlx::query::QueryAs<
+        'a,
+        sqlx::Sqlite,
+        ResourceWithTags,
+        sqlx::sqlite::SqliteArguments<'a>,
+    >,
     value: &'a QueryValue,
 ) -> sqlx::query::QueryAs<'a, sqlx::Sqlite, ResourceWithTags, sqlx::sqlite::SqliteArguments<'a>> {
     match value {

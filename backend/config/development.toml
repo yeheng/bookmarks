@@ -3,7 +3,7 @@ host = "127.0.0.1"
 port = 3000
 
 [database]
-url = "sqlite:bookmarks_dev.db"
+url = "sqlite:resources_dev.db"
 max_connections = 5
 
 [auth]

@@ -13,7 +13,7 @@ pub struct Collection {
     pub is_default: bool,
     pub is_public: bool,
     pub parent_id: Option<i64>,
-    pub bookmark_count: i32,
+    pub resource_count: i32,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -40,10 +40,10 @@ pub struct UpdateCollection {
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize)]
-pub struct CollectionWithBookmarkCount {
+pub struct CollectionWithResourceCount {
     #[serde(flatten)]
     pub collection: Collection,
-    pub bookmark_count: i64,
+    pub resource_count: i64,
 }
 
 #[derive(Debug, Deserialize)]

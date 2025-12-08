@@ -8,14 +8,14 @@ use crate::services::IndexerService;
 /// 检查并重建 FTS 索引（如果需要）
 ///
 /// 检查逻辑：
-/// 1. 检查 bookmarks_fts 是否为空
-/// 2. 如果 FTS 为空但 bookmarks 有数据，则启动后台重建任务
+/// 1. 检查 resources_fts 是否为空
+/// 2. 如果 FTS 为空但 resources 有数据，则启动后台重建任务
 /// 3. 重建过程在后台异步执行，不阻塞主应用启动
 pub async fn check_and_rebuild_fts(pool: SqlitePool) -> anyhow::Result<()> {
     info!("检查 FTS 索引状态...");
 
     // 1. 检查 FTS 表行数
-    // let fts_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bookmarks_fts")
+    // let fts_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources_fts")
     //    .fetch_one(&pool)
     //    .await?;
 
@@ -60,7 +60,7 @@ async fn rebuild_fts_index(pool: SqlitePool) -> anyhow::Result<()> {
 
     let count = IndexerService::rebuild_index(None, &pool).await?;
 
-    info!("✅ FTS 索引重建完成！共处理 {} 条书签", count);
+    info!("✅ FTS 索引重建完成！共处理 {} 条资源", count);
     Ok(())
 }
 

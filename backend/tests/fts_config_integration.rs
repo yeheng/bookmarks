@@ -5,14 +5,14 @@
 //! - 默认模式：cargo test test_fts_config_integration
 //! - jieba 模式：cargo test test_fts_config_integration --features jieba
 
-use bookmarks_api::utils::segmenter::{prepare_for_search, prepare_tags_for_search};
+use resources_api::utils::segmenter::{prepare_for_search, prepare_tags_for_search};
 
 #[test]
 fn test_fts_config_integration() {
     println!("=== FTS5 分词器配置验证 ===\n");
 
-    // 模拟书签数据
-    let bookmarks = vec![
+    // 模拟资源数据
+    let resources = vec![
         (
             "Linux内核开发指南",
             "深入讲解Linux内核的开发技术和调试方法",
@@ -35,12 +35,13 @@ fn test_fts_config_integration() {
     println!("   - 优势：原生支持，无需外部依赖");
     println!("   - 适用：英文为主，中文简单的场景\n");
 
-    for (i, (title, desc, tags)) in bookmarks.iter().enumerate() {
+    for (i, resource) in resources.iter().enumerate() {
+        let (title, desc, tags) = resource;
         let title_processed = prepare_for_search(Some(title));
         let desc_processed = prepare_for_search(Some(desc));
-        let tags_processed = prepare_tags_for_search(&tags);
+        let tags_processed = prepare_tags_for_search(tags);
 
-        println!("   书签 {}: {}", i + 1, title);
+        println!("   资源 {}: {}", i + 1, title);
         println!("   标题索引: '{}'", title_processed);
         println!("   描述索引: '{}'", desc_processed);
         println!("   标签索引: '{}'", tags_processed);
@@ -170,10 +171,10 @@ fn test_fts_performance_considerations() {
     println!("=== FTS 性能考虑测试 ===\n");
 
     // 测试大量数据的处理性能
-    let large_bookmarks: Vec<(String, String, Vec<String>)> = (0..1000)
+    let large_resources: Vec<(String, String, Vec<String>)> = (0..1000)
         .map(|i| {
-            let title = format!("书签标题_{}", i);
-            let desc = format!("书签描述内容_{}", i);
+            let title = format!("资源标题_{}", i);
+            let desc = format!("资源描述内容_{}", i);
             let tags = vec![format!("标签_{}", i), "通用标签".to_string()];
             (title, desc, tags)
         })
@@ -181,17 +182,17 @@ fn test_fts_performance_considerations() {
 
     let start = std::time::Instant::now();
 
-    for (title, desc, tags) in &large_bookmarks {
+    for (title, desc, tags) in &large_resources {
         let _title_processed = prepare_for_search(Some(title));
         let _desc_processed = prepare_for_search(Some(desc));
         let _tags_processed = prepare_tags_for_search(tags);
     }
 
     let duration = start.elapsed();
-    let avg_time_per_item = duration.as_millis() as f64 / large_bookmarks.len() as f64;
+    let avg_time_per_item = duration.as_millis() as f64 / large_resources.len() as f64;
 
-    println!("处理 {} 个书签耗时: {:?}", large_bookmarks.len(), duration);
-    println!("平均每个书签处理时间: {:.3} ms", avg_time_per_item);
+    println!("处理 {} 个资源耗时: {:?}", large_resources.len(), duration);
+    println!("平均每个资源处理时间: {:.3} ms", avg_time_per_item);
 
     // 验证性能在合理范围内
     #[cfg(feature = "jieba")]

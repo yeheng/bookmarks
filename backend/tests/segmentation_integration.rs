@@ -5,7 +5,7 @@
 //! - 默认模式：cargo test test_segmentation_integration
 //! - jieba 模式：cargo test test_segmentation_integration --features jieba
 
-use bookmarks_api::utils::segmenter::{prepare_for_search, prepare_tags_for_search};
+use resources_api::utils::segmenter::{prepare_for_search, prepare_tags_for_search};
 
 #[test]
 fn test_segmentation_integration() {

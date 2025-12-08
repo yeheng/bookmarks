@@ -28,7 +28,7 @@ static JIEBA: Lazy<Jieba> = Lazy::new(|| Jieba::new());
 ///
 /// # 示例
 /// ```
-/// use bookmarks_api::utils::segmenter::prepare_for_search;
+/// use resources_api::utils::segmenter::prepare_for_search;
 ///
 /// // 默认模式：返回原始文本
 /// let result = prepare_for_search(Some("Linux内核开发"));

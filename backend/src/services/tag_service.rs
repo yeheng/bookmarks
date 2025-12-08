@@ -129,7 +129,7 @@ impl TagService {
         // 开启事务 - 确保标签更新和 FTS 索引更新的 ACID 一致性
         let mut tx = db_pool.begin().await?;
 
-        // 检查标签名是否被更新（如果是，需要重建相关书签的 FTS 索引）
+        // 检查标签名是否被更新（如果是，需要重建相关资源的 FTS 索引）
         let name_changed = update_data.name.is_some();
 
         // 使用 COALESCE 来只更新提供的字段
@@ -160,13 +160,13 @@ impl TagService {
             return Ok(None);
         };
 
-        // ⚠️ 核心修复：如果标签名被更新，必须重建所有关联书签的 FTS 索引
+        // ⚠️ 核心修复：如果标签名被更新，必须重建所有关联资源的 FTS 索引
         if name_changed {
-            // 查询所有使用该标签的书签 ID
-            let bookmark_ids = sqlx::query(
+            // 查询所有使用该标签的资源 ID
+            let resource_ids = sqlx::query(
                 r#"
-                SELECT bookmark_id
-                FROM bookmark_tags
+                SELECT resource_id
+                FROM resource_tags
                 WHERE tag_id = $1
                 "#,
             )
@@ -175,9 +175,9 @@ impl TagService {
             .await?;
 
             // 对每个受影响的资源，重建 FTS 索引
-            for row in bookmark_ids {
-                let bookmark_id: i64 = row.get("bookmark_id");
-                IndexerService::index_resource(&mut tx, bookmark_id, user_id).await?;
+            for row in resource_ids {
+                let resource_id: i64 = row.get("resource_id");
+                IndexerService::index_resource(&mut tx, resource_id, user_id).await?;
             }
         }
 

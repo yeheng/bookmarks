@@ -8,7 +8,7 @@
             <div class="h-6 w-6 rounded-md bg-primary flex items-center justify-center">
               <span class="text-xs font-medium text-primary-foreground">B</span>
             </div>
-            <span class="text-lg font-semibold tracking-tight">Bookmarks</span>
+            <span class="text-lg font-semibold tracking-tight">Resources</span>
           </RouterLink>
 
           <!-- Desktop navigation -->
@@ -40,7 +40,7 @@
               ref="searchInput"
               v-model="searchQuery"
               type="text"
-              placeholder="搜索书签... (⌘K)"
+              placeholder="搜索资源... (⌘K)"
               class="w-full h-9 pl-10 pr-4 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
               @input="handleSearchInput"
               @keydown="handleSearchKeydown"
@@ -56,7 +56,7 @@
                 搜索中...
               </div>
               <div v-else-if="(!searchResults || searchResults.length === 0) && searchQuery" class="p-4 text-center text-muted-foreground">
-                未找到相关书签
+                未找到相关资源
               </div>
               <div v-else>
                 <div
@@ -121,10 +121,10 @@
     </div>
   </nav>
 
-  <!-- Add Bookmark Modal -->
+  <!-- Add Resource Modal -->
   <div v-if="showAddBookmarkModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
     <div class="bg-background rounded-lg p-6 w-full max-w-md">
-      <h3 class="text-lg font-semibold mb-4">添加书签</h3>
+      <h3 class="text-lg font-semibold mb-4">添加资源</h3>
       <div class="space-y-4">
         <div>
           <label class="text-sm font-medium">标题</label>
@@ -132,7 +132,7 @@
             v-model="newBookmark.title"
             type="text"
             class="w-full mt-1 px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-            placeholder="输入书签标题"
+            placeholder="输入资源标题"
           />
         </div>
         <div>
@@ -150,7 +150,7 @@
             v-model="newBookmark.description"
             class="w-full mt-1 px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
             rows="3"
-            placeholder="输入书签描述"
+            placeholder="输入资源描述"
           />
         </div>
       </div>

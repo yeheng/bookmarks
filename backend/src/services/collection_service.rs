@@ -17,7 +17,7 @@ impl CollectionService {
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id, user_id, name, description, color, icon, sort_order,
                       is_default, is_public, parent_id,
-                      bookmark_count, created_at, updated_at
+                      resource_count, created_at, updated_at
             "#,
         )
         .bind(user_id)
@@ -50,7 +50,7 @@ impl CollectionService {
             SELECT
                 id, user_id, name, description, color, icon, sort_order,
                 is_default, is_public, parent_id,
-                bookmark_count, created_at, updated_at
+                resource_count, created_at, updated_at
             FROM collections
             WHERE user_id =
             "#,
@@ -99,7 +99,7 @@ impl CollectionService {
             SELECT id, user_id, name, description,
                    color, icon, sort_order,
                    is_default, is_public, parent_id,
-                   bookmark_count, created_at,
+                   resource_count, created_at,
                    updated_at
             FROM collections
             WHERE id = $1 AND user_id = $2
@@ -148,7 +148,7 @@ impl CollectionService {
             RETURNING id, user_id, name, description,
                       color, icon, sort_order,
                       is_default, is_public, parent_id,
-                      bookmark_count, created_at,
+                      resource_count, created_at,
                       updated_at
             "#,
         )
