@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
 
+#[cfg(test)]
+#[path = "resource_test.rs"]
+mod resource_test;
+
 /// 资源类型枚举
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

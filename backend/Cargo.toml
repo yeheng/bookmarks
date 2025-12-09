@@ -61,3 +61,13 @@ jieba = ["jieba-rs"]
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.0"
+# 测试框架增强
+serial_test = "3.0"      # 串行测试支持
+mockall = "0.12"         # Mock 支持
+fake = "2.9"             # 假数据生成
+# HTTP 测试
+axum-test = "15.0"       # Axum 集成测试
+tower = { version = "0.5", features = ["util"] }
+# 断言增强
+pretty_assertions = "1.4"
+# 覆盖率工具（通过 cargo-tarpaulin 或 cargo-llvm-cov 使用）
