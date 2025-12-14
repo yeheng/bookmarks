@@ -1,9 +1,7 @@
 //! 资源 API 集成测试
 //! 测试资源创建、查询、更新、删除以及引用功能
 
-use resources_api::models::{
-    CreateResource, ResourceQuery, UpdateResource,
-};
+use resources_api::models::{CreateResource, ResourceQuery};
 use resources_api::services::ResourceService;
 use sqlx::SqlitePool;
 

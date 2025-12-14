@@ -20,7 +20,7 @@ pub struct SearchQueryParams {
     #[serde(rename = "type")]
     pub search_type: Option<String>,
     pub collection_id: Option<i64>,
-    pub tags: Option<String>,
+    pub tags: Option<Vec<String>>,
     pub date_from: Option<i64>,
     pub date_to: Option<i64>,
     pub page: Option<i64>,
@@ -80,23 +80,10 @@ fn build_filters(query: &SearchQueryParams) -> Result<SearchFilters, AppError> {
         _ => SearchType::All,
     };
 
-    // 解析标签
-    let tags = query
-        .tags
-        .as_ref()
-        .map(|value| {
-            value
-                .split(',')
-                .map(|tag| tag.trim().to_string())
-                .filter(|tag| !tag.is_empty())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
     // 构建过滤条件
     let filters = FilterCriteria {
         collection_id: query.collection_id,
-        tags,
+        tags: query.tags.clone().unwrap_or_default(),
         date_from: query.date_from,
         date_to: query.date_to,
     };

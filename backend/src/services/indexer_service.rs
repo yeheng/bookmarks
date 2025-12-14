@@ -178,4 +178,15 @@ impl IndexerService {
 
         Ok(count)
     }
+    /// 使用连接池进行索引 (用于异步/后台任务)
+    pub async fn index_resource_with_pool(
+        pool: &SqlitePool,
+        resource_id: i64,
+        user_id: i64,
+    ) -> AppResult<()> {
+        let mut tx = pool.begin().await?;
+        Self::index_resource(&mut tx, resource_id, user_id).await?;
+        tx.commit().await?;
+        Ok(())
+    }
 }

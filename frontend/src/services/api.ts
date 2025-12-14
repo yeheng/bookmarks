@@ -267,8 +267,8 @@ class ApiService {
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
-          if (key === 'tags' && Array.isArray(value)) {
-            searchParams.append(key, value.join(','));
+          if (Array.isArray(value)) {
+            value.forEach(v => searchParams.append(key, v.toString()));
           } else {
             searchParams.append(key, value.toString());
           }
@@ -433,8 +433,8 @@ class ApiService {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
-        if (key === 'tags' && Array.isArray(value)) {
-          searchParams.append(key, value.join(','));
+        if (Array.isArray(value)) {
+          value.forEach(v => searchParams.append(key, v.toString()));
         } else {
           searchParams.append(key, value.toString());
         }

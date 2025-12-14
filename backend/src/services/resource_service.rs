@@ -5,7 +5,10 @@ use crate::models::{
     ResourceBatchResult, ResourceQuery, ResourceReferenceList, ResourceReferenceQuery,
     ResourceType, ResourceWithTags, UpdateResource,
 };
-use crate::services::IndexerService;
+use crate::services::{
+    query_helper::{self, QueryOptions},
+    IndexerService,
+};
 use crate::utils::error::{AppError, AppResult};
 use crate::utils::validation::validate_url;
 
@@ -152,11 +155,17 @@ impl ResourceService {
             }
         }
 
-        // 同步 FTS 索引 - 使用 IndexerService
-        IndexerService::index_resource(&mut tx, resource.id, user_id).await?;
-
-        // 提交事务 - ACID 保证: resources 和 resources_fts 同时成功或失败
+        // 提交事务 - ACID 保证
         tx.commit().await?;
+
+        // 异步 FTS 索引
+        let pool = db_pool.clone();
+        let r_id = resource.id;
+        tokio::spawn(async move {
+            if let Err(e) = IndexerService::index_resource_with_pool(&pool, r_id, user_id).await {
+                eprintln!("Background indexing failed for resource {}: {}", r_id, e);
+            }
+        });
 
         Ok(resource)
     }
@@ -167,167 +176,26 @@ impl ResourceService {
         query: ResourceQuery,
         db_pool: &SqlitePool,
     ) -> AppResult<Vec<ResourceWithTags>> {
-        let limit = query.limit.unwrap_or(50);
-        let offset = query.offset.unwrap_or(0);
-        let sort_by = query.sort_by.as_deref().unwrap_or("created_at");
-        let sort_order = query.sort_order.as_deref().unwrap_or("desc");
-
-        // 验证排序字段和顺序,防止 SQL 注入
-        let valid_sort_fields = [
-            "created_at",
-            "updated_at",
-            "title",
-            "visit_count",
-            "last_visited",
-        ];
-        let valid_sort_orders = ["asc", "desc"];
-
-        if !valid_sort_fields.contains(&sort_by) {
-            return Err(AppError::BadRequest(format!(
-                "Invalid sort field: '{}'. Valid fields are: {}",
-                sort_by,
-                valid_sort_fields.join(", ")
-            )));
-        }
-
-        if !valid_sort_orders.contains(&sort_order) {
-            return Err(AppError::BadRequest(format!(
-                "Invalid sort order: '{}'. Valid orders are: {}",
-                sort_order,
-                valid_sort_orders.join(", ")
-            )));
-        }
-
-        // 使用 QueryBuilder 构建动态查询 - 自动管理参数绑定
-        let mut query_builder = sqlx::QueryBuilder::new(
-            r#"
-            SELECT
-                r.id, r.user_id, r.collection_id, r.title, r.url, r.description,
-                r.favicon_url, r.screenshot_url, r.thumbnail_url,
-                r.is_favorite, r.is_archived, r.is_private, r.is_read,
-                r.visit_count, r.last_visited,
-                r.metadata, r.type, r.content, r.source, r.mime_type,
-                r.created_at, r.updated_at,
-                COALESCE(
-                    CASE
-                        WHEN COUNT(t.name) > 0
-                        THEN '[' || GROUP_CONCAT('"' || REPLACE(t.name, '"', '""') || '"', ',') || ']'
-                        ELSE '[]'
-                    END,
-                    '[]'
-                ) as tags,
-                c.name as collection_name,
-                c.color as collection_color
-            FROM resources r
-            LEFT JOIN collections c ON r.collection_id = c.id
-            LEFT JOIN resource_tags rt ON r.id = rt.resource_id
-            LEFT JOIN tags t ON rt.tag_id = t.id
-            WHERE r.user_id =
-            "#,
-        );
-
-        // 自动绑定 user_id
-        query_builder.push_bind(user_id);
-
-        // 动态添加过滤条件 - QueryBuilder 自动管理参数绑定
-        if let Some(collection_id) = query.collection_id {
-            query_builder.push(" AND r.collection_id = ");
-            query_builder.push_bind(collection_id);
-        }
-
-        if let Some(ref resource_type) = query.resource_type {
-            query_builder.push(" AND r.type = ");
-            query_builder.push_bind(resource_type);
-        }
-
-        if let Some(is_favorite) = query.is_favorite {
-            query_builder.push(" AND r.is_favorite = ");
-            query_builder.push_bind(is_favorite);
-        }
-
-        if let Some(is_archived) = query.is_archived {
-            query_builder.push(" AND r.is_archived = ");
-            query_builder.push_bind(is_archived);
-        }
-
-        if let Some(is_private) = query.is_private {
-            query_builder.push(" AND r.is_private = ");
-            query_builder.push_bind(is_private);
-        }
-
-        if let Some(is_read) = query.is_read {
-            query_builder.push(" AND r.is_read = ");
-            query_builder.push_bind(is_read);
-        }
-
-        // 搜索条件 - 支持 title, description, content 字段
-        if let Some(ref search_term) = query.search {
-            query_builder.push(" AND (r.title LIKE '%' || ");
-            query_builder.push_bind(search_term);
-            query_builder.push(" || '%' OR COALESCE(r.description, '') LIKE '%' || ");
-            query_builder.push_bind(search_term);
-            query_builder.push(" || '%' OR COALESCE(r.content, '') LIKE '%' || ");
-            query_builder.push_bind(search_term);
-            query_builder.push(" || '%')");
-        }
-
-        // Tags 过滤 - 使用 QueryBuilder 处理 IN 子句
-        if let Some(ref tags) = query.tags {
-            if !tags.is_empty() {
-                query_builder.push(
-                    " AND r.id IN (
-                        SELECT resource_id
-                        FROM resource_tags
-                        JOIN tags ON resource_tags.tag_id = tags.id
-                        WHERE tags.name IN (",
-                );
-
-                // 使用 separated 方法处理 IN 子句中的多个值
-                let mut separated = query_builder.separated(", ");
-                for tag in tags {
-                    separated.push_bind(tag);
-                }
-
-                query_builder.push(") GROUP BY resource_id HAVING COUNT(DISTINCT tags.id) = ");
-                query_builder.push_bind(tags.len() as i64);
-                query_builder.push(")");
-            }
-        }
-
-        // 添加 GROUP BY
-        query_builder.push(" GROUP BY r.id, c.name, c.color");
-
-        // 添加排序 - 已验证的字段名可以安全拼接
-        let sort_field = match sort_by {
-            "title" => "r.title",
-            "created_at" => "r.created_at",
-            "updated_at" => "r.updated_at",
-            "visit_count" => "r.visit_count",
-            "last_visited" => "r.last_visited",
-            _ => "r.created_at", // 安全回退
+        let options = QueryOptions {
+            user_id,
+            collection_id: query.collection_id,
+            resource_type: query.resource_type.as_deref(),
+            tags: query.tags.as_deref().unwrap_or(&[]),
+            is_favorite: query.is_favorite,
+            is_archived: query.is_archived,
+            is_private: query.is_private,
+            is_read: query.is_read,
+            search_term: query.search.as_deref(),
+            search_type: None,
+            date_from: None,
+            date_to: None,
+            limit: query.limit.unwrap_or(50),
+            offset: query.offset.unwrap_or(0),
+            sort_by: query.sort_by.as_deref().unwrap_or("created_at"),
+            sort_order: query.sort_order.as_deref().unwrap_or("desc"),
         };
 
-        let sort_direction = match sort_order {
-            "ASC" | "asc" => "ASC",
-            "DESC" | "desc" => "DESC",
-            _ => "DESC", // 安全回退
-        };
-
-        query_builder.push(format!(" ORDER BY {} {}", sort_field, sort_direction));
-
-        // 添加分页
-        query_builder.push(" LIMIT ");
-        query_builder.push_bind(limit);
-        query_builder.push(" OFFSET ");
-        query_builder.push_bind(offset);
-
-        // 执行查询
-        let resources = query_builder
-            .build_query_as::<ResourceWithTags>()
-            .fetch_all(db_pool)
-            .await?;
-
-        Ok(resources)
+        query_helper::fetch_resources(db_pool, &options).await
     }
 
     /// 根据 ID 获取单个资源
@@ -407,94 +275,52 @@ impl ResourceService {
                 .ok_or_else(|| AppError::BadRequest(format!("Invalid URL format: {}", url)))?;
         }
 
-        // 开始事务 - 同时更新 resources 和 resources_fts
+        // 开始事务
         let mut tx = db_pool.begin().await?;
 
-        // 检查是否有资源字段需要更新(不包括标签)
-        let has_resource_updates = update_data.title.is_some()
-            || update_data.url.is_some()
-            || update_data.description.is_some()
-            || update_data.collection_id.is_some()
-            || update_data.clear_collection_id.is_some()
-            || update_data.is_favorite.is_some()
-            || update_data.is_archived.is_some()
-            || update_data.is_private.is_some()
-            || update_data.is_read.is_some()
-            || update_data.resource_type.is_some()
-            || update_data.content.is_some()
-            || update_data.source.is_some()
-            || update_data.mime_type.is_some();
-
-        // 检查是否有任何字段需要更新(包括标签)
-        let has_any_updates = has_resource_updates || update_data.tags.is_some();
-
-        if !has_any_updates {
-            return Err(AppError::BadRequest(
-                "No update fields provided".to_string(),
-            ));
-        }
-
         // 获取或更新资源
-        let resource = if has_resource_updates {
-            // 使用 COALESCE 来只更新提供的字段
-            sqlx::query_as::<_, Resource>(
-                r#"
-                UPDATE resources SET
-                    title = COALESCE($1, title),
-                    url = COALESCE($2, url),
-                    description = COALESCE($3, description),
-                    collection_id = CASE WHEN $4 THEN NULL ELSE COALESCE($5, collection_id) END,
-                    is_favorite = COALESCE($6, is_favorite),
-                    is_archived = COALESCE($7, is_archived),
-                    is_private = COALESCE($8, is_private),
-                    is_read = COALESCE($9, is_read),
-                    type = COALESCE($10, type),
-                    content = COALESCE($13, content),
-                    source = COALESCE($14, source),
-                    mime_type = COALESCE($15, mime_type),
-                    updated_at = CAST(strftime('%s', 'now') AS INTEGER)
-                WHERE id = $16 AND user_id = $17
-                RETURNING id, user_id, collection_id, title, url, description, favicon_url,
-                          screenshot_url, thumbnail_url, is_favorite,
-                           is_archived, is_private, is_read, visit_count, last_visited,
-                           metadata, type, content, source, mime_type,
-                           created_at, updated_at
-                "#,
-            )
-            .bind(update_data.title.as_ref())
-            .bind(update_data.url.as_ref())
-            .bind(update_data.description.as_ref())
-            .bind(update_data.clear_collection_id.unwrap_or(false))
-            .bind(update_data.collection_id)
-            .bind(update_data.is_favorite)
-            .bind(update_data.is_archived)
-            .bind(update_data.is_private)
-            .bind(update_data.is_read)
-            .bind(update_data.resource_type.as_ref())
-            .bind(update_data.content.as_ref())
-            .bind(update_data.source.as_ref())
-            .bind(update_data.mime_type.as_ref())
-            .bind(resource_id)
-            .bind(user_id)
-            .fetch_optional(&mut *tx)
-            .await?
-        } else {
-            // 如果只更新标签,先获取现有资源
-            sqlx::query_as::<_, Resource>(
-                r#"
-                 SELECT id, user_id, collection_id, title, url, description, favicon_url,
-                        screenshot_url, thumbnail_url, is_favorite, is_archived, is_private,
-                        is_read, visit_count, last_visited,
-                        metadata, type, content, source, mime_type, created_at, updated_at
-                FROM resources
-                WHERE id = $1 AND user_id = $2
-                "#,
-            )
-            .bind(resource_id)
-            .bind(user_id)
-            .fetch_optional(&mut *tx)
-            .await?
-        };
+        // 直接执行 UPDATE,如果字段为 None, COALESCE 会保持原值
+        let resource = sqlx::query_as::<_, Resource>(
+            r#"
+            UPDATE resources SET
+                title = COALESCE($1, title),
+                url = COALESCE($2, url),
+                description = COALESCE($3, description),
+                collection_id = CASE WHEN $4 THEN NULL ELSE COALESCE($5, collection_id) END,
+                is_favorite = COALESCE($6, is_favorite),
+                is_archived = COALESCE($7, is_archived),
+                is_private = COALESCE($8, is_private),
+                is_read = COALESCE($9, is_read),
+                type = COALESCE($10, type),
+                content = COALESCE($11, content),
+                source = COALESCE($12, source),
+                mime_type = COALESCE($13, mime_type),
+                updated_at = CAST(strftime('%s', 'now') AS INTEGER)
+            WHERE id = $14 AND user_id = $15
+            RETURNING id, user_id, collection_id, title, url, description, favicon_url,
+                      screenshot_url, thumbnail_url, is_favorite,
+                       is_archived, is_private, is_read, visit_count, last_visited,
+                       metadata, type, content, source, mime_type,
+                       created_at, updated_at
+            "#,
+        )
+        .bind(update_data.title.as_ref())
+        .bind(update_data.url.as_ref())
+        .bind(update_data.description.as_ref())
+        .bind(update_data.clear_collection_id.unwrap_or(false))
+        .bind(update_data.collection_id)
+        .bind(update_data.is_favorite)
+        .bind(update_data.is_archived)
+        .bind(update_data.is_private)
+        .bind(update_data.is_read)
+        .bind(update_data.resource_type.as_ref())
+        .bind(update_data.content.as_ref())
+        .bind(update_data.source.as_ref())
+        .bind(update_data.mime_type.as_ref())
+        .bind(resource_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
 
         // 如果资源不存在,提前返回
         let Some(ref updated_resource) = resource else {
@@ -535,11 +361,17 @@ impl ResourceService {
             }
         }
 
-        // 同步 FTS 索引 - 使用 IndexerService
-        IndexerService::index_resource(&mut tx, updated_resource.id, user_id).await?;
-
-        // 提交事务 - ACID 保证
+        // 提交事务
         tx.commit().await?;
+
+        // 异步 FTS 索引
+        let pool = db_pool.clone();
+        let r_id = updated_resource.id;
+        tokio::spawn(async move {
+            if let Err(e) = IndexerService::index_resource_with_pool(&pool, r_id, user_id).await {
+                eprintln!("Background indexing failed for resource {}: {}", r_id, e);
+            }
+        });
 
         // 构建包含 tags 和 collection 信息的完整响应
         let resource_with_tags = if let Some(resource) = resource {

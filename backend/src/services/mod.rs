@@ -2,6 +2,7 @@ pub mod auth_service;
 pub mod collection_service;
 pub mod indexer_service;
 pub mod maintenance_service;
+pub mod query_helper;
 pub mod resource_service;
 pub mod search_service;
 pub mod stats_service;
