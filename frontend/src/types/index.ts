@@ -322,3 +322,89 @@ export interface ResourceReferenceList {
   offset: number;
   has_more: boolean;
 }
+
+// ==================== 命令模式相关类型 ====================
+
+/**
+ * 所有支持的命令动作类型
+ */
+export enum Action {
+  // 资源管理命令
+  GetResources = 'get_resources',
+  GetResource = 'get_resource',
+  CreateResource = 'create_resource',
+  UpdateResource = 'update_resource',
+  DeleteResource = 'delete_resource',
+  BatchUpdateResources = 'batch_update_resources',
+
+  // 资源引用管理命令
+  CreateResourceReference = 'create_resource_reference',
+  DeleteResourceReference = 'delete_resource_reference',
+  GetResourceReferences = 'get_resource_references',
+
+  // 收藏夹管理命令
+  GetCollections = 'get_collections',
+  GetCollection = 'get_collection',
+  CreateCollection = 'create_collection',
+  UpdateCollection = 'update_collection',
+  DeleteCollection = 'delete_collection',
+
+  // 标签管理命令
+  GetTags = 'get_tags',
+  GetTag = 'get_tag',
+  CreateTag = 'create_tag',
+  UpdateTag = 'update_tag',
+  DeleteTag = 'delete_tag',
+
+  // 搜索命令
+  SearchResources = 'search_resources',
+
+  // 统计命令
+  GetUserStats = 'get_user_stats',
+
+  // 认证命令
+  Login = 'login',
+  Register = 'register',
+  Logout = 'logout',
+  GetCurrentUser = 'get_current_user',
+}
+
+/**
+ * 命令请求基础结构
+ */
+export interface CommandRequest {
+  /** 要执行的命令动作 */
+  action: Action;
+  /** 命令参数，动态结构支持不同命令的参数需求 */
+  params: Record<string, any>;
+  /** 请求ID，用于追踪和日志 */
+  request_id?: string;
+}
+
+/**
+ * 命令响应基础结构
+ */
+export interface CommandResponse {
+  /** 是否成功执行 */
+  success: boolean;
+  /** 响应数据 */
+  data?: any;
+  /** 错误信息（如果有） */
+  error?: CommandError;
+  /** 对应的请求ID */
+  request_id?: string;
+  /** 响应时间戳 */
+  timestamp: number;
+}
+
+/**
+ * 命令错误信息
+ */
+export interface CommandError {
+  /** 错误代码 */
+  code: string;
+  /** 错误消息 */
+  message: string;
+  /** 错误详情 */
+  details?: any;
+}

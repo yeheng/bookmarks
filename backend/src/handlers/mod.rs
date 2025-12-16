@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod collections;
+pub mod command;
 pub mod resources;
 pub mod search;
 pub mod stats;

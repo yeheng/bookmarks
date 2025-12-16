@@ -1,7 +1,7 @@
-import { apiService } from '@/services/api'
+import { commandApiService } from '@/services/command-api'
 import type {
-  Resource,
   CreateResourceRequest,
+  Resource,
   SearchQuery,
   UpdateResourceRequest
 } from '@/types'
@@ -47,7 +47,7 @@ export const useResourcesStore = defineStore('resources', () => {
         offset: reset ? 0 : resources.value.length
       }
 
-      const response = await apiService.getResources(requestParams)
+      const response = await commandApiService.getResources(requestParams)
 
       // API返回格式: {items: [...], pagination: {...}} 或直接是数组
       let items: any = []
@@ -87,7 +87,7 @@ export const useResourcesStore = defineStore('resources', () => {
     error.value = null
 
     try {
-      const resource = await apiService.getResource(id)
+      const resource = await commandApiService.getResource(id)
       currentResource.value = resource
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch resource'
@@ -107,7 +107,7 @@ export const useResourcesStore = defineStore('resources', () => {
     error.value = null
 
     try {
-      const newResource: Resource = await apiService.createResource(data)
+      const newResource: Resource = await commandApiService.createResource(data)
       resources.value.unshift(newResource)
       return newResource
     } catch (err: any) {
@@ -129,7 +129,7 @@ export const useResourcesStore = defineStore('resources', () => {
     error.value = null
 
     try {
-      const updatedResource: Resource = await apiService.updateResource(id, data)
+      const updatedResource: Resource = await commandApiService.updateResource(id, data)
       const index = resources.value.findIndex(r => r.id === id)
       if (index !== -1) {
         resources.value[index] = updatedResource
@@ -155,7 +155,7 @@ export const useResourcesStore = defineStore('resources', () => {
     error.value = null
 
     try {
-      await apiService.deleteResource(id)
+      await commandApiService.deleteResource(id)
       resources.value = resources.value.filter(r => r.id !== id)
       if (currentResource.value?.id === id) {
         currentResource.value = null
@@ -192,7 +192,7 @@ export const useResourcesStore = defineStore('resources', () => {
         offset: reset ? 0 : resources.value.length
       }
 
-      const response = await apiService.search(requestParams)
+      const response = await commandApiService.searchResources(requestParams)
 
       // API返回格式: {items: [...], pagination: {...}}
       const items = response.items || []
@@ -232,7 +232,7 @@ export const useResourcesStore = defineStore('resources', () => {
     error.value = null
 
     try {
-      await apiService.createResourceReference(resourceId, targetId, type)
+      await commandApiService.createResourceReference(resourceId, targetId, type)
     } catch (err: any) {
       error.value = err.message || 'Failed to create resource reference'
       throw err

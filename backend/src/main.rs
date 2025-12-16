@@ -16,7 +16,7 @@ mod utils;
 use config::AppConfig;
 use middleware::{auth_middleware, logging_middleware};
 use routes::{
-    ano_routes, auth_routes, collection_routes, resource_routes, search_routes, stats_routes,
+    ano_routes, auth_routes, collection_routes, command_routes, resource_routes, search_routes, stats_routes,
     tag_routes,
 };
 use state::AppState;
@@ -60,6 +60,7 @@ async fn main() -> anyhow::Result<()> {
         .nest("/api/search", search_routes())
         .nest("/api/stats", stats_routes())
         .nest("/api/auth", auth_routes())
+        .nest("/api/command", command_routes())
         .layer(mw::from_fn_with_state(app_state.clone(), auth_middleware));
 
     // Build application router
