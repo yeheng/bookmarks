@@ -131,27 +131,43 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
 <style scoped>
 .search-combobox {
   width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .search-input {
   width: 100%;
-  padding: 12px 16px;
-  font-size: 18px;
+  height: var(--input-height, 60px);
+  padding: 0 24px;
+  font-size: calc(var(--font-size) * 1.5);
   border: none;
   outline: none;
   background: transparent;
-  color: #e0e0e0;
-  border-bottom: 1px solid #3a3a3a;
+  color: var(--text-color);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .search-input::placeholder {
-  color: #9a9a9a;
+  color: var(--secondary-text);
 }
 
 .results-container {
-  max-height: 400px;
+  flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 8px 12px;
+}
+
+/* Custom scrollbar */
+.results-container::-webkit-scrollbar {
+  width: 8px;
+}
+.results-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.results-container::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
 }
 
 .result-option {
@@ -165,14 +181,15 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
   justify-content: center;
   padding: 48px 24px;
   text-align: center;
-  color: #9a9a9a;
+  color: var(--secondary-text);
+  height: 100%;
 }
 
 .loading-spinner {
   width: 24px;
   height: 24px;
   border: 2px solid rgba(255, 107, 107, 0.2);
-  border-top-color: #ff6b6b;
+  border-top-color: var(--accent-color);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin-bottom: 12px;
@@ -193,13 +210,13 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
 .empty-text {
   font-size: 16px;
   font-weight: 500;
-  color: #e0e0e0;
+  color: var(--text-color);
   margin-bottom: 8px;
 }
 
 .empty-hint {
   font-size: 14px;
-  color: #9a9a9a;
+  color: var(--secondary-text);
 }
 
 .section-label {
@@ -207,7 +224,7 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #9a9a9a;
+  color: var(--secondary-text);
   margin-bottom: 12px;
 }
 
@@ -215,32 +232,7 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
   padding: 12px 16px;
   text-align: center;
   font-size: 12px;
-  color: #9a9a9a;
-  border-top: 1px solid #3a3a3a;
-}
-
-@media (prefers-color-scheme: light) {
-  .search-input {
-    color: #1a1a1a;
-    border-bottom-color: #e0e0e0;
-  }
-
-  .search-input::placeholder {
-    color: #6a6a6a;
-  }
-
-  .empty-text {
-    color: #1a1a1a;
-  }
-
-  .empty-hint,
-  .section-label,
-  .more-results {
-    color: #6a6a6a;
-  }
-
-  .more-results {
-    border-top-color: #e0e0e0;
-  }
+  color: var(--secondary-text);
+  border-top: 1px solid var(--border-color);
 }
 </style>

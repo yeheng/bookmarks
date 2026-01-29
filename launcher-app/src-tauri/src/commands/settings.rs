@@ -111,6 +111,26 @@ pub fn get_app_settings(state: State<AppState>) -> Result<AppSettings, String> {
             .get("theme.font_size")
             .and_then(|s| s.parse().ok())
             .unwrap_or(14),
+        window_width: settings
+            .get("theme.window_width")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(750),
+        window_height: settings
+            .get("theme.window_height")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(480),
+        input_height: settings
+            .get("theme.input_height")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(60),
+        item_height: settings
+            .get("theme.item_height")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(44),
+        border_radius: settings
+            .get("theme.border_radius")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(12),
     };
 
     let search = SearchSettings {
@@ -174,6 +194,11 @@ pub fn save_app_settings(state: State<AppState>, settings: AppSettings) -> Resul
         ),
         ("theme.accent_color", settings.theme.accent_color),
         ("theme.font_size", settings.theme.font_size.to_string()),
+        ("theme.window_width", settings.theme.window_width.to_string()),
+        ("theme.window_height", settings.theme.window_height.to_string()),
+        ("theme.input_height", settings.theme.input_height.to_string()),
+        ("theme.item_height", settings.theme.item_height.to_string()),
+        ("theme.border_radius", settings.theme.border_radius.to_string()),
         ("search.max_results", settings.search.max_results.to_string()),
         (
             "search.show_bookmarks",
@@ -255,6 +280,11 @@ pub fn save_theme_settings(state: State<AppState>, theme: ThemeSettings) -> Resu
         ("theme.mode", mode_str.to_string()),
         ("theme.accent_color", theme.accent_color),
         ("theme.font_size", theme.font_size.to_string()),
+        ("theme.window_width", theme.window_width.to_string()),
+        ("theme.window_height", theme.window_height.to_string()),
+        ("theme.input_height", theme.input_height.to_string()),
+        ("theme.item_height", theme.item_height.to_string()),
+        ("theme.border_radius", theme.border_radius.to_string()),
     ];
 
     for (key, value) in settings {

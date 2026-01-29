@@ -40,6 +40,11 @@ pub struct ThemeSettings {
     pub mode: ThemeMode,
     pub accent_color: String,
     pub font_size: u8,
+    pub window_width: u32,
+    pub window_height: u32,
+    pub input_height: u32,
+    pub item_height: u32,
+    pub border_radius: u32,
 }
 
 impl Default for ThemeSettings {
@@ -48,6 +53,11 @@ impl Default for ThemeSettings {
             mode: ThemeMode::System,
             accent_color: "#ff6b6b".to_string(),
             font_size: 14,
+            window_width: 750,
+            window_height: 480,
+            input_height: 60,
+            item_height: 44,
+            border_radius: 12,
         }
     }
 }

@@ -1,22 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-
-interface AppSettings {
-  hotkey: { global_shortcut: string };
-  theme: { mode: string; accent_color: string; font_size: number };
-  search: {
-    max_results: number;
-    show_bookmarks: boolean;
-    show_files: boolean;
-    fuzzy_matching: boolean;
-  };
-  general: {
-    launch_at_startup: boolean;
-    hide_dock_icon: boolean;
-    check_updates: boolean;
-  };
-}
+import type { AppSettings } from "../types/settings";
 
 interface DataStats {
   bookmarks_count: number;
@@ -107,7 +92,7 @@ onMounted(loadSettings);
 
       <!-- Theme -->
       <section class="settings-section">
-        <h3 class="section-title">Theme</h3>
+        <h3 class="section-title">Theme & Layout</h3>
         <label class="field">
           <span class="field-label">Mode</span>
           <select v-model="settings.theme.mode" class="field-input">
@@ -124,16 +109,77 @@ onMounted(loadSettings);
             class="field-color"
           />
         </label>
-        <label class="field">
-          <span class="field-label">Font Size</span>
-          <input
-            v-model.number="settings.theme.font_size"
-            type="number"
-            min="10"
-            max="24"
-            class="field-input field-input--small"
-          />
-        </label>
+        
+        <div class="field-group">
+            <label class="field">
+            <span class="field-label">Font Size</span>
+            <input
+                v-model.number="settings.theme.font_size"
+                type="number"
+                min="10"
+                max="24"
+                class="field-input field-input--small"
+            />
+            </label>
+            <label class="field">
+            <span class="field-label">Border Radius</span>
+            <input
+                v-model.number="settings.theme.border_radius"
+                type="number"
+                min="0"
+                max="24"
+                class="field-input field-input--small"
+            />
+            </label>
+        </div>
+
+        <div class="field-group">
+            <label class="field">
+            <span class="field-label">Window Width</span>
+            <input
+                v-model.number="settings.theme.window_width"
+                type="number"
+                min="400"
+                max="1200"
+                step="10"
+                class="field-input field-input--small"
+            />
+            </label>
+            <label class="field">
+            <span class="field-label">Window Height</span>
+            <input
+                v-model.number="settings.theme.window_height"
+                type="number"
+                min="200"
+                max="900"
+                step="10"
+                class="field-input field-input--small"
+            />
+            </label>
+        </div>
+
+        <div class="field-group">
+            <label class="field">
+            <span class="field-label">Input Height</span>
+            <input
+                v-model.number="settings.theme.input_height"
+                type="number"
+                min="30"
+                max="80"
+                class="field-input field-input--small"
+            />
+            </label>
+            <label class="field">
+            <span class="field-label">Item Height</span>
+            <input
+                v-model.number="settings.theme.item_height"
+                type="number"
+                min="20"
+                max="60"
+                class="field-input field-input--small"
+            />
+            </label>
+        </div>
       </section>
 
       <!-- Search -->
@@ -276,6 +322,15 @@ onMounted(loadSettings);
   letter-spacing: 0.5px;
   color: #9a9a9a;
   margin-bottom: 12px;
+}
+
+.field-group {
+  display: flex;
+  gap: 16px;
+}
+
+.field-group .field {
+  flex: 1;
 }
 
 .field {

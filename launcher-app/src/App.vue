@@ -1,18 +1,64 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import SearchCombobox from "./components/SearchCombobox.vue";
+import SettingsPanel from "./components/SettingsPanel.vue";
 import type {
   SearchResult,
   BookmarkSearchResult,
   FileSearchResult,
   OpenResult,
 } from "./types/search";
+import type { AppSettings } from "./types/settings";
 
 const appWindow = getCurrentWebviewWindow();
 const searchResults = ref<SearchResult[]>([]);
 const isLoading = ref(false);
+const showSettings = ref(false);
+const settings = ref<AppSettings | null>(null);
+
+const themeStyle = computed(() => {
+  if (!settings.value) return {};
+  const { theme } = settings.value;
+  return {
+    "--accent-color": theme.accent_color,
+    "--font-size": `${theme.font_size}px`,
+    "--window-width": `${theme.window_width}px`,
+    "--window-height": `${theme.window_height}px`,
+    "--input-height": `${theme.input_height}px`,
+    "--item-height": `${theme.item_height}px`,
+    "--border-radius": `${theme.border_radius}px`,
+    "--bg-color": theme.mode === "light" ? "rgba(255, 255, 255, 0.95)" : "rgba(26, 26, 26, 0.95)",
+    "--text-color": theme.mode === "light" ? "#1a1a1a" : "#e0e0e0",
+    "--secondary-text": theme.mode === "light" ? "#6a6a6a" : "#9a9a9a",
+    "--border-color": theme.mode === "light" ? "#e0e0e0" : "#3a3a3a",
+  };
+});
+
+// Watch window size changes
+watch(
+  () => [settings.value?.theme.window_width, settings.value?.theme.window_height],
+  async ([w, h]) => {
+    if (w && h) {
+      await appWindow.setSize(new LogicalSize(w as number, h as number));
+    }
+  }
+);
+
+async function loadSettings() {
+  try {
+    settings.value = await invoke<AppSettings>("get_app_settings");
+    // Initial resize
+    if (settings.value) {
+      const { window_width, window_height } = settings.value.theme;
+      await appWindow.setSize(new LogicalSize(window_width, window_height));
+    }
+  } catch (err) {
+    console.error("Failed to load settings:", err);
+  }
+}
 
 function mapBookmarkToSearchResult(b: BookmarkSearchResult): SearchResult {
   return {
@@ -44,6 +90,19 @@ const handleSearch = async (query: string) => {
   isLoading.value = true;
 
   try {
+    // Check if query triggers settings
+    if (query.toLowerCase() === "settings" || query.toLowerCase() === "config") {
+       searchResults.value = [{
+           id: "internal-settings",
+           type: "file", // fallback type
+           title: "Open Settings",
+           subtitle: "Configure theme, search, and general options",
+           icon: "⚙️"
+       }];
+       isLoading.value = false;
+       return;
+    }
+
     const [bookmarks, files] = await Promise.all([
       invoke<BookmarkSearchResult[]>("search_bookmarks", { query, limit: 5 }),
       invoke<FileSearchResult[]>("search_files", { query, limit: 5 }),
@@ -52,7 +111,6 @@ const handleSearch = async (query: string) => {
     const bookmarkResults = bookmarks.map(mapBookmarkToSearchResult);
     const fileResults = files.map(mapFileToSearchResult);
 
-    // Interleave results: bookmarks first, then files
     searchResults.value = [...bookmarkResults, ...fileResults];
   } catch (err) {
     console.error("Search failed:", err);
@@ -63,6 +121,11 @@ const handleSearch = async (query: string) => {
 };
 
 const handleSelect = async (result: SearchResult) => {
+  if (result.id === "internal-settings") {
+      showSettings.value = true;
+      return;
+  }
+
   try {
     const resourceId = parseInt(result.id.split("-")[1], 10);
     const res = await invoke<OpenResult>("open_resource", {
@@ -81,47 +144,77 @@ const handleSelect = async (result: SearchResult) => {
   appWindow.hide();
 };
 
-const handleEscape = (e: KeyboardEvent) => {
+const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === "Escape") {
-    searchResults.value = [];
-    appWindow.hide();
+    if (showSettings.value) {
+      showSettings.value = false;
+      // Reload settings in case they changed
+      loadSettings(); 
+    } else {
+      searchResults.value = [];
+      appWindow.hide();
+    }
+  }
+  if (e.metaKey && e.key === ",") {
+      showSettings.value = !showSettings.value;
+      if (!showSettings.value) loadSettings();
   }
 };
 
 onMounted(() => {
-  window.addEventListener("keydown", handleEscape);
+  loadSettings();
+  window.addEventListener("keydown", handleKeydown);
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", handleEscape);
+  window.removeEventListener("keydown", handleKeydown);
 });
+
+function handleSettingsClose() {
+    showSettings.value = false;
+    loadSettings();
+}
 </script>
 
 <template>
-  <div class="launcher-container">
-    <SearchCombobox
-      :results="searchResults"
-      :loading="isLoading"
-      @search="handleSearch"
-      @select="handleSelect"
-    />
+  <div class="app-root" :style="themeStyle">
+    <div class="launcher-container" v-show="!showSettings">
+      <SearchCombobox
+        :results="searchResults"
+        :loading="isLoading"
+        @search="handleSearch"
+        @select="handleSelect"
+      />
+    </div>
+    <div class="settings-container" v-if="showSettings">
+        <SettingsPanel @close="handleSettingsClose" />
+    </div>
   </div>
 </template>
 
 <style scoped>
-.launcher-container {
-  width: 100%;
+.app-root {
+  width: 100vw;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  background: rgba(26, 26, 26, 0.95);
-  backdrop-filter: blur(20px);
+  overflow: hidden;
+  background: var(--bg-color, rgba(26, 26, 26, 0.95));
+  color: var(--text-color, #e0e0e0);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: var(--font-size, 14px);
+  /* Use transparent background for rounded corners effect if supported */
 }
 
-@media (prefers-color-scheme: light) {
-  .launcher-container {
-    background: rgba(255, 255, 255, 0.95);
-  }
+.launcher-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.settings-container {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-color);
 }
 </style>
