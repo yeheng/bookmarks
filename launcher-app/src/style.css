@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  width: 100%;
+  height: 100vh;
+}
+
+@layer utilities {
+  .window-fade-enter-active,
+  .window-fade-leave-active {
+    transition: opacity 150ms ease-out;
+  }
+
+  .window-fade-enter-from,
+  .window-fade-leave-to {
+    opacity: 0;
+  }
+
+  .highlight-move {
+    transition: all 100ms ease-in-out;
+  }
+}
