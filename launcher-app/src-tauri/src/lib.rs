@@ -50,6 +50,23 @@ pub fn run() {
             commands::opener::open_resource,
             commands::opener::check_bookmark_url,
             commands::opener::check_file_exists,
+            // Phase 7: Settings Commands
+            commands::settings::get_setting,
+            commands::settings::set_setting,
+            commands::settings::delete_setting,
+            commands::settings::get_all_settings,
+            commands::settings::get_app_settings,
+            commands::settings::save_app_settings,
+            commands::settings::get_hotkey_settings,
+            commands::settings::save_hotkey_settings,
+            commands::settings::get_theme_settings,
+            commands::settings::save_theme_settings,
+            commands::settings::get_search_settings,
+            commands::settings::save_search_settings,
+            commands::settings::export_data,
+            commands::settings::import_data,
+            commands::settings::reset_settings,
+            commands::settings::get_data_stats,
         ])
         .setup(|app| {
             let app_dir = app.path().app_data_dir()
