@@ -15,7 +15,9 @@ This proposal defines a new desktop productivity launcher application similar to
 ## Capabilities
 
 ### 1. global-launcher
+
 Core application framework including:
+
 - Global hotkey registration (Cmd/Ctrl+Space)
 - Window visibility management with auto-hide
 - Frameless, transparent window design
@@ -24,7 +26,9 @@ Core application framework including:
 **Requirements**: 4
 
 ### 2. bookmark-search
+
 Bookmark management and search:
+
 - Browser import (Chrome, Firefox, Safari)
 - Manual bookmark CRUD operations
 - Real-time search with frecency ranking
@@ -34,7 +38,9 @@ Bookmark management and search:
 **Requirements**: 6
 
 ### 3. file-search
+
 File indexing and search:
+
 - User-configurable search directories
 - Background file system indexing
 - Incremental updates via file watchers
@@ -44,7 +50,9 @@ File indexing and search:
 **Requirements**: 6
 
 ### 4. ui-framework
+
 Minimalist search interface:
+
 - HeadlessUI/Vue components (Combobox)
 - Real-time search feedback (<100ms)
 - Keyboard navigation and accessibility
@@ -56,19 +64,23 @@ Minimalist search interface:
 ## Technical Highlights
 
 ### Technology Stack
+
 - **Frontend**: Vue.js 3 + TypeScript + HeadlessUI + Tailwind CSS
 - **Backend**: Rust (Tauri 2.x)
 - **Database**: SQLite with FTS5 full-text search
 - **Cross-platform**: macOS 10.15+, Windows 10+, Linux (X11/Wayland)
 
 ### Performance Targets
+
 - Search response time: <100ms
 - Idle memory usage: <100MB
 - Window transitions: 150ms fade
 - File index limit: 100,000 files per directory
 
 ### Search Algorithm
+
 Hybrid approach:
+
 ```
 final_score = (fts5_score * 0.7) + (frecency_score * 0.3)
 frecency_score = (frequency * 0.6) + (recency * 0.4)
@@ -91,48 +103,57 @@ openspec/changes/add-launcher-application/
 ## Implementation Phases
 
 ### Phase 1: Project Setup (Tasks 1.1-1.5)
+
 - Initialize Tauri + Vue.js 3 project
 - Configure TypeScript, HeadlessUI, Tailwind CSS
 - Set up project structure
 
 ### Phase 2: Core Launcher (Tasks 2.1-2.5)
+
 - Global hotkey registration
 - Window management and visibility
 - Frameless window with transparency
 
 ### Phase 3: UI Framework (Tasks 3.1-3.6)
+
 - Search input component
 - Results list with keyboard navigation
 - Minimalist theme and animations
 
 ### Phase 4: Bookmark Search (Tasks 4.1-4.8)
+
 - Database schema and storage
 - Browser import (Chrome, Firefox, Safari)
 - Manual bookmark management
 - Full-text search with ranking
 
 ### Phase 5: File Search (Tasks 5.1-5.7)
+
 - Directory configuration
 - File system indexing
 - Incremental updates with watchers
 - Fuzzy search algorithm
 
 ### Phase 6: Resource Opening (Tasks 6.1-6.4)
+
 - URL opening in browser
 - File opening in default apps
 - Error handling and history
 
 ### Phase 7: Settings (Tasks 7.1-7.5)
+
 - Settings panel UI
 - Hotkey customization
 - Theme and path management
 
 ### Phase 8: Testing (Tasks 8.1-8.6)
+
 - Unit and integration tests
 - Performance testing
 - Cross-platform testing
 
 ### Phase 9: Distribution (Tasks 9.1-9.5)
+
 - Documentation
 - Application signing
 - Auto-update mechanism
@@ -164,6 +185,7 @@ Change 'add-launcher-application' is valid
 ## Questions or Feedback?
 
 Please review:
+
 - `proposal.md` - High-level overview and impact
 - `design.md` - Technical decisions and trade-offs
 - `tasks.md` - Implementation plan (57 tasks)

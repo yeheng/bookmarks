@@ -18,6 +18,7 @@ Desktop productivity launcher application that provides instant access to bookma
 ### Code Style
 
 **TypeScript/Vue:**
+
 - Use Composition API with `<script setup>` syntax
 - Strict TypeScript mode enabled
 - ESLint + Prettier for code formatting
@@ -25,6 +26,7 @@ Desktop productivity launcher application that provides instant access to bookma
 - Naming: PascalCase for components, camelCase for variables/functions
 
 **Rust:**
+
 - Follow Rust standard style (rustfmt)
 - Use async/await for I/O operations
 - Tauri commands should be well-typed with serde
@@ -69,6 +71,7 @@ Desktop productivity launcher application that provides instant access to bookma
 ### Search Ranking (Frecency)
 
 Frecency combines **frequency** and **recency** to rank search results:
+
 - Frequency: How often a resource is accessed
 - Recency: How recently a resource was accessed
 - Combined score: `(frequency * 0.6) + (recency * 0.4)`
