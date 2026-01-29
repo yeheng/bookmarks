@@ -11,6 +11,12 @@ impl Database {
         Ok(Database { conn })
     }
 
+    #[cfg(test)]
+    pub fn new_in_memory() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        Ok(Database { conn })
+    }
+
     pub fn initialize(&self) -> Result<()> {
         self.conn.execute_batch(
             r#"
@@ -147,5 +153,226 @@ impl Database {
 
     pub fn get_connection(&self) -> &Connection {
         &self.conn
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn setup_db() -> Database {
+        let db = Database::new_in_memory().unwrap();
+        db.initialize().unwrap();
+        db
+    }
+
+    fn now() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }
+
+    #[test]
+    fn test_database_initialization() {
+        let db = setup_db();
+        let conn = db.get_connection();
+
+        // Verify all tables exist
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert!(tables.contains(&"bookmarks".to_string()));
+        assert!(tables.contains(&"indexed_files".to_string()));
+        assert!(tables.contains(&"settings".to_string()));
+        assert!(tables.contains(&"search_directories".to_string()));
+    }
+
+    #[test]
+    fn test_bookmark_crud() {
+        let db = setup_db();
+        let conn = db.get_connection();
+        let ts = now();
+
+        // Create
+        conn.execute(
+            "INSERT INTO bookmarks (title, url, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params!["Test Bookmark", "https://example.com", "manual", ts, ts],
+        ).unwrap();
+
+        let id = conn.last_insert_rowid();
+
+        // Read
+        let (title, url): (String, String) = conn
+            .query_row(
+                "SELECT title, url FROM bookmarks WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(title, "Test Bookmark");
+        assert_eq!(url, "https://example.com");
+
+        // Update
+        conn.execute(
+            "UPDATE bookmarks SET title = ?1 WHERE id = ?2",
+            rusqlite::params!["Updated Bookmark", id],
+        ).unwrap();
+
+        let title: String = conn
+            .query_row("SELECT title FROM bookmarks WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(title, "Updated Bookmark");
+
+        // Delete
+        conn.execute("DELETE FROM bookmarks WHERE id = ?1", [id]).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM bookmarks WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_bookmark_fts_search() {
+        let db = setup_db();
+        let conn = db.get_connection();
+        let ts = now();
+
+        // Insert test bookmarks
+        conn.execute(
+            "INSERT INTO bookmarks (title, url, description, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params!["Rust Programming", "https://rust-lang.org", "Systems programming", "manual", ts, ts],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO bookmarks (title, url, description, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params!["Python Tutorial", "https://python.org", "Learning Python", "manual", ts, ts],
+        ).unwrap();
+
+        // FTS search - corrected FTS5 syntax
+        let results: Vec<String> = conn
+            .prepare("SELECT b.title FROM bookmarks_fts JOIN bookmarks b ON bookmarks_fts.rowid = b.id WHERE bookmarks_fts MATCH 'rust'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], "Rust Programming");
+    }
+
+    #[test]
+    fn test_settings_crud() {
+        let db = setup_db();
+        let conn = db.get_connection();
+        let ts = now();
+
+        // Create
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params!["theme.mode", "dark", ts],
+        ).unwrap();
+
+        // Read
+        let value: String = conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", ["theme.mode"], |row| row.get(0))
+            .unwrap();
+        assert_eq!(value, "dark");
+
+        // Update (upsert)
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params!["theme.mode", "light", ts],
+        ).unwrap();
+
+        let value: String = conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", ["theme.mode"], |row| row.get(0))
+            .unwrap();
+        assert_eq!(value, "light");
+
+        // Delete
+        conn.execute("DELETE FROM settings WHERE key = ?1", ["theme.mode"]).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM settings WHERE key = ?1", ["theme.mode"], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_file_indexing() {
+        let db = setup_db();
+        let conn = db.get_connection();
+        let ts = now();
+
+        // Create directory
+        conn.execute(
+            "INSERT INTO search_directories (path, enabled, include_hidden, created_at, file_count) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params!["/test/dir", 1, 0, ts, 0],
+        ).unwrap();
+        let dir_id = conn.last_insert_rowid();
+
+        // Index files
+        conn.execute(
+            "INSERT INTO indexed_files (path, name, extension, size, modified_at, created_at, indexed_at, directory_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params!["/test/dir/document.pdf", "document.pdf", "pdf", 1024, ts, ts, ts, dir_id],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO indexed_files (path, name, extension, size, modified_at, created_at, indexed_at, directory_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params!["/test/dir/image.png", "image.png", "png", 2048, ts, ts, ts, dir_id],
+        ).unwrap();
+
+        // Search by extension
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM indexed_files WHERE extension = ?1", ["pdf"], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // FTS search - corrected FTS5 syntax
+        let results: Vec<String> = conn
+            .prepare("SELECT f.name FROM files_fts JOIN indexed_files f ON files_fts.rowid = f.id WHERE files_fts MATCH 'document'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], "document.pdf");
+    }
+
+    #[test]
+    fn test_usage_history_tracking() {
+        let db = setup_db();
+        let conn = db.get_connection();
+        let ts = now();
+
+        // Create bookmark
+        conn.execute(
+            "INSERT INTO bookmarks (title, url, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params!["Test", "https://test.com", "manual", ts, ts],
+        ).unwrap();
+        let bookmark_id = conn.last_insert_rowid();
+
+        // Record usage
+        for i in 0..3 {
+            conn.execute(
+                "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
+                rusqlite::params![bookmark_id, ts + i],
+            ).unwrap();
+        }
+
+        // Count usage
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM usage_history WHERE bookmark_id = ?1", [bookmark_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 3);
     }
 }

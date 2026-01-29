@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::Connection;
 use std::collections::HashMap;

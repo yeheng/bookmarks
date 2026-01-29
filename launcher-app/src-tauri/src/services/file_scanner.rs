@@ -35,7 +35,6 @@ const SKIP_EXTENSIONS: &[&str] = &[
 
 pub struct FileScanner {
     include_hidden: bool,
-    max_files_warning: usize,
 }
 
 pub struct ScanResult {
@@ -48,7 +47,6 @@ impl FileScanner {
     pub fn new(include_hidden: bool) -> Self {
         FileScanner {
             include_hidden,
-            max_files_warning: 100_000,
         }
     }
 
@@ -261,7 +259,7 @@ impl FileScanner {
     pub fn refresh_stale_files(
         conn: &Connection,
         directory_id: i64,
-        directory_path: &Path,
+        _directory_path: &Path,
     ) -> Result<(usize, usize), String> {
         let mut updated = 0;
         let mut removed = 0;

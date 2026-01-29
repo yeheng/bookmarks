@@ -1,5 +1,5 @@
 use crate::db::Database;
-use crate::models::bookmark::{Bookmark, ImportResult};
+use crate::models::bookmark::ImportResult;
 use crate::services::{
     chrome_importer::ChromeImporter, firefox_importer::FirefoxImporter,
     safari_importer::SafariImporter,

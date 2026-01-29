@@ -1,12 +1,39 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import SearchCombobox from "./components/SearchCombobox.vue";
-import type { SearchResult } from "./types/search";
+import type {
+  SearchResult,
+  BookmarkSearchResult,
+  FileSearchResult,
+  OpenResult,
+} from "./types/search";
 
 const appWindow = getCurrentWebviewWindow();
 const searchResults = ref<SearchResult[]>([]);
 const isLoading = ref(false);
+
+function mapBookmarkToSearchResult(b: BookmarkSearchResult): SearchResult {
+  return {
+    id: `bookmark-${b.id}`,
+    type: "bookmark",
+    title: b.title,
+    subtitle: b.url,
+    icon: b.favicon_url ?? undefined,
+    url: b.url,
+  };
+}
+
+function mapFileToSearchResult(f: FileSearchResult): SearchResult {
+  return {
+    id: `file-${f.id}`,
+    type: "file",
+    title: f.name,
+    subtitle: f.path,
+    path: f.path,
+  };
+}
 
 const handleSearch = async (query: string) => {
   if (!query.trim()) {
@@ -15,31 +42,41 @@ const handleSearch = async (query: string) => {
   }
 
   isLoading.value = true;
-  
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  searchResults.value = [
-    {
-      id: '1',
-      type: 'bookmark',
-      title: 'Example Bookmark',
-      subtitle: 'https://example.com',
-      url: 'https://example.com'
-    },
-    {
-      id: '2',
-      type: 'file',
-      title: 'Document.pdf',
-      subtitle: '/Users/username/Documents/Document.pdf',
-      path: '/Users/username/Documents/Document.pdf'
-    }
-  ];
-  
-  isLoading.value = false;
+
+  try {
+    const [bookmarks, files] = await Promise.all([
+      invoke<BookmarkSearchResult[]>("search_bookmarks", { query, limit: 5 }),
+      invoke<FileSearchResult[]>("search_files", { query, limit: 5 }),
+    ]);
+
+    const bookmarkResults = bookmarks.map(mapBookmarkToSearchResult);
+    const fileResults = files.map(mapFileToSearchResult);
+
+    // Interleave results: bookmarks first, then files
+    searchResults.value = [...bookmarkResults, ...fileResults];
+  } catch (err) {
+    console.error("Search failed:", err);
+    searchResults.value = [];
+  } finally {
+    isLoading.value = false;
+  }
 };
 
 const handleSelect = async (result: SearchResult) => {
-  console.log('Selected:', result);
+  try {
+    const resourceId = parseInt(result.id.split("-")[1], 10);
+    const res = await invoke<OpenResult>("open_resource", {
+      resourceType: result.type,
+      resourceId: resourceId,
+    });
+
+    if (!res.success && res.error) {
+      console.error("Failed to open resource:", res.error);
+    }
+  } catch (err) {
+    console.error("Failed to open resource:", err);
+  }
+
   searchResults.value = [];
   appWindow.hide();
 };

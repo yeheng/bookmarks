@@ -1,4 +1,4 @@
-use crate::models::bookmark::{Bookmark, ImportResult};
+use crate::models::bookmark::ImportResult;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;

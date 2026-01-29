@@ -14,3 +14,32 @@ export interface SearchState {
   loading: boolean;
   selectedIndex: number;
 }
+
+// Backend response types (matching Rust structs)
+export interface BookmarkSearchResult {
+  id: number;
+  title: string;
+  url: string;
+  description: string | null;
+  favicon_url: string | null;
+  score: number;
+  frecency_score: number;
+}
+
+export interface FileSearchResult {
+  id: number;
+  path: string;
+  name: string;
+  extension: string | null;
+  size: number;
+  modified_at: number;
+  score: number;
+  frecency_score: number;
+}
+
+export interface OpenResult {
+  success: boolean;
+  resource_type: string;
+  resource_id: number;
+  error: string | null;
+}
