@@ -46,34 +46,9 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_usage_history_bookmark_id ON usage_history(bookmark_id);
             CREATE INDEX IF NOT EXISTS idx_usage_history_accessed_at ON usage_history(accessed_at);
 
-            CREATE VIRTUAL TABLE IF NOT EXISTS bookmarks_fts USING fts5(
-                title,
-                url,
-                description,
-                tags,
-                content=bookmarks,
-                content_rowid=id
-            );
+            -- Note: FTS5 virtual tables removed - using Tantivy for full-text search
 
-            CREATE TRIGGER IF NOT EXISTS bookmarks_ai AFTER INSERT ON bookmarks BEGIN
-                INSERT INTO bookmarks_fts(rowid, title, url, description, tags)
-                VALUES (new.id, new.title, new.url, new.description, new.tags);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS bookmarks_ad AFTER DELETE ON bookmarks BEGIN
-                DELETE FROM bookmarks_fts WHERE rowid = old.id;
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS bookmarks_au AFTER UPDATE ON bookmarks BEGIN
-                UPDATE bookmarks_fts
-                SET title = new.title,
-                    url = new.url,
-                    description = new.description,
-                    tags = new.tags
-                WHERE rowid = new.id;
-            END;
-
-            -- Phase 5: File Search Tables
+            -- File Search Tables
 
             CREATE TABLE IF NOT EXISTS search_directories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,32 +88,9 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_file_usage_history_file_id ON file_usage_history(file_id);
             CREATE INDEX IF NOT EXISTS idx_file_usage_history_accessed_at ON file_usage_history(accessed_at);
 
-            CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-                name,
-                path,
-                extension,
-                content=indexed_files,
-                content_rowid=id
-            );
+            -- Note: FTS5 virtual tables for files removed - using Tantivy for full-text search
 
-            CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON indexed_files BEGIN
-                INSERT INTO files_fts(rowid, name, path, extension)
-                VALUES (new.id, new.name, new.path, new.extension);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON indexed_files BEGIN
-                DELETE FROM files_fts WHERE rowid = old.id;
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON indexed_files BEGIN
-                UPDATE files_fts
-                SET name = new.name,
-                    path = new.path,
-                    extension = new.extension
-                WHERE rowid = new.id;
-            END;
-
-            -- Phase 7: Settings Table
+            -- Settings Table
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -239,36 +191,6 @@ mod tests {
     }
 
     #[test]
-    fn test_bookmark_fts_search() {
-        let db = setup_db();
-        let conn = db.get_connection();
-        let ts = now();
-
-        // Insert test bookmarks
-        conn.execute(
-            "INSERT INTO bookmarks (title, url, description, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params!["Rust Programming", "https://rust-lang.org", "Systems programming", "manual", ts, ts],
-        ).unwrap();
-
-        conn.execute(
-            "INSERT INTO bookmarks (title, url, description, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params!["Python Tutorial", "https://python.org", "Learning Python", "manual", ts, ts],
-        ).unwrap();
-
-        // FTS search - corrected FTS5 syntax
-        let results: Vec<String> = conn
-            .prepare("SELECT b.title FROM bookmarks_fts JOIN bookmarks b ON bookmarks_fts.rowid = b.id WHERE bookmarks_fts MATCH 'rust'")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .collect();
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0], "Rust Programming");
-    }
-
-    #[test]
     fn test_settings_crud() {
         let db = setup_db();
         let conn = db.get_connection();
@@ -335,17 +257,11 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
 
-        // FTS search - corrected FTS5 syntax
-        let results: Vec<String> = conn
-            .prepare("SELECT f.name FROM files_fts JOIN indexed_files f ON files_fts.rowid = f.id WHERE files_fts MATCH 'document'")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .collect();
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0], "document.pdf");
+        // Verify file exists
+        let name: String = conn
+            .query_row("SELECT name FROM indexed_files WHERE extension = ?1", ["pdf"], |row| row.get(0))
+            .unwrap();
+        assert_eq!(name, "document.pdf");
     }
 
     #[test]

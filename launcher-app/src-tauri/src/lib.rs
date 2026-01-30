@@ -1,11 +1,13 @@
 mod commands;
 mod db;
 mod models;
+mod search;
 mod services;
 
 use commands::bookmarks::AppState;
 use db::Database;
-use std::sync::Mutex;
+use search::{SearchEngine, TantivySearchEngine};
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -25,6 +27,8 @@ pub fn run() {
             commands::bookmarks::import_safari_bookmarks,
             commands::search::search_bookmarks,
             commands::search::record_bookmark_access,
+            commands::search::rebuild_search_index,
+            commands::search::get_search_stats,
             commands::favicon::fetch_favicon,
             // Phase 5: File Search Commands
             commands::file_search::search_files,
@@ -70,19 +74,42 @@ pub fn run() {
         .setup(|app| {
             let app_dir = app.path().app_data_dir()
                 .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-            
+
             std::fs::create_dir_all(&app_dir)
                 .map_err(|e| format!("Failed to create app data dir: {}", e))?;
-            
+
             let db_path = app_dir.join("bookmarks.db");
             let db = Database::new(db_path)
                 .map_err(|e| format!("Failed to create database: {}", e))?;
-            
+
             db.initialize()
                 .map_err(|e| format!("Failed to initialize database: {}", e))?;
-            
+
+            // Initialize Tantivy search engine
+            let index_dir = app_dir.join("tantivy_indexes");
+            let search_db_path = app_dir.join("bookmarks.db");
+            let search_db = Database::new(search_db_path)
+                .map_err(|e| format!("Failed to create search database: {}", e))?;
+
+            let search_engine = TantivySearchEngine::new(index_dir, search_db)
+                .map_err(|e| format!("Failed to create search engine: {}", e))?;
+
+            let search_engine = Arc::new(search_engine);
+
+            // Rebuild indexes in background on first run
+            let engine_clone = search_engine.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = engine_clone.rebuild_bookmark_index() {
+                    eprintln!("Failed to rebuild bookmark index: {}", e);
+                }
+                if let Err(e) = engine_clone.rebuild_file_index() {
+                    eprintln!("Failed to rebuild file index: {}", e);
+                }
+            });
+
             app.manage(AppState {
                 db: Mutex::new(db),
+                search_engine,
             });
             
             let handle = app.handle().clone();

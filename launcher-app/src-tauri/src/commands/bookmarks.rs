@@ -1,15 +1,17 @@
 use crate::db::Database;
 use crate::models::bookmark::ImportResult;
+use crate::search::{SearchEngine, TantivySearchEngine};
 use crate::services::{
     chrome_importer::ChromeImporter, firefox_importer::FirefoxImporter,
     safari_importer::SafariImporter,
 };
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 pub struct AppState {
     pub db: Mutex<Database>,
+    pub search_engine: Arc<TantivySearchEngine>,
 }
 
 #[tauri::command]
@@ -38,13 +40,31 @@ pub fn add_bookmark(
     }
 
     conn.execute(
-        "INSERT INTO bookmarks (title, url, description, tags, source, created_at, updated_at) 
+        "INSERT INTO bookmarks (title, url, description, tags, source, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         rusqlite::params![title, url, description, tags, "manual", now, now],
     )
     .map_err(|e| format!("Failed to insert bookmark: {}", e))?;
 
-    Ok(conn.last_insert_rowid())
+    let id = conn.last_insert_rowid();
+
+    // Index in Tantivy
+    drop(db); // Release lock before indexing
+    state
+        .search_engine
+        .index_bookmark(
+            id,
+            &title,
+            &url,
+            description.as_deref(),
+            tags.as_deref(),
+            None,
+            now,
+            now,
+        )
+        .map_err(|e| format!("Failed to index bookmark: {}", e))?;
+
+    Ok(id)
 }
 
 #[tauri::command]
@@ -75,6 +95,31 @@ pub fn update_bookmark(
         return Err("Bookmark not found".to_string());
     }
 
+    // Get created_at and last_accessed for re-indexing
+    let (created_at, last_accessed): (i64, Option<i64>) = conn
+        .query_row(
+            "SELECT created_at, last_accessed FROM bookmarks WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| format!("Failed to get bookmark metadata: {}", e))?;
+
+    // Re-index in Tantivy
+    drop(db);
+    state
+        .search_engine
+        .index_bookmark(
+            id,
+            &title,
+            &url,
+            description.as_deref(),
+            tags.as_deref(),
+            last_accessed,
+            created_at,
+            now,
+        )
+        .map_err(|e| format!("Failed to re-index bookmark: {}", e))?;
+
     Ok(())
 }
 
@@ -90,6 +135,13 @@ pub fn delete_bookmark(state: State<AppState>, id: i64) -> Result<(), String> {
     if rows_affected == 0 {
         return Err("Bookmark not found".to_string());
     }
+
+    // Remove from Tantivy index
+    drop(db);
+    state
+        .search_engine
+        .delete_bookmark(id)
+        .map_err(|e| format!("Failed to remove from index: {}", e))?;
 
     Ok(())
 }

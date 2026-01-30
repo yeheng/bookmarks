@@ -1,5 +1,6 @@
 use crate::commands::bookmarks::AppState;
 use crate::models::file::{DirectoryValidationResult, IndexingProgress, SearchDirectory};
+use crate::search::SearchEngine;
 use crate::services::file_scanner::FileScanner;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -106,16 +107,24 @@ pub fn add_search_directory(
 
 #[tauri::command]
 pub fn remove_search_directory(state: State<AppState>, directory_id: i64) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
-    let conn = db.get_connection();
+    {
+        let db = state.db.lock().unwrap();
+        let conn = db.get_connection();
 
-    FileScanner::remove_directory_files(conn, directory_id)?;
+        FileScanner::remove_directory_files(conn, directory_id)?;
 
-    conn.execute(
-        "DELETE FROM search_directories WHERE id = ?1",
-        [directory_id],
-    )
-    .map_err(|e| format!("Failed to remove directory: {}", e))?;
+        conn.execute(
+            "DELETE FROM search_directories WHERE id = ?1",
+            [directory_id],
+        )
+        .map_err(|e| format!("Failed to remove directory: {}", e))?;
+    }
+
+    // Also remove from Tantivy index
+    state
+        .search_engine
+        .delete_directory_files(directory_id)
+        .map_err(|e| format!("Failed to clean search index: {}", e))?;
 
     Ok(())
 }
@@ -172,36 +181,48 @@ pub fn toggle_search_directory(
 
 #[tauri::command]
 pub fn index_directory(state: State<AppState>, directory_id: i64) -> Result<IndexingProgress, String> {
-    let db = state.db.lock().unwrap();
-    let conn = db.get_connection();
+    let result = {
+        let db = state.db.lock().unwrap();
+        let conn = db.get_connection();
 
-    let (path, include_hidden): (String, bool) = conn
-        .query_row(
-            "SELECT path, include_hidden FROM search_directories WHERE id = ?1",
-            [directory_id],
-            |row| Ok((row.get(0)?, row.get::<_, i32>(1)? != 0)),
-        )
-        .map_err(|e| format!("Directory not found: {}", e))?;
+        let (path, include_hidden): (String, bool) = conn
+            .query_row(
+                "SELECT path, include_hidden FROM search_directories WHERE id = ?1",
+                [directory_id],
+                |row| Ok((row.get(0)?, row.get::<_, i32>(1)? != 0)),
+            )
+            .map_err(|e| format!("Directory not found: {}", e))?;
 
-    let dir_path = Path::new(&path);
+        let dir_path = Path::new(&path);
 
-    if !dir_path.exists() {
-        return Err("Directory no longer exists".to_string());
-    }
+        if !dir_path.exists() {
+            return Err("Directory no longer exists".to_string());
+        }
 
-    let scanner = FileScanner::new(include_hidden);
-    let result = scanner.scan_directory(conn, directory_id, dir_path)?;
+        let scanner = FileScanner::new(include_hidden);
+        let scan_result = scanner.scan_directory(conn, directory_id, dir_path)?;
+
+        (path, scan_result)
+    };
+
+    let (path, scan_result) = result;
+
+    // Rebuild file index in Tantivy to pick up new files
+    let _ = state
+        .search_engine
+        .rebuild_file_index()
+        .map_err(|e| format!("Failed to rebuild file index: {}", e))?;
 
     Ok(IndexingProgress {
         directory_id,
         directory_path: path,
-        files_scanned: result.files_scanned,
-        files_indexed: result.files_indexed,
+        files_scanned: scan_result.files_scanned,
+        files_indexed: scan_result.files_indexed,
         is_complete: true,
-        error: if result.errors.is_empty() {
+        error: if scan_result.errors.is_empty() {
             None
         } else {
-            Some(result.errors.join("; "))
+            Some(scan_result.errors.join("; "))
         },
     })
 }
