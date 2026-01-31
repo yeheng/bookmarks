@@ -16,6 +16,9 @@ pub enum SearchError {
     #[error("Database error: {0}")]
     DatabaseError(String),
 
+    #[error("Lock error: {0}")]
+    LockError(&'static str),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 }

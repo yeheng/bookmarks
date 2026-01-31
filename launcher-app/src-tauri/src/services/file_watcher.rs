@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{fs, thread};
 
+/// Debounce delay in milliseconds for file system events
+/// Prevents processing rapid successive events for the same file
 const DEBOUNCE_MS: u64 = 100;
 
 pub struct FileWatcher {

@@ -33,6 +33,12 @@ const SKIP_EXTENSIONS: &[&str] = &[
     "exe", "bin", "lock", "log",
 ];
 
+/// Maximum number of files to sample when estimating directory size
+const MAX_SAMPLE_FILES: usize = 1000;
+
+/// Multiplier to estimate total file count when sampling reaches limit
+const FILE_COUNT_ESTIMATE_MULTIPLIER: usize = 100;
+
 pub struct FileScanner {
     include_hidden: bool,
 }
@@ -52,12 +58,11 @@ impl FileScanner {
 
     pub fn estimate_file_count(&self, path: &Path) -> Result<usize, String> {
         let mut count = 0;
-        let max_sample = 1000;
 
-        self.count_files_recursive(path, &mut count, max_sample)?;
+        self.count_files_recursive(path, &mut count, MAX_SAMPLE_FILES)?;
 
-        if count >= max_sample {
-            Ok(count * 100)
+        if count >= MAX_SAMPLE_FILES {
+            Ok(count * FILE_COUNT_ESTIMATE_MULTIPLIER)
         } else {
             Ok(count)
         }
@@ -117,7 +122,7 @@ impl FileScanner {
 
         conn.execute(
             "UPDATE search_directories SET last_indexed_at = ?1, file_count = ?2 WHERE id = ?3",
-            rusqlite::params![now, result.files_indexed, directory_id],
+            rusqlite::params![now, result.files_indexed as i64, directory_id],
         )
         .map_err(|e| format!("Failed to update directory stats: {}", e))?;
 

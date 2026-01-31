@@ -19,13 +19,13 @@ pub async fn fetch_favicon(
     );
     
     let favicon_url = format!("{}/favicon.ico", base_url);
-    
-    let client = reqwest::blocking::Client::builder()
+
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-    
-    match client.get(&favicon_url).send() {
+
+    match client.get(&favicon_url).send().await {
         Ok(response) if response.status().is_success() => {
             let db = state.db.lock().unwrap();
             let conn = db.get_connection();

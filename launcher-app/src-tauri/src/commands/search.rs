@@ -19,12 +19,12 @@ pub fn search_bookmarks(
 
 #[tauri::command]
 pub fn record_bookmark_access(state: State<AppState>, bookmark_id: i64) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
     let conn = db.get_connection();
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .map_err(|e| format!("System clock error: {}", e))?
         .as_secs() as i64;
 
     conn.execute(

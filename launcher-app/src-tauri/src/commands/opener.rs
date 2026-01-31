@@ -78,18 +78,6 @@ pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, Str
 
     let file_path = Path::new(&path);
 
-    if !file_path.exists() {
-        conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
-            .ok();
-
-        return Ok(OpenResult {
-            success: false,
-            resource_type: "file".to_string(),
-            resource_id: file_id,
-            error: Some("File no longer exists".to_string()),
-        });
-    }
-
     match open::that(&path) {
         Ok(_) => {
             record_resource_access(conn, "file", file_id)?;
@@ -101,12 +89,19 @@ pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, Str
                 error: None,
             })
         }
-        Err(e) => Ok(OpenResult {
-            success: false,
-            resource_type: "file".to_string(),
-            resource_id: file_id,
-            error: Some(format!("Failed to open file: {}", e)),
-        }),
+        Err(e) => {
+            // If file doesn't exist, clean up the database record
+            if !file_path.exists() {
+                let _ = conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id]);
+            }
+
+            Ok(OpenResult {
+                success: false,
+                resource_type: "file".to_string(),
+                resource_id: file_id,
+                error: Some(format!("Failed to open file: {}", e)),
+            })
+        }
     }
 }
 
@@ -266,7 +261,7 @@ fn record_resource_access(
 ) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .map_err(|e| format!("System clock error: {}", e))?
         .as_secs() as i64;
 
     match resource_type {

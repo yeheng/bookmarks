@@ -31,7 +31,7 @@ reqwest = { version = "0.13", features = ["blocking"] }
 url = "2"
 notify = "8"
 open = "5"
-tantivy = "0.5"
+tantivy = "0.25.0"
 async-trait = "0.1"
 thiserror = "2"
 

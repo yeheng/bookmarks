@@ -46,7 +46,7 @@ pub fn search_files_by_extension(
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
     let results = stmt
-        .query_map(rusqlite::params![ext, limit], |row| {
+        .query_map(rusqlite::params![ext, limit as i64], |row| {
             let frecency: f64 = row.get(6)?;
             Ok(FileSearchResult {
                 id: row.get(0)?,

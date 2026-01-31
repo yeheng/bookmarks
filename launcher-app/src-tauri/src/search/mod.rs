@@ -7,5 +7,5 @@ mod engine;
 mod schema;
 mod tantivy_engine;
 
-pub use engine::{IndexStats, SearchEngine, SearchError};
+pub use engine::{IndexStats, SearchEngine};
 pub use tantivy_engine::TantivySearchEngine;
