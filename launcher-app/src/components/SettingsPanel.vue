@@ -2,6 +2,7 @@
 import { ref, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { AppSettings } from "../types/settings";
+import ShortcutEditor from "./ShortcutEditor.vue";
 
 interface DataStats {
   bookmarks_count: number;
@@ -64,6 +65,20 @@ async function resetSettings() {
   }
 }
 
+function handleShortcutUpdate(actionId: string, shortcut: string) {
+  if (!settings.value) return;
+  settings.value.hotkey.ui_shortcuts[actionId] = shortcut;
+}
+
+const shortcuts = [
+  { id: 'general.close', label: 'Close Window', description: 'Close the launcher or exit settings' },
+  { id: 'general.settings', label: 'Open Settings', description: 'Toggle settings panel' },
+  { id: 'search.next', label: 'Next Result', description: 'Select next search result' },
+  { id: 'search.prev', label: 'Previous Result', description: 'Select previous search result' },
+  { id: 'search.open', label: 'Open Result', description: 'Open the selected result' },
+  { id: 'search.open_new_tab', label: 'Open in Background', description: '(Future) Open result in background tab' },
+];
+
 onMounted(loadSettings);
 </script>
 
@@ -88,6 +103,22 @@ onMounted(loadSettings);
             placeholder="Cmd+Space"
           />
         </label>
+      </section>
+
+      <!-- Shortcuts -->
+      <section class="settings-section">
+        <h3 class="section-title">Keyboard Shortcuts</h3>
+        <div v-if="settings" class="shortcuts-list">
+          <ShortcutEditor
+            v-for="shortcut in shortcuts"
+            :key="shortcut.id"
+            :action-id="shortcut.id"
+            :label="shortcut.label"
+            :description="shortcut.description"
+            :current-shortcut="settings.hotkey.ui_shortcuts[shortcut.id] || 'Not set'"
+            @update="handleShortcutUpdate"
+          />
+        </div>
       </section>
 
       <!-- Theme -->

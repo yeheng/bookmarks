@@ -5,6 +5,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import SearchCombobox from "./components/SearchCombobox.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
+import { ShortcutManager } from "./services/shortcuts";
 import type {
   SearchResult,
   BookmarkSearchResult,
@@ -18,6 +19,7 @@ const searchResults = ref<SearchResult[]>([]);
 const isLoading = ref(false);
 const showSettings = ref(false);
 const settings = ref<AppSettings | null>(null);
+const shortcutManager = ref<ShortcutManager>(new ShortcutManager());
 
 const themeStyle = computed(() => {
   if (!settings.value) return {};
@@ -50,8 +52,10 @@ watch(
 async function loadSettings() {
   try {
     settings.value = await invoke<AppSettings>("get_app_settings");
-    // Initial resize
+    // Update shortcut manager with new settings
     if (settings.value) {
+      shortcutManager.value = new ShortcutManager(settings.value.hotkey);
+      // Initial resize
       const { window_width, window_height } = settings.value.theme;
       await appWindow.setSize(new LogicalSize(window_width, window_height));
     }
@@ -145,7 +149,8 @@ const handleSelect = async (result: SearchResult) => {
 };
 
 const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === "Escape") {
+  // Check for close shortcut
+  if (shortcutManager.value.matches(e, 'general.close')) {
     if (showSettings.value) {
       showSettings.value = false;
       // Reload settings in case they changed
@@ -154,10 +159,14 @@ const handleKeydown = (e: KeyboardEvent) => {
       searchResults.value = [];
       appWindow.hide();
     }
+    return;
   }
-  if (e.metaKey && e.key === ",") {
-      showSettings.value = !showSettings.value;
-      if (!showSettings.value) loadSettings();
+  
+  // Check for settings shortcut
+  if (shortcutManager.value.matches(e, 'general.settings')) {
+    showSettings.value = !showSettings.value;
+    if (!showSettings.value) loadSettings();
+    return;
   }
 };
 

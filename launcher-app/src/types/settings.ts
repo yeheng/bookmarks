@@ -1,5 +1,6 @@
 export interface HotkeySettings {
   global_shortcut: string;
+  ui_shortcuts: Record<string, string>;
 }
 
 export interface ThemeSettings {

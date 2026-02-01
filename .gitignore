@@ -1,0 +1,94 @@
+#
+# Place a copy if this at ~/.gitignore_global
+# Run `git config --global core.excludesfile ~/.gitignore_global`
+
+# Compiled source #
+###################
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+*.pyc
+*.pyo
+
+# Eclipse #  
+###########
+*.classpath
+*.settings/
+*.project
+bin/
+
+# Maven #
+#########
+target/
+build/
+!**/src/assemble
+**/src/main/generated
+
+
+# Packages #
+############
+# it's better to unpack these files and commit the raw source
+# git has its own built in compression methods
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+*.msi
+
+# Logs and databases #
+######################
+*.log
+*.sqlite
+
+# OS generated files #
+######################
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Temporary files #
+###################
+*.bak
+*.swp
+*.swo
+*~
+*#
+
+# IDE files #
+#############
+.vscode/**
+.vscode
+.idea
+*.iml
+*.sublime-workspace
+rebel.xml
+
+# GRADLE #
+#################
+**/.gradle
+!gradle/wrapper/gradle-wrapper.jar
+**/.diffblue
+
+*.iml
+**/*.iml
+
+.claude
+.serena
+.codex
+.grok
+
+.repomix*
+repomix*
+.repomix

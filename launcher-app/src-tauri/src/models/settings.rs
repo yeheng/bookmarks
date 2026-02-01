@@ -20,6 +20,31 @@ pub struct AppSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotkeySettings {
     pub global_shortcut: String,
+    #[serde(default = "default_ui_shortcuts")]
+    pub ui_shortcuts: HashMap<String, String>,
+}
+
+fn default_ui_shortcuts() -> HashMap<String, String> {
+    let mut shortcuts = HashMap::new();
+    
+    shortcuts.insert("general.close".to_string(), "Escape".to_string());
+    
+    #[cfg(target_os = "macos")]
+    {
+        shortcuts.insert("general.settings".to_string(), "Meta+,".to_string());
+        shortcuts.insert("search.open_new_tab".to_string(), "Meta+Enter".to_string());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        shortcuts.insert("general.settings".to_string(), "Ctrl+,".to_string());
+        shortcuts.insert("search.open_new_tab".to_string(), "Ctrl+Enter".to_string());
+    }
+    
+    shortcuts.insert("search.next".to_string(), "ArrowDown".to_string());
+    shortcuts.insert("search.prev".to_string(), "ArrowUp".to_string());
+    shortcuts.insert("search.open".to_string(), "Enter".to_string());
+    
+    shortcuts
 }
 
 impl Default for HotkeySettings {
@@ -31,6 +56,7 @@ impl Default for HotkeySettings {
 
         HotkeySettings {
             global_shortcut: shortcut,
+            ui_shortcuts: default_ui_shortcuts(),
         }
     }
 }

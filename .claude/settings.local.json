@@ -8,7 +8,12 @@
       "Bash(npm run build:*)",
       "Bash(cargo test:*)",
       "Bash(openspec validate:*)",
-      "Bash(openspec list:*)"
+      "Bash(openspec list:*)",
+      "Bash(cargo build:*)",
+      "Bash(cat:*)",
+      "Bash(pkill:*)",
+      "Bash(npm run tauri:*)",
+      "Bash(curl:*)"
     ]
   },
   "outputStyle": "Coding Vibes"
