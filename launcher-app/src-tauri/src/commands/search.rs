@@ -11,33 +11,53 @@ pub fn search_bookmarks(
 ) -> Result<Vec<BookmarkSearchResult>, String> {
     let limit = limit.unwrap_or(10);
 
-    state
+    let results = state
         .search_engine
         .search_bookmarks(&query, limit)
-        .map_err(|e| format!("Search failed: {}", e))
+        .map_err(|e| format!("Search failed: {}", e))?;
+
+    Ok(results)
 }
 
 #[tauri::command]
 pub fn record_bookmark_access(state: State<AppState>, bookmark_id: i64) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
-    let conn = db.get_connection();
-
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| format!("System clock error: {}", e))?
         .as_secs() as i64;
 
-    conn.execute(
-        "UPDATE bookmarks SET last_accessed = ?1 WHERE id = ?2",
-        rusqlite::params![now, bookmark_id],
-    )
-    .map_err(|e| format!("Failed to update last_accessed: {}", e))?;
+    // Update SQLite and get the new access count
+    let access_count = {
+        let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
+        let conn = db.get_connection();
 
-    conn.execute(
-        "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
-        rusqlite::params![bookmark_id, now],
-    )
-    .map_err(|e| format!("Failed to insert usage history: {}", e))?;
+        conn.execute(
+            "UPDATE bookmarks SET last_accessed = ?1 WHERE id = ?2",
+            rusqlite::params![now, bookmark_id],
+        )
+        .map_err(|e| format!("Failed to update last_accessed: {}", e))?;
+
+        conn.execute(
+            "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
+            rusqlite::params![bookmark_id, now],
+        )
+        .map_err(|e| format!("Failed to insert usage history: {}", e))?;
+
+        // Get the total access count for this bookmark
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM usage_history WHERE bookmark_id = ?1",
+                [bookmark_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(1);
+
+        count
+        // DB lock released here
+    };
+
+    // Update Tantivy index with new frecency data (fire and forget for UI responsiveness)
+    let _ = state.search_engine.update_bookmark_frecency(bookmark_id, access_count, now);
 
     Ok(())
 }

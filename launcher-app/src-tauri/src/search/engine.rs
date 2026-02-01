@@ -102,4 +102,23 @@ pub trait SearchEngine: Send + Sync {
 
     /// Commit any pending changes to the index.
     fn commit(&self) -> Result<(), SearchError>;
+
+    /// Update bookmark frecency data in the index (access_count + access_timestamp).
+    ///
+    /// This re-indexes the bookmark with updated frecency fields,
+    /// keeping search completely independent from the database.
+    fn update_bookmark_frecency(
+        &self,
+        id: i64,
+        access_count: i64,
+        access_timestamp: i64,
+    ) -> Result<(), SearchError>;
+
+    /// Update file frecency data in the index (access_count + access_timestamp).
+    fn update_file_frecency(
+        &self,
+        id: i64,
+        access_count: i64,
+        access_timestamp: i64,
+    ) -> Result<(), SearchError>;
 }

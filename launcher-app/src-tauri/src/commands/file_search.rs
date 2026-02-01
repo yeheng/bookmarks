@@ -68,19 +68,36 @@ pub fn search_files_by_extension(
 
 #[tauri::command]
 pub fn record_file_access(state: State<AppState>, file_id: i64) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
-    let conn = db.get_connection();
-
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
 
-    conn.execute(
-        "INSERT INTO file_usage_history (file_id, accessed_at) VALUES (?1, ?2)",
-        rusqlite::params![file_id, now],
-    )
-    .map_err(|e| format!("Failed to insert file usage history: {}", e))?;
+    // Update SQLite and get the new access count
+    let access_count = {
+        let db = state.db.lock().unwrap();
+        let conn = db.get_connection();
+
+        conn.execute(
+            "INSERT INTO file_usage_history (file_id, accessed_at) VALUES (?1, ?2)",
+            rusqlite::params![file_id, now],
+        )
+        .map_err(|e| format!("Failed to insert file usage history: {}", e))?;
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM file_usage_history WHERE file_id = ?1",
+                [file_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(1);
+
+        count
+        // DB lock released here
+    };
+
+    // Update Tantivy index with new frecency data (fire and forget)
+    let _ = state.search_engine.update_file_frecency(file_id, access_count, now);
 
     Ok(())
 }

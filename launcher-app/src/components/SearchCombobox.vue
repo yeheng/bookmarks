@@ -32,7 +32,7 @@ watch(query, (newQuery) => {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
   }
-  
+
   debounceTimer = window.setTimeout(() => {
     emit('search', newQuery);
   }, 50);
@@ -59,7 +59,8 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
   <Combobox v-model="selectedResult" @update:model-value="handleSelect">
     <div class="search-combobox">
       <ComboboxInput
-        v-model="query"
+        @change="(e: Event) => query = (e.target as HTMLInputElement).value"
+        :displayValue="() => query"
         class="search-input"
         placeholder="Search bookmarks and files..."
         autocomplete="off"

@@ -57,6 +57,12 @@ pub fn build_bookmark_schema() -> Schema {
     schema_builder.add_i64_field("created_at", FAST);
     schema_builder.add_i64_field("updated_at", FAST);
 
+    // Frecency fields - stored in index to avoid DB queries during search
+    // access_count: number of times the bookmark has been accessed
+    // access_timestamp: last access time (unix timestamp)
+    schema_builder.add_i64_field("access_count", FAST | STORED);
+    schema_builder.add_i64_field("access_timestamp", FAST | STORED);
+
     schema_builder.build()
 }
 
@@ -94,6 +100,12 @@ pub fn build_file_schema() -> Schema {
     schema_builder.add_i64_field("modified_at", STORED | FAST);
     schema_builder.add_i64_field("directory_id", FAST | INDEXED);
 
+    // Frecency fields - stored in index to avoid DB queries during search
+    // access_count: number of times the file has been accessed
+    // access_timestamp: last access time (unix timestamp)
+    schema_builder.add_i64_field("access_count", FAST | STORED);
+    schema_builder.add_i64_field("access_timestamp", FAST | STORED);
+
     schema_builder.build()
 }
 
@@ -112,6 +124,9 @@ mod tests {
         assert!(schema.get_field("last_accessed").is_ok());
         assert!(schema.get_field("created_at").is_ok());
         assert!(schema.get_field("updated_at").is_ok());
+        // Frecency fields
+        assert!(schema.get_field("access_count").is_ok());
+        assert!(schema.get_field("access_timestamp").is_ok());
     }
 
     #[test]
@@ -124,5 +139,8 @@ mod tests {
         assert!(schema.get_field("size").is_ok());
         assert!(schema.get_field("modified_at").is_ok());
         assert!(schema.get_field("directory_id").is_ok());
+        // Frecency fields
+        assert!(schema.get_field("access_count").is_ok());
+        assert!(schema.get_field("access_timestamp").is_ok());
     }
 }
