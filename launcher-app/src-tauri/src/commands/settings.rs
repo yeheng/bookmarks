@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 fn get_now() -> i64 {
     SystemTime::now()
@@ -242,6 +243,7 @@ pub fn get_hotkey_settings(state: State<AppState>) -> Result<HotkeySettings, Str
 
 #[tauri::command]
 pub fn save_hotkey_settings(
+    app: AppHandle,
     state: State<AppState>,
     hotkey: HotkeySettings,
 ) -> Result<(), String> {
@@ -251,9 +253,17 @@ pub fn save_hotkey_settings(
 
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-        rusqlite::params!["hotkey.global_shortcut", hotkey.global_shortcut, now],
+        rusqlite::params!["hotkey.global_shortcut", &hotkey.global_shortcut, now],
     )
     .map_err(|e| format!("Failed to save hotkey: {}", e))?;
+
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| format!("Failed to unregister old shortcuts: {}", e))?;
+
+    app.global_shortcut()
+        .register(&hotkey.global_shortcut)
+        .map_err(|e| format!("Failed to register new shortcut: {}", e))?;
 
     Ok(())
 }

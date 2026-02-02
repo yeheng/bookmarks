@@ -20,6 +20,7 @@ const isLoading = ref(false);
 const showSettings = ref(false);
 const settings = ref<AppSettings | null>(null);
 const shortcutManager = ref<ShortcutManager>(new ShortcutManager());
+const SETTINGS_KEYWORDS = ["settings", "config"];
 
 const themeStyle = computed(() => {
   if (!settings.value) return {};
@@ -95,7 +96,7 @@ const handleSearch = async (query: string) => {
 
   try {
     // Check if query triggers settings
-    if (query.toLowerCase() === "settings" || query.toLowerCase() === "config") {
+    if (SETTINGS_KEYWORDS.includes(query.toLowerCase())) {
        searchResults.value = [{
            id: "internal-settings",
            type: "file", // fallback type
@@ -107,9 +108,11 @@ const handleSearch = async (query: string) => {
        return;
     }
 
+    const limit = settings.value?.search.max_results || 10;
+
     const [bookmarks, files] = await Promise.all([
-      invoke<BookmarkSearchResult[]>("search_bookmarks", { query, limit: 5 }),
-      invoke<FileSearchResult[]>("search_files", { query, limit: 5 }),
+      invoke<BookmarkSearchResult[]>("search_bookmarks", { query, limit }),
+      invoke<FileSearchResult[]>("search_files", { query, limit }),
     ]);
 
     const bookmarkResults = bookmarks.map(mapBookmarkToSearchResult);

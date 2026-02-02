@@ -63,7 +63,7 @@ pub struct TantivySearchEngine {
     file_schema: Schema,
 
     // Database connection for frecency queries and rebuilds
-    db: Mutex<Database>,
+    db: Arc<Mutex<Database>>,
 
     // Index directory for stats
     index_dir: PathBuf,
@@ -75,7 +75,7 @@ impl TantivySearchEngine {
     /// # Arguments
     /// * `index_dir` - Directory to store Tantivy indexes
     /// * `db` - Database instance for frecency queries and index rebuilds
-    pub fn new(index_dir: PathBuf, db: Database) -> Result<Self, SearchError> {
+    pub fn new(index_dir: PathBuf, db: Arc<Mutex<Database>>) -> Result<Self, SearchError> {
         // Create index directories
         std::fs::create_dir_all(&index_dir)?;
 
@@ -140,7 +140,7 @@ impl TantivySearchEngine {
             file_writer: Mutex::new(file_writer),
             file_reader,
             file_schema,
-            db: Mutex::new(db),
+            db,
             index_dir,
         })
     }
@@ -1043,6 +1043,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::new_in_memory().unwrap();
         db.initialize().unwrap();
+        let db = Arc::new(Mutex::new(db));
         let engine = TantivySearchEngine::new(temp_dir.path().to_path_buf(), db).unwrap();
         (engine, temp_dir)
     }

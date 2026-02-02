@@ -85,13 +85,12 @@ pub fn run() {
             db.initialize()
                 .map_err(|e| format!("Failed to initialize database: {}", e))?;
 
+            let db = Arc::new(Mutex::new(db));
+
             // Initialize Tantivy search engine
             let index_dir = app_dir.join("tantivy_indexes");
-            let search_db_path = app_dir.join("bookmarks.db");
-            let search_db = Database::new(search_db_path)
-                .map_err(|e| format!("Failed to create search database: {}", e))?;
 
-            let search_engine = TantivySearchEngine::new(index_dir, search_db)
+            let search_engine = TantivySearchEngine::new(index_dir, db.clone())
                 .map_err(|e| format!("Failed to create search engine: {}", e))?;
 
             let search_engine = Arc::new(search_engine);
@@ -99,16 +98,33 @@ pub fn run() {
             // Rebuild indexes in background on first run
             let engine_clone = search_engine.clone();
             std::thread::spawn(move || {
-                if let Err(e) = engine_clone.rebuild_bookmark_index() {
-                    eprintln!("Failed to rebuild bookmark index: {}", e);
-                }
-                if let Err(e) = engine_clone.rebuild_file_index() {
-                    eprintln!("Failed to rebuild file index: {}", e);
+                match engine_clone.get_stats() {
+                    Ok(stats) => {
+                        if stats.bookmark_count == 0 {
+                            if let Err(e) = engine_clone.rebuild_bookmark_index() {
+                                eprintln!("Failed to rebuild bookmark index: {}", e);
+                            }
+                        }
+                        if stats.file_count == 0 {
+                            if let Err(e) = engine_clone.rebuild_file_index() {
+                                eprintln!("Failed to rebuild file index: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to get search stats: {}", e);
+                        if let Err(e) = engine_clone.rebuild_bookmark_index() {
+                            eprintln!("Failed to rebuild bookmark index: {}", e);
+                        }
+                        if let Err(e) = engine_clone.rebuild_file_index() {
+                            eprintln!("Failed to rebuild file index: {}", e);
+                        }
+                    }
                 }
             });
 
             app.manage(AppState {
-                db: Mutex::new(db),
+                db,
                 search_engine,
             });
             
