@@ -31,26 +31,33 @@ pub fn record_bookmark_access(state: State<AppState>, bookmark_id: i64) -> Resul
         let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
         let conn = db.get_connection();
 
-        conn.execute(
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start transaction: {}", e))?;
+
+        tx.execute(
             "UPDATE bookmarks SET last_accessed = ?1 WHERE id = ?2",
             rusqlite::params![now, bookmark_id],
         )
         .map_err(|e| format!("Failed to update last_accessed: {}", e))?;
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
             rusqlite::params![bookmark_id, now],
         )
         .map_err(|e| format!("Failed to insert usage history: {}", e))?;
 
         // Get the total access count for this bookmark
-        let count: i64 = conn
+        let count: i64 = tx
             .query_row(
                 "SELECT COUNT(*) FROM usage_history WHERE bookmark_id = ?1",
                 [bookmark_id],
                 |row| row.get(0),
             )
             .unwrap_or(1);
+
+        tx.commit()
+            .map_err(|e| format!("Failed to commit transaction: {}", e))?;
 
         count
         // DB lock released here

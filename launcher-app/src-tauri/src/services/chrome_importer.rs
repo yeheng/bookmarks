@@ -22,11 +22,18 @@ impl ChromeImporter {
             errors: Vec::new(),
         };
 
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start transaction: {}", e))?;
+
         if let Some(roots) = json.get("roots").and_then(|r| r.as_object()) {
             for (_, root_value) in roots.iter() {
-                Self::process_bookmark_node(conn, root_value, &mut result);
+                Self::process_bookmark_node(&tx, root_value, &mut result);
             }
         }
+
+        tx.commit()
+            .map_err(|e| format!("Failed to commit transaction: {}", e))?;
 
         Ok(result)
     }

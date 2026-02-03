@@ -118,13 +118,20 @@ impl FileScanner {
             .unwrap()
             .as_secs() as i64;
 
-        self.scan_recursive(conn, directory_id, path, now, &mut result)?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start transaction: {}", e))?;
 
-        conn.execute(
+        self.scan_recursive(&tx, directory_id, path, now, &mut result)?;
+
+        tx.execute(
             "UPDATE search_directories SET last_indexed_at = ?1, file_count = ?2 WHERE id = ?3",
             rusqlite::params![now, result.files_indexed as i64, directory_id],
         )
         .map_err(|e| format!("Failed to update directory stats: {}", e))?;
+
+        tx.commit()
+            .map_err(|e| format!("Failed to commit transaction: {}", e))?;
 
         Ok(result)
     }

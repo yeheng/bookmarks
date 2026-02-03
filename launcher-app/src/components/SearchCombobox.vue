@@ -35,7 +35,7 @@ watch(query, (newQuery) => {
 
   debounceTimer = window.setTimeout(() => {
     emit('search', newQuery);
-  }, 50);
+  }, 200);
 });
 
 const handleSelect = (result: SearchResult | null) => {
