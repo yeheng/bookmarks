@@ -719,22 +719,7 @@ impl SearchEngine for TantivySearchEngine {
     }
 
     fn rebuild_bookmark_index(&self) -> Result<usize, SearchError> {
-        // Clear existing index
-        {
-            let mut writer = self.bookmark_writer.lock().map_err(|_| {
-                SearchError::LockError("bookmark writer lock poisoned")
-            })?;
-            writer
-                .delete_all_documents()
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-            writer
-                .commit()
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-        }
-        self.bookmark_reader
-            .reload()
-            .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
+        // Fetch all bookmarks first to minimize lock contention
         let bookmarks = {
             let db = self
                 .db
@@ -770,40 +755,66 @@ impl SearchEngine for TantivySearchEngine {
 
         let count = bookmarks.len();
 
-        for (id, title, url, description, tags, last_accessed, created_at, updated_at) in bookmarks
+        // Batch index operations
         {
-            self.index_bookmark(
-                id,
-                &title,
-                &url,
-                description.as_deref(),
-                tags.as_deref(),
-                last_accessed,
-                created_at,
-                updated_at,
-            )?;
+            let mut writer = self.bookmark_writer.lock().map_err(|_| {
+                SearchError::LockError("bookmark writer lock poisoned")
+            })?;
+
+            // Clear existing index
+            writer
+                .delete_all_documents()
+                .map_err(|e| SearchError::IndexError(e.to_string()))?;
+
+            // Get fields
+            let id_field = self.bookmark_schema.get_field("id").unwrap();
+            let title_field = self.bookmark_schema.get_field("title").unwrap();
+            let url_field = self.bookmark_schema.get_field("url").unwrap();
+            let description_field = self.bookmark_schema.get_field("description").unwrap();
+            let tags_field = self.bookmark_schema.get_field("tags").unwrap();
+            let last_accessed_field = self.bookmark_schema.get_field("last_accessed").unwrap();
+            let created_at_field = self.bookmark_schema.get_field("created_at").unwrap();
+            let updated_at_field = self.bookmark_schema.get_field("updated_at").unwrap();
+            let access_count_field = self.bookmark_schema.get_field("access_count").unwrap();
+            let access_timestamp_field = self.bookmark_schema.get_field("access_timestamp").unwrap();
+
+            for (id, title, url, description, tags, last_accessed, created_at, updated_at) in
+                bookmarks
+            {
+                let doc = doc!(
+                    id_field => id,
+                    title_field => title,
+                    url_field => url,
+                    description_field => description.unwrap_or_default(),
+                    tags_field => tags.unwrap_or_default(),
+                    last_accessed_field => last_accessed.unwrap_or(0),
+                    created_at_field => created_at,
+                    updated_at_field => updated_at,
+                    access_count_field => 0i64,
+                    access_timestamp_field => 0i64
+                );
+
+                writer
+                    .add_document(doc)
+                    .map_err(|e| SearchError::IndexError(e.to_string()))?;
+            }
+
+            // Single commit for all operations
+            writer
+                .commit()
+                .map_err(|e| SearchError::IndexError(e.to_string()))?;
         }
+
+        // Single reload
+        self.bookmark_reader
+            .reload()
+            .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         Ok(count)
     }
 
     fn rebuild_file_index(&self) -> Result<usize, SearchError> {
-        // Clear existing index
-        {
-            let mut writer = self.file_writer.lock().map_err(|_| {
-                SearchError::LockError("file writer lock poisoned")
-            })?;
-            writer
-                .delete_all_documents()
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-            writer
-                .commit()
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-        }
-        self.file_reader
-            .reload()
-            .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
+        // Fetch all files first to minimize lock contention
         let files = {
             let db = self
                 .db
@@ -838,17 +849,56 @@ impl SearchEngine for TantivySearchEngine {
 
         let count = files.len();
 
-        for (id, path, name, extension, size, modified_at, directory_id) in files {
-            self.index_file(
-                id,
-                &path,
-                &name,
-                extension.as_deref(),
-                size,
-                modified_at,
-                directory_id,
-            )?;
+        // Batch index operations
+        {
+            let mut writer = self.file_writer.lock().map_err(|_| {
+                SearchError::LockError("file writer lock poisoned")
+            })?;
+
+            // Clear existing index
+            writer
+                .delete_all_documents()
+                .map_err(|e| SearchError::IndexError(e.to_string()))?;
+
+            // Get fields
+            let id_field = self.file_schema.get_field("id").unwrap();
+            let path_field = self.file_schema.get_field("path").unwrap();
+            let name_field = self.file_schema.get_field("name").unwrap();
+            let extension_field = self.file_schema.get_field("extension").unwrap();
+            let size_field = self.file_schema.get_field("size").unwrap();
+            let modified_at_field = self.file_schema.get_field("modified_at").unwrap();
+            let directory_id_field = self.file_schema.get_field("directory_id").unwrap();
+            let access_count_field = self.file_schema.get_field("access_count").unwrap();
+            let access_timestamp_field = self.file_schema.get_field("access_timestamp").unwrap();
+
+            for (id, path, name, extension, size, modified_at, directory_id) in files {
+                let doc = doc!(
+                    id_field => id,
+                    path_field => path,
+                    name_field => name,
+                    extension_field => extension.unwrap_or_default(),
+                    size_field => size,
+                    modified_at_field => modified_at,
+                    directory_id_field => directory_id,
+                    access_count_field => 0i64,
+                    access_timestamp_field => 0i64
+                );
+
+                writer
+                    .add_document(doc)
+                    .map_err(|e| SearchError::IndexError(e.to_string()))?;
+            }
+
+            // Single commit for all operations
+            writer
+                .commit()
+                .map_err(|e| SearchError::IndexError(e.to_string()))?;
         }
+
+        // Single reload
+        self.file_reader
+            .reload()
+            .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         Ok(count)
     }

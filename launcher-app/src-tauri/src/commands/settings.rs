@@ -132,6 +132,12 @@ pub fn get_app_settings(state: State<AppState>) -> Result<AppSettings, String> {
             .get("theme.border_radius")
             .and_then(|s| s.parse().ok())
             .unwrap_or(12),
+        bg_color: settings.get("theme.bg_color").cloned(),
+        text_color: settings.get("theme.text_color").cloned(),
+        secondary_text_color: settings.get("theme.secondary_text_color").cloned(),
+        border_color: settings.get("theme.border_color").cloned(),
+        selection_bg_color: settings.get("theme.selection_bg_color").cloned(),
+        selection_text_color: settings.get("theme.selection_text_color").cloned(),
     };
 
     let search = SearchSettings {
@@ -236,6 +242,18 @@ pub fn save_app_settings(
             "theme.border_radius",
             settings.theme.border_radius.to_string(),
         ),
+    ];
+
+    // Add optional color settings if present
+    let mut settings_map = settings_map;
+    if let Some(ref v) = settings.theme.bg_color { settings_map.push(("theme.bg_color", v.clone())); }
+    if let Some(ref v) = settings.theme.text_color { settings_map.push(("theme.text_color", v.clone())); }
+    if let Some(ref v) = settings.theme.secondary_text_color { settings_map.push(("theme.secondary_text_color", v.clone())); }
+    if let Some(ref v) = settings.theme.border_color { settings_map.push(("theme.border_color", v.clone())); }
+    if let Some(ref v) = settings.theme.selection_bg_color { settings_map.push(("theme.selection_bg_color", v.clone())); }
+    if let Some(ref v) = settings.theme.selection_text_color { settings_map.push(("theme.selection_text_color", v.clone())); }
+
+    settings_map.extend(vec![
         (
             "search.max_results",
             settings.search.max_results.to_string(),
@@ -261,7 +279,7 @@ pub fn save_app_settings(
             "general.check_updates",
             settings.general.check_updates.to_string(),
         ),
-    ];
+    ]);
 
     for (key, value) in settings_map {
         conn.execute(
@@ -313,7 +331,7 @@ pub fn save_theme_settings(state: State<AppState>, theme: ThemeSettings) -> Resu
         ThemeMode::System => "system",
     };
 
-    let settings: Vec<(&str, String)> = vec![
+    let mut settings: Vec<(&str, String)> = vec![
         ("theme.mode", mode_str.to_string()),
         ("theme.accent_color", theme.accent_color),
         ("theme.font_size", theme.font_size.to_string()),
@@ -323,6 +341,13 @@ pub fn save_theme_settings(state: State<AppState>, theme: ThemeSettings) -> Resu
         ("theme.item_height", theme.item_height.to_string()),
         ("theme.border_radius", theme.border_radius.to_string()),
     ];
+
+    if let Some(ref v) = theme.bg_color { settings.push(("theme.bg_color", v.clone())); }
+    if let Some(ref v) = theme.text_color { settings.push(("theme.text_color", v.clone())); }
+    if let Some(ref v) = theme.secondary_text_color { settings.push(("theme.secondary_text_color", v.clone())); }
+    if let Some(ref v) = theme.border_color { settings.push(("theme.border_color", v.clone())); }
+    if let Some(ref v) = theme.selection_bg_color { settings.push(("theme.selection_bg_color", v.clone())); }
+    if let Some(ref v) = theme.selection_text_color { settings.push(("theme.selection_text_color", v.clone())); }
 
     for (key, value) in settings {
         conn.execute(
