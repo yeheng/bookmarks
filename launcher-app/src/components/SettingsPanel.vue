@@ -124,22 +124,46 @@ onMounted(loadSettings);
       <!-- Theme -->
       <section class="settings-section">
         <h3 class="section-title">Theme & Layout</h3>
-        <label class="field">
-          <span class="field-label">Mode</span>
-          <select v-model="settings.theme.mode" class="field-input">
-            <option value="system">System</option>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">Accent Color</span>
-          <input
-            v-model="settings.theme.accent_color"
-            type="color"
-            class="field-color"
-          />
-        </label>
+          <label class="field">
+            <span class="field-label">Mode</span>
+            <select v-model="settings.theme.mode" class="field-input">
+              <option value="system">System</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </label>
+        
+        <!-- Advanced Colors -->
+        <div class="advanced-colors">
+            <h4 class="subsection-title">Colors</h4>
+            <div class="color-grid">
+                <label class="color-field">
+                    <span class="color-label">Accent</span>
+                    <input v-model="settings.theme.accent_color" type="color" class="field-color" />
+                </label>
+                <label class="color-field">
+                    <span class="color-label">Background</span>
+                    <div class="color-input-wrapper">
+                        <input type="checkbox" :checked="!!settings.theme.bg_color" @change="(e) => settings!.theme.bg_color = (e.target as HTMLInputElement).checked ? '#1a1a1a' : undefined">
+                        <input v-if="settings.theme.bg_color" v-model="settings.theme.bg_color" type="color" class="field-color" />
+                    </div>
+                </label>
+                <label class="color-field">
+                    <span class="color-label">Text</span>
+                    <div class="color-input-wrapper">
+                        <input type="checkbox" :checked="!!settings.theme.text_color" @change="(e) => settings!.theme.text_color = (e.target as HTMLInputElement).checked ? '#e0e0e0' : undefined">
+                        <input v-if="settings.theme.text_color" v-model="settings.theme.text_color" type="color" class="field-color" />
+                    </div>
+                </label>
+                <label class="color-field">
+                    <span class="color-label">Selection</span>
+                    <div class="color-input-wrapper">
+                         <input type="checkbox" :checked="!!settings.theme.selection_bg_color" @change="(e) => settings!.theme.selection_bg_color = (e.target as HTMLInputElement).checked ? settings!.theme.accent_color : undefined">
+                         <input v-if="settings.theme.selection_bg_color" v-model="settings.theme.selection_bg_color" type="color" class="field-color" />
+                    </div>
+                </label>
+            </div>
+        </div>
         
         <div class="field-group">
             <label class="field">
@@ -401,6 +425,42 @@ onMounted(loadSettings);
   border-radius: 4px;
   cursor: pointer;
   background: none;
+  padding: 0;
+}
+
+.advanced-colors {
+    margin: 16px 0;
+    padding: 12px;
+    background: rgba(0,0,0,0.1);
+    border-radius: 8px;
+}
+
+.subsection-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #9a9a9a;
+    margin-bottom: 8px;
+}
+
+.color-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.color-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #e0e0e0;
+}
+
+.color-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .field--toggle {

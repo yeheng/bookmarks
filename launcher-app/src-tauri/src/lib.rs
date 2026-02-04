@@ -7,9 +7,64 @@ mod services;
 use commands::bookmarks::AppState;
 use db::Database;
 use search::{SearchEngine, TantivySearchEngine};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+/// Maximum allowed discrepancy between SQLite and Tantivy counts (as a ratio).
+/// If discrepancy exceeds 5%, index rebuild is triggered.
+const INDEX_HEALTH_THRESHOLD: f64 = 0.05;
+
+/// Check if Tantivy indexes are in sync with SQLite database.
+/// Returns Ok(true) if healthy, Ok(false) if rebuild is needed.
+fn check_index_health(
+    search_engine: &Arc<TantivySearchEngine>,
+    db_path: &Path,
+) -> Result<bool, String> {
+    // Get Tantivy document counts
+    let stats = search_engine
+        .get_stats()
+        .map_err(|e| format!("Failed to get index stats: {}", e))?;
+
+    let tantivy_bookmark_count = stats.bookmark_count;
+    let tantivy_file_count = stats.file_count;
+
+    // Get SQLite counts
+    let db = Database::new(db_path.to_path_buf())
+        .map_err(|e| format!("Failed to open health check database: {}", e))?;
+
+    let conn = db.get_connection();
+
+    let sqlite_bookmark_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM bookmarks", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    let sqlite_file_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM indexed_files", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    // Calculate discrepancy
+    let bookmark_diff = (tantivy_bookmark_count as i64 - sqlite_bookmark_count).abs() as f64;
+    let file_diff = (tantivy_file_count as i64 - sqlite_file_count).abs() as f64;
+
+    let bookmark_threshold = (sqlite_bookmark_count as f64 * INDEX_HEALTH_THRESHOLD).max(1.0);
+    let file_threshold = (sqlite_file_count as f64 * INDEX_HEALTH_THRESHOLD).max(1.0);
+
+    let bookmark_healthy = sqlite_bookmark_count == 0 || bookmark_diff <= bookmark_threshold;
+    let file_healthy = sqlite_file_count == 0 || file_diff <= file_threshold;
+
+    println!(
+        "[HealthCheck] Bookmarks: SQLite={}, Tantivy={}, healthy={}",
+        sqlite_bookmark_count, tantivy_bookmark_count, bookmark_healthy
+    );
+    println!(
+        "[HealthCheck] Files: SQLite={}, Tantivy={}, healthy={}",
+        sqlite_file_count, tantivy_file_count, file_healthy
+    );
+
+    Ok(bookmark_healthy && file_healthy)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -96,14 +151,31 @@ pub fn run() {
 
             let search_engine = Arc::new(search_engine);
 
-            // Rebuild indexes in background on first run
+            // Health check: verify SQLite and Tantivy are in sync
+            // If discrepancy > 5%, trigger background rebuild
             let engine_clone = search_engine.clone();
+            let db_path_clone = app_dir.join("bookmarks.db");
             std::thread::spawn(move || {
-                if let Err(e) = engine_clone.rebuild_bookmark_index() {
-                    eprintln!("Failed to rebuild bookmark index: {}", e);
-                }
-                if let Err(e) = engine_clone.rebuild_file_index() {
-                    eprintln!("Failed to rebuild file index: {}", e);
+                // Check index health at startup
+                let needs_rebuild = match check_index_health(&engine_clone, &db_path_clone) {
+                    Ok(healthy) => !healthy,
+                    Err(e) => {
+                        eprintln!("[HealthCheck] Error checking index health: {}", e);
+                        true // Rebuild on error
+                    }
+                };
+
+                if needs_rebuild {
+                    println!("[HealthCheck] Index inconsistency detected, rebuilding...");
+                    if let Err(e) = engine_clone.rebuild_bookmark_index() {
+                        eprintln!("[HealthCheck] Failed to rebuild bookmark index: {}", e);
+                    }
+                    if let Err(e) = engine_clone.rebuild_file_index() {
+                        eprintln!("[HealthCheck] Failed to rebuild file index: {}", e);
+                    }
+                    println!("[HealthCheck] Index rebuild completed");
+                } else {
+                    println!("[HealthCheck] Indexes are healthy");
                 }
             });
 
@@ -140,6 +212,29 @@ pub fn run() {
             
             let window = app.get_webview_window("main").unwrap();
             let window_clone = window.clone();
+
+            #[cfg(target_os = "macos")]
+            {
+                let db_path = app_dir.join("bookmarks.db");
+                if let Ok(db) = Database::new(db_path) {
+                    if let Ok(conn) = db.initialize().and_then(|_| Ok(db.get_connection())) {
+                         let hide_dock: bool = conn
+                            .query_row(
+                                "SELECT value FROM settings WHERE key = 'general.hide_dock_icon'",
+                                [],
+                                |row| row.get::<_, String>(0),
+                            )
+                            .map(|v| v == "true")
+                            .unwrap_or(true);
+
+                        if hide_dock {
+                            app.handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
+                        } else {
+                            app.handle().set_activation_policy(tauri::ActivationPolicy::Regular);
+                        }
+                    }
+                }
+            }
 
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::Focused(false) = event {

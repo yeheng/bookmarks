@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { listen } from '@tauri-apps/api/event';
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import SearchCombobox from "./components/SearchCombobox.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
@@ -16,6 +17,7 @@ import type { AppSettings } from "./types/settings";
 
 const appWindow = getCurrentWebviewWindow();
 const searchResults = ref<SearchResult[]>([]);
+const searchComboboxRef = ref<InstanceType<typeof SearchCombobox> | null>(null);
 const isLoading = ref(false);
 const showSettings = ref(false);
 const settings = ref<AppSettings | null>(null);
@@ -32,10 +34,12 @@ const themeStyle = computed(() => {
     "--input-height": `${theme.input_height}px`,
     "--item-height": `${theme.item_height}px`,
     "--border-radius": `${theme.border_radius}px`,
-    "--bg-color": theme.mode === "light" ? "rgba(255, 255, 255, 0.95)" : "rgba(26, 26, 26, 0.95)",
-    "--text-color": theme.mode === "light" ? "#1a1a1a" : "#e0e0e0",
-    "--secondary-text": theme.mode === "light" ? "#6a6a6a" : "#9a9a9a",
-    "--border-color": theme.mode === "light" ? "#e0e0e0" : "#3a3a3a",
+    "--bg-color": theme.bg_color || (theme.mode === "light" ? "rgba(255, 255, 255, 0.95)" : "rgba(26, 26, 26, 0.95)"),
+    "--text-color": theme.text_color || (theme.mode === "light" ? "#1a1a1a" : "#e0e0e0"),
+    "--secondary-text": theme.secondary_text_color || (theme.mode === "light" ? "#6a6a6a" : "#9a9a9a"),
+    "--border-color": theme.border_color || (theme.mode === "light" ? "#e0e0e0" : "#3a3a3a"),
+    "--selection-bg": theme.selection_bg_color || theme.accent_color,
+    "--selection-text": theme.selection_text_color || "#ffffff",
   };
 });
 
@@ -156,8 +160,13 @@ const handleKeydown = (e: KeyboardEvent) => {
       // Reload settings in case they changed
       loadSettings(); 
     } else {
-      searchResults.value = [];
-      appWindow.hide();
+      // If there is a query, clear it first
+      if (searchComboboxRef.value?.hasQuery) {
+        searchComboboxRef.value.clearQuery();
+      } else {
+        searchResults.value = [];
+        appWindow.hide();
+      }
     }
     return;
   }
@@ -170,9 +179,27 @@ const handleKeydown = (e: KeyboardEvent) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   loadSettings();
   window.addEventListener("keydown", handleKeydown);
+
+  // Focus input when window gets focus
+  await appWindow.onFocusChanged(({ payload: focused }) => {
+    if (focused && !showSettings.value) {
+       nextTick(() => {
+          searchComboboxRef.value?.focusInput();
+       });
+    }
+  });
+
+  // Listen for tauri://focus event as a backup/alternative
+  await listen('tauri://focus', () => {
+      if (!showSettings.value) {
+          nextTick(() => {
+              searchComboboxRef.value?.focusInput();
+          });
+      }
+  });
 });
 
 onUnmounted(() => {
@@ -189,6 +216,7 @@ function handleSettingsClose() {
   <div class="app-root" :style="themeStyle">
     <div class="launcher-container" v-show="!showSettings">
       <SearchCombobox
+        ref="searchComboboxRef"
         :results="searchResults"
         :loading="isLoading"
         @search="handleSearch"

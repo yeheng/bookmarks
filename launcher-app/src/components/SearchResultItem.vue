@@ -25,6 +25,9 @@ defineProps<Props>();
     <div class="result-badge">
       {{ result.type === 'bookmark' ? 'Bookmark' : 'File' }}
     </div>
+    <div class="result-actions" v-if="isSelected">
+      <span class="action-key">⏎</span>
+    </div>
   </div>
 </template>
 
@@ -46,15 +49,16 @@ defineProps<Props>();
 }
 
 .result-item--selected {
-  background-color: var(--accent-color);
-  color: #fff !important;
+  background-color: var(--selection-bg);
+  color: var(--selection-text) !important;
 }
 
 /* Force white text on selection regardless of theme */
 .result-item--selected .result-title,
 .result-item--selected .result-subtitle,
 .result-item--selected .result-badge {
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--selection-text);
+    opacity: 0.9;
 }
 
 .result-icon {
@@ -97,5 +101,20 @@ defineProps<Props>();
   padding: 2px 6px;
   background-color: rgba(128, 128, 128, 0.1);
   border-radius: 4px;
+}
+
+.result-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.action-key {
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.9);
 }
 </style>

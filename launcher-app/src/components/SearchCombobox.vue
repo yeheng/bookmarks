@@ -53,18 +53,49 @@ const displayResults = computed(() => {
 const hasResults = computed(() => displayResults.value.length > 0);
 const showEmpty = computed(() => !props.loading && !hasResults.value && query.value.length > 0);
 const showRecent = computed(() => !props.loading && !hasResults.value && query.value.length === 0);
+
+const searchInput = ref<InstanceType<typeof ComboboxInput> | null>(null);
+
+const focusInput = () => {
+  // Headless UI ComboboxInput renders an input element
+  // We need to access the underlying DOM element
+  if (searchInput.value?.$el) {
+    searchInput.value.$el.focus();
+  }
+};
+
+const clearQuery = () => {
+    query.value = '';
+};
+
+const hasQuery = computed(() => query.value.length > 0);
+
+defineExpose({
+    focusInput,
+    clearQuery,
+    hasQuery
+});
 </script>
 
 <template>
   <Combobox v-model="selectedResult" @update:model-value="handleSelect">
     <div class="search-combobox">
       <ComboboxInput
+        ref="searchInput"
         @change="(e: Event) => query = (e.target as HTMLInputElement).value"
         :displayValue="() => query"
         class="search-input"
         placeholder="Search bookmarks and files..."
         autocomplete="off"
       />
+      
+      <button 
+        class="settings-icon-btn" 
+        @click="emit('select', { id: 'internal-settings', type: 'file', title: 'Settings', subtitle: '', path: '' })"
+        title="Open Settings (Type 'settings')"
+      >
+        ⚙️
+      </button>
 
       <TransitionRoot
         enter="transition-opacity duration-150"
@@ -76,7 +107,7 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
       >
         <ComboboxOptions class="results-container">
           <TransitionRoot
-            enter="transition-opacity duration-200 delay-50"
+            enter="transition-opacity duration-200 delay-200"
             enter-from="opacity-0"
             enter-to="opacity-100"
             leave="transition-opacity duration-100"
@@ -92,7 +123,9 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
           <div v-if="showEmpty" class="state-message">
             <span class="empty-icon">🔍</span>
             <div class="empty-text">No results found</div>
-            <div class="empty-hint">Try different keywords</div>
+            <div class="empty-hint">
+              Tip: Type <span class="highlight">settings</span> to configure
+            </div>
           </div>
 
           <div v-else-if="showRecent" class="state-message">
@@ -135,12 +168,13 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .search-input {
   width: 100%;
   height: var(--input-height, 60px);
-  padding: 0 24px;
+  padding: 0 50px 0 24px;
   font-size: calc(var(--font-size) * 1.5);
   border: none;
   outline: none;
@@ -151,6 +185,27 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
 
 .search-input::placeholder {
   color: var(--secondary-text);
+}
+
+.settings-icon-btn {
+  position: absolute;
+  top: 0;
+  right: 16px;
+  height: var(--input-height, 60px);
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  opacity: 0.3;
+  transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-color);
+}
+
+.settings-icon-btn:hover {
+  opacity: 1;
 }
 
 .results-container {
@@ -218,6 +273,14 @@ const showRecent = computed(() => !props.loading && !hasResults.value && query.v
 .empty-hint {
   font-size: 14px;
   color: var(--secondary-text);
+}
+
+.highlight {
+  color: var(--accent-color);
+  font-weight: 600;
+  background: rgba(128, 128, 128, 0.1);
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 
 .section-label {

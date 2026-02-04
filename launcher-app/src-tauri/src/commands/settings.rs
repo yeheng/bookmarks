@@ -1,7 +1,7 @@
 use crate::commands::bookmarks::AppState;
 use crate::models::settings::{
-    AppSettings, ExportData, ExportedBookmark, GeneralSettings, HotkeySettings,
-    ImportResult, SearchSettings, ThemeMode, ThemeSettings,
+    AppSettings, ExportData, ExportedBookmark, GeneralSettings, HotkeySettings, ImportResult,
+    SearchSettings, ThemeMode, ThemeSettings,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -23,11 +23,9 @@ pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>
     let conn = db.get_connection();
 
     let result: Option<String> = conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = ?1",
-            [&key],
-            |row| row.get(0),
-        )
+        .query_row("SELECT value FROM settings WHERE key = ?1", [&key], |row| {
+            row.get(0)
+        })
         .ok();
 
     Ok(result)
@@ -70,7 +68,9 @@ pub fn get_all_settings(state: State<AppState>) -> Result<HashMap<String, String
         .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
     let settings: HashMap<String, String> = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| format!("Failed to query settings: {}", e))?
         .filter_map(|r| r.ok())
         .collect();
@@ -92,6 +92,7 @@ pub fn get_app_settings(state: State<AppState>) -> Result<AppSettings, String> {
                 #[cfg(not(target_os = "macos"))]
                 return "Ctrl+Space".to_string();
             }),
+        ui_shortcuts: Default::default(),
     };
 
     let theme = ThemeSettings {
@@ -176,10 +177,34 @@ pub fn get_app_settings(state: State<AppState>) -> Result<AppSettings, String> {
 }
 
 #[tauri::command]
-pub fn save_app_settings(state: State<AppState>, settings: AppSettings) -> Result<(), String> {
+pub fn save_app_settings(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    settings: AppSettings,
+) -> Result<(), String> {
     let db = state.db.lock().unwrap();
     let conn = db.get_connection();
     let now = get_now();
+
+    #[cfg(target_os = "macos")]
+    {
+        let old_hide_dock: bool = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'general.hide_dock_icon'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|v| v == "true")
+            .unwrap_or(true);
+
+        if old_hide_dock != settings.general.hide_dock_icon {
+            if settings.general.hide_dock_icon {
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            } else {
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+            }
+        }
+    }
 
     let settings_map: Vec<(&str, String)> = vec![
         ("hotkey.global_shortcut", settings.hotkey.global_shortcut),
@@ -194,12 +219,27 @@ pub fn save_app_settings(state: State<AppState>, settings: AppSettings) -> Resul
         ),
         ("theme.accent_color", settings.theme.accent_color),
         ("theme.font_size", settings.theme.font_size.to_string()),
-        ("theme.window_width", settings.theme.window_width.to_string()),
-        ("theme.window_height", settings.theme.window_height.to_string()),
-        ("theme.input_height", settings.theme.input_height.to_string()),
+        (
+            "theme.window_width",
+            settings.theme.window_width.to_string(),
+        ),
+        (
+            "theme.window_height",
+            settings.theme.window_height.to_string(),
+        ),
+        (
+            "theme.input_height",
+            settings.theme.input_height.to_string(),
+        ),
         ("theme.item_height", settings.theme.item_height.to_string()),
-        ("theme.border_radius", settings.theme.border_radius.to_string()),
-        ("search.max_results", settings.search.max_results.to_string()),
+        (
+            "theme.border_radius",
+            settings.theme.border_radius.to_string(),
+        ),
+        (
+            "search.max_results",
+            settings.search.max_results.to_string(),
+        ),
         (
             "search.show_bookmarks",
             settings.search.show_bookmarks.to_string(),
@@ -241,10 +281,7 @@ pub fn get_hotkey_settings(state: State<AppState>) -> Result<HotkeySettings, Str
 }
 
 #[tauri::command]
-pub fn save_hotkey_settings(
-    state: State<AppState>,
-    hotkey: HotkeySettings,
-) -> Result<(), String> {
+pub fn save_hotkey_settings(state: State<AppState>, hotkey: HotkeySettings) -> Result<(), String> {
     let db = state.db.lock().unwrap();
     let conn = db.get_connection();
     let now = get_now();
@@ -305,10 +342,7 @@ pub fn get_search_settings(state: State<AppState>) -> Result<SearchSettings, Str
 }
 
 #[tauri::command]
-pub fn save_search_settings(
-    state: State<AppState>,
-    search: SearchSettings,
-) -> Result<(), String> {
+pub fn save_search_settings(state: State<AppState>, search: SearchSettings) -> Result<(), String> {
     let db = state.db.lock().unwrap();
     let conn = db.get_connection();
     let now = get_now();
@@ -337,9 +371,7 @@ pub fn export_data(state: State<AppState>, file_path: String) -> Result<(), Stri
     let conn = db.get_connection();
 
     let mut bookmark_stmt = conn
-        .prepare(
-            "SELECT title, url, description, tags, source, created_at FROM bookmarks",
-        )
+        .prepare("SELECT title, url, description, tags, source, created_at FROM bookmarks")
         .map_err(|e| format!("Failed to prepare bookmark query: {}", e))?;
 
     let bookmarks: Vec<ExportedBookmark> = bookmark_stmt
@@ -372,7 +404,9 @@ pub fn export_data(state: State<AppState>, file_path: String) -> Result<(), Stri
         .map_err(|e| format!("Failed to prepare settings query: {}", e))?;
 
     let settings: HashMap<String, String> = settings_stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| format!("Failed to query settings: {}", e))?
         .filter_map(|r| r.ok())
         .collect();

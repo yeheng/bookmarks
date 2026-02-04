@@ -69,7 +69,10 @@ impl FileWatcher {
                     let _ = tx.send(event);
                 }
             },
-            Config::default().with_poll_interval(Duration::from_secs(2)),
+            // Use default config for native events (FSEvents/inotify/ReadDirectoryChangesW).
+            // Poll interval only affects fallback PollWatcher on unsupported systems.
+            // Increased from 2s to 30s to reduce CPU usage if polling is actually used.
+            Config::default().with_poll_interval(Duration::from_secs(30)),
         )
         .map_err(|e| format!("Failed to create watcher: {}", e))?;
 

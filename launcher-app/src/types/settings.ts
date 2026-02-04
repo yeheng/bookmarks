@@ -6,6 +6,12 @@ export interface HotkeySettings {
 export interface ThemeSettings {
   mode: 'light' | 'dark' | 'system';
   accent_color: string;
+  bg_color?: string;
+  text_color?: string;
+  secondary_text_color?: string;
+  border_color?: string;
+  selection_bg_color?: string;
+  selection_text_color?: string;
   font_size: number;
   window_width: number;
   window_height: number;

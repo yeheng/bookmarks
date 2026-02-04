@@ -26,9 +26,9 @@ pub struct HotkeySettings {
 
 fn default_ui_shortcuts() -> HashMap<String, String> {
     let mut shortcuts = HashMap::new();
-    
+
     shortcuts.insert("general.close".to_string(), "Escape".to_string());
-    
+
     #[cfg(target_os = "macos")]
     {
         shortcuts.insert("general.settings".to_string(), "Meta+,".to_string());
@@ -39,11 +39,11 @@ fn default_ui_shortcuts() -> HashMap<String, String> {
         shortcuts.insert("general.settings".to_string(), "Ctrl+,".to_string());
         shortcuts.insert("search.open_new_tab".to_string(), "Ctrl+Enter".to_string());
     }
-    
+
     shortcuts.insert("search.next".to_string(), "ArrowDown".to_string());
     shortcuts.insert("search.prev".to_string(), "ArrowUp".to_string());
     shortcuts.insert("search.open".to_string(), "Enter".to_string());
-    
+
     shortcuts
 }
 
@@ -65,6 +65,12 @@ impl Default for HotkeySettings {
 pub struct ThemeSettings {
     pub mode: ThemeMode,
     pub accent_color: String,
+    pub bg_color: Option<String>,
+    pub text_color: Option<String>,
+    pub secondary_text_color: Option<String>,
+    pub border_color: Option<String>,
+    pub selection_bg_color: Option<String>,
+    pub selection_text_color: Option<String>,
     pub font_size: u8,
     pub window_width: u32,
     pub window_height: u32,
@@ -78,6 +84,12 @@ impl Default for ThemeSettings {
         ThemeSettings {
             mode: ThemeMode::System,
             accent_color: "#ff6b6b".to_string(),
+            bg_color: None,
+            text_color: None,
+            secondary_text_color: None,
+            border_color: None,
+            selection_bg_color: None,
+            selection_text_color: None,
             font_size: 14,
             window_width: 750,
             window_height: 480,

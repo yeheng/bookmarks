@@ -31,16 +31,25 @@ use super::schema::{build_bookmark_schema, build_file_schema, register_tokenizer
 use crate::db::Database;
 use crate::models::bookmark::BookmarkSearchResult;
 use crate::models::file::FileSearchResult;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 use tantivy::collector::TopDocs;
 
-/// Index writer heap size in bytes (50MB)
-const INDEX_WRITER_HEAP_SIZE: usize = 50_000_000;
+/// Index writer heap size in bytes (15MB)
+/// Tantivy requires minimum 15MB per writer. Reduced from 50MB.
+/// This saves ~70MB of RAM (2 writers × 50MB → 2 × 15MB).
+const INDEX_WRITER_HEAP_SIZE: usize = 15_000_000;
 
 /// Search result multiplier for frecency re-ranking
 /// Fetch 2x the requested limit to allow for re-ranking
 const SEARCH_RESULT_MULTIPLIER: usize = 2;
+
+/// Minimum interval between frecency updates to Tantivy (in seconds).
+/// Updates within this window are debounced - SQLite is always updated,
+/// but expensive Tantivy delete+add operations are throttled.
+const FRECENCY_UPDATE_DEBOUNCE_SECS: u64 = 60;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
@@ -67,6 +76,11 @@ pub struct TantivySearchEngine {
 
     // Index directory for stats
     index_dir: PathBuf,
+
+    // Frecency update debounce: tracks last Tantivy update time per ID
+    // Prevents expensive delete+add operations when user clicks rapidly
+    bookmark_frecency_last_update: Mutex<HashMap<i64, Instant>>,
+    file_frecency_last_update: Mutex<HashMap<i64, Instant>>,
 }
 
 impl TantivySearchEngine {
@@ -142,6 +156,8 @@ impl TantivySearchEngine {
             file_schema,
             db: Mutex::new(db),
             index_dir,
+            bookmark_frecency_last_update: Mutex::new(HashMap::new()),
+            file_frecency_last_update: Mutex::new(HashMap::new()),
         })
     }
 
@@ -884,6 +900,20 @@ impl SearchEngine for TantivySearchEngine {
         access_count: i64,
         access_timestamp: i64,
     ) -> Result<(), SearchError> {
+        // Debounce check: skip Tantivy update if last update was within threshold
+        {
+            let last_update_map = self.bookmark_frecency_last_update.lock()
+                .map_err(|_| SearchError::LockError("bookmark frecency debounce lock poisoned"))?;
+
+            if let Some(last_update) = last_update_map.get(&id) {
+                if last_update.elapsed().as_secs() < FRECENCY_UPDATE_DEBOUNCE_SECS {
+                    // Skip Tantivy update - SQLite already has latest data
+                    // Tantivy will sync on next search or rebuild
+                    return Ok(());
+                }
+            }
+        }
+
         // Read existing document from index
         let searcher = self.bookmark_reader.searcher();
         let id_field = self
@@ -954,6 +984,11 @@ impl SearchEngine for TantivySearchEngine {
             self.bookmark_reader
                 .reload()
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
+
+            // Record update time for debouncing
+            if let Ok(mut last_update_map) = self.bookmark_frecency_last_update.lock() {
+                last_update_map.insert(id, Instant::now());
+            }
         }
 
         Ok(())
@@ -965,6 +1000,19 @@ impl SearchEngine for TantivySearchEngine {
         access_count: i64,
         access_timestamp: i64,
     ) -> Result<(), SearchError> {
+        // Debounce check: skip Tantivy update if last update was within threshold
+        {
+            let last_update_map = self.file_frecency_last_update.lock()
+                .map_err(|_| SearchError::LockError("file frecency debounce lock poisoned"))?;
+
+            if let Some(last_update) = last_update_map.get(&id) {
+                if last_update.elapsed().as_secs() < FRECENCY_UPDATE_DEBOUNCE_SECS {
+                    // Skip Tantivy update - SQLite already has latest data
+                    return Ok(());
+                }
+            }
+        }
+
         // Read existing document from index
         let searcher = self.file_reader.searcher();
         let id_field = self
@@ -1028,6 +1076,11 @@ impl SearchEngine for TantivySearchEngine {
             self.file_reader
                 .reload()
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
+
+            // Record update time for debouncing
+            if let Ok(mut last_update_map) = self.file_frecency_last_update.lock() {
+                last_update_map.insert(id, Instant::now());
+            }
         }
 
         Ok(())
@@ -1374,19 +1427,22 @@ mod tests {
             results2[0].frecency_score
         );
 
-        // 5. Update frecency again with higher count
+        // 5. Second update within debounce window is intentionally skipped
+        // (60 second debounce prevents excessive Tantivy writes)
         engine.update_bookmark_frecency(1, 20, now).unwrap();
 
         let results3 = engine.search_bookmarks("zerolock", 10).unwrap();
-        assert!(
-            results3[0].frecency_score > results2[0].frecency_score,
-            "Higher access count should increase frecency: {} vs {}",
+        // Due to debounce, the second update is skipped, so frecency stays the same
+        assert_eq!(
+            results3[0].frecency_score, results2[0].frecency_score,
+            "Frecency should be unchanged due to debounce: {} vs {}",
             results3[0].frecency_score,
             results2[0].frecency_score
         );
 
         // Note: The key architectural win is that search_bookmarks() never touches
         // the DB - all frecency data comes from Tantivy FastFields!
+        // The debounce mechanism reduces I/O while SQLite maintains ground truth.
     }
 
     /// Test that update_file_frecency correctly updates frecency in the file index
