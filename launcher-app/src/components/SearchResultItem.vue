@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 import type { SearchResult } from '../types/search';
 import { useFrecency, formatFrecencyBreakdown, getFrecencyBgClass } from '../composables/useFrecency';
 
@@ -24,26 +24,6 @@ const frecencyTooltip = computed(() => {
 const showFrecency = computed(() => {
   return props.result.frecency_score !== undefined && props.result.frecency_score > 0;
 });
-
-// Ripple effect state
-const ripples = ref<Array<{ id: number; x: number; y: number; size: number }>>([]);
-let rippleId = 0;
-
-const handleMouseDown = (event: MouseEvent) => {
-  const target = event.currentTarget as HTMLElement;
-  const rect = target.getBoundingClientRect();
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
-  const size = Math.max(rect.width, rect.height) * 2;
-
-  const id = rippleId++;
-  ripples.value.push({ id, x, y, size });
-
-  // Remove ripple after animation
-  setTimeout(() => {
-    ripples.value = ripples.value.filter(r => r.id !== id);
-  }, 600);
-};
 </script>
 
 <template>
@@ -53,22 +33,7 @@ const handleMouseDown = (event: MouseEvent) => {
     role="option"
     :aria-selected="isSelected"
     :aria-label="`${result.title}, ${result.type === 'bookmark' ? 'Bookmark' : 'File'}, ${result.subtitle}`"
-    @mousedown="handleMouseDown"
   >
-    <!-- Ripple container -->
-    <div class="ripple-container" aria-hidden="true">
-      <span
-        v-for="ripple in ripples"
-        :key="ripple.id"
-        class="ripple"
-        :style="{
-          left: `${ripple.x}px`,
-          top: `${ripple.y}px`,
-          width: `${ripple.size}px`,
-          height: `${ripple.size}px`,
-        }"
-      ></span>
-    </div>
 
     <div class="result-icon" aria-hidden="true">
       <span v-if="result.type === 'bookmark'" class="icon" role="img" aria-label="Bookmark">🔖</span>
@@ -130,8 +95,10 @@ const handleMouseDown = (event: MouseEvent) => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
+/* Simple CSS-only active state - no JavaScript needed */
 .result-item:active {
   transform: scale(0.995);
+  background-color: rgba(255, 255, 255, 0.15);
 }
 
 .result-item--selected {
@@ -146,42 +113,6 @@ const handleMouseDown = (event: MouseEvent) => {
 .result-item--selected .result-badge {
     color: var(--selection-text);
     opacity: 0.9;
-}
-
-/* Ripple Effect */
-.ripple-container {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  overflow: hidden;
-  border-radius: inherit;
-}
-
-.ripple {
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
-  transform: translate(-50%, -50%) scale(0);
-  animation: ripple-expand 0.6s ease-out forwards;
-  pointer-events: none;
-}
-
-.result-item--selected .ripple {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-@keyframes ripple-expand {
-  0% {
-    transform: translate(-50%, -50%) scale(0);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 0;
-  }
 }
 
 .result-icon {

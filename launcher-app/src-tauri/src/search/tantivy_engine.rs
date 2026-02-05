@@ -4,37 +4,33 @@
 //!
 //! This engine uses multiple locks to protect shared resources:
 //!
-//! 1. `db: Mutex<Database>` - Protects SQLite database access
-//! 2. `bookmark_writer: Mutex<IndexWriter>` - Protects bookmark index writes
-//! 3. `file_writer: Mutex<IndexWriter>` - Protects file index writes
+//! 1. `bookmark_writer: Mutex<IndexWriter>` - Protects bookmark index writes
+//! 2. `file_writer: Mutex<IndexWriter>` - Protects file index writes
 //!
 //! ## Lock Acquisition Strategy
 //!
-//! - Search methods (search_bookmarks, search_files) perform Tantivy search FIRST
-//!   without any locks, then briefly acquire the DB lock for batch queries only.
-//!   This minimizes the critical section and reduces deadlock risk.
+//! - Search methods (search_bookmarks, search_files) perform Tantivy search
+//!   without any locks, keeping operations fast and simple.
 //!
 //! - Write methods (index_bookmark, index_file) only acquire writer locks.
-//!   Callers must release any DB locks before calling these methods.
+//!   Callers must ensure no conflicts with concurrent operations.
 //!
-//! - Rebuild methods acquire locks in order: writer lock first, then DB lock.
-//!   DB lock is released before indexing to avoid holding both locks.
+//! - Rebuild methods only acquire writer locks. The Service layer is responsible
+//!   for fetching data from the database and passing it to the rebuild methods.
 //!
 //! ## Important Notes
 //!
-//! - Never hold DB lock while calling index_bookmark/index_file
-//! - Search methods hold DB lock for the minimum time needed (batch queries only)
+//! - SearchEngine is decoupled from Database - it only manages indexes
+//! - Service layer coordinates between Database and SearchEngine
 //! - All lock poisoning is handled via SearchError::LockError
 
 use super::engine::{IndexStats, SearchEngine, SearchError};
+use super::frecency_worker::{FrecencyBatchWorker, FrecencyUpdate};
 use super::schema::{build_bookmark_schema, build_file_schema, register_tokenizers};
-use crate::db::Database;
 use crate::models::bookmark::BookmarkSearchResult;
 use crate::models::file::FileSearchResult;
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
 use tantivy::collector::TopDocs;
 
 /// Index writer heap size in bytes (15MB)
@@ -46,41 +42,36 @@ const INDEX_WRITER_HEAP_SIZE: usize = 15_000_000;
 /// Fetch 2x the requested limit to allow for re-ranking
 const SEARCH_RESULT_MULTIPLIER: usize = 2;
 
-/// Minimum interval between frecency updates to Tantivy (in seconds).
-/// Updates within this window are debounced - SQLite is always updated,
-/// but expensive Tantivy delete+add operations are throttled.
-const FRECENCY_UPDATE_DEBOUNCE_SECS: u64 = 60;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
 /// Tantivy-based search engine implementation.
 ///
-/// Provides full-text search for bookmarks and files using Tantivy,
-/// with frecency scoring integrated from SQLite usage history.
+/// Provides full-text search for bookmarks and files using Tantivy.
+/// This engine is decoupled from the database - it only manages search indexes.
+/// The Service layer coordinates between the database and search engine.
+///
+/// Frecency updates are batched using a background worker thread to reduce
+/// lock contention and improve performance.
 pub struct TantivySearchEngine {
     // Bookmark index components
     bookmark_index: Index,
-    bookmark_writer: Mutex<IndexWriter>,
+    bookmark_writer: Arc<Mutex<IndexWriter>>,
     bookmark_reader: IndexReader,
     bookmark_schema: Schema,
 
     // File index components
     file_index: Index,
-    file_writer: Mutex<IndexWriter>,
+    file_writer: Arc<Mutex<IndexWriter>>,
     file_reader: IndexReader,
     file_schema: Schema,
-
-    // Database connection for frecency queries and rebuilds
-    db: Mutex<Database>,
 
     // Index directory for stats
     index_dir: PathBuf,
 
-    // Frecency update debounce: tracks last Tantivy update time per ID
-    // Prevents expensive delete+add operations when user clicks rapidly
-    bookmark_frecency_last_update: Mutex<HashMap<i64, Instant>>,
-    file_frecency_last_update: Mutex<HashMap<i64, Instant>>,
+    // Frecency batch worker
+    frecency_worker: FrecencyBatchWorker,
 }
 
 impl TantivySearchEngine {
@@ -88,8 +79,10 @@ impl TantivySearchEngine {
     ///
     /// # Arguments
     /// * `index_dir` - Directory to store Tantivy indexes
-    /// * `db` - Database instance for frecency queries and index rebuilds
-    pub fn new(index_dir: PathBuf, db: Database) -> Result<Self, SearchError> {
+    ///
+    /// Note: This engine is decoupled from the database.
+    /// Use the Service layer to coordinate database and index operations.
+    pub fn new(index_dir: PathBuf) -> Result<Self, SearchError> {
         // Create index directories
         std::fs::create_dir_all(&index_dir)?;
 
@@ -145,19 +138,31 @@ impl TantivySearchEngine {
             .try_into()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
+        // Create bookmark and file writers as Arc<Mutex<>> for sharing with worker
+        let bookmark_writer_arc = Arc::new(Mutex::new(bookmark_writer));
+        let file_writer_arc = Arc::new(Mutex::new(file_writer));
+
+        // Initialize frecency batch worker
+        let frecency_worker = FrecencyBatchWorker::new(
+            bookmark_index.clone(),
+            bookmark_schema.clone(),
+            bookmark_writer_arc.clone(),
+            file_index.clone(),
+            file_schema.clone(),
+            file_writer_arc.clone(),
+        );
+
         Ok(Self {
             bookmark_index,
-            bookmark_writer: Mutex::new(bookmark_writer),
+            bookmark_writer: bookmark_writer_arc,
             bookmark_reader,
             bookmark_schema,
             file_index,
-            file_writer: Mutex::new(file_writer),
+            file_writer: file_writer_arc,
             file_reader,
             file_schema,
-            db: Mutex::new(db),
             index_dir,
-            bookmark_frecency_last_update: Mutex::new(HashMap::new()),
-            file_frecency_last_update: Mutex::new(HashMap::new()),
+            frecency_worker,
         })
     }
 
@@ -718,7 +723,10 @@ impl SearchEngine for TantivySearchEngine {
         Ok(())
     }
 
-    fn rebuild_bookmark_index(&self) -> Result<usize, SearchError> {
+    fn rebuild_bookmark_index_from_data(
+        &self,
+        bookmarks: Vec<(i64, String, String, Option<String>, Option<String>, Option<i64>, i64, i64)>,
+    ) -> Result<usize, SearchError> {
         // Clear existing index
         {
             let mut writer = self.bookmark_writer.lock().map_err(|_| {
@@ -735,41 +743,9 @@ impl SearchEngine for TantivySearchEngine {
             .reload()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-        let bookmarks = {
-            let db = self
-                .db
-                .lock()
-                .map_err(|_| SearchError::LockError("database lock poisoned"))?;
-            let conn = db.get_connection();
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, title, url, description, tags, last_accessed, created_at, updated_at
-                     FROM bookmarks",
-                )
-                .map_err(|e| SearchError::DatabaseError(e.to_string()))?;
-
-            let rows = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<i64>>(5)?,
-                        row.get::<_, i64>(6)?,
-                        row.get::<_, i64>(7)?,
-                    ))
-                })
-                .map_err(|e| SearchError::DatabaseError(e.to_string()))?;
-
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(|e| SearchError::DatabaseError(e.to_string()))?
-        };
-
         let count = bookmarks.len();
 
+        // Index all provided bookmarks
         for (id, title, url, description, tags, last_accessed, created_at, updated_at) in bookmarks
         {
             self.index_bookmark(
@@ -787,7 +763,10 @@ impl SearchEngine for TantivySearchEngine {
         Ok(count)
     }
 
-    fn rebuild_file_index(&self) -> Result<usize, SearchError> {
+    fn rebuild_file_index_from_data(
+        &self,
+        files: Vec<(i64, String, String, Option<String>, i64, i64, i64)>,
+    ) -> Result<usize, SearchError> {
         // Clear existing index
         {
             let mut writer = self.file_writer.lock().map_err(|_| {
@@ -804,40 +783,9 @@ impl SearchEngine for TantivySearchEngine {
             .reload()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-        let files = {
-            let db = self
-                .db
-                .lock()
-                .map_err(|_| SearchError::LockError("database lock poisoned"))?;
-            let conn = db.get_connection();
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, path, name, extension, size, modified_at, directory_id
-                     FROM indexed_files",
-                )
-                .map_err(|e| SearchError::DatabaseError(e.to_string()))?;
-
-            let rows = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, i64>(6)?,
-                    ))
-                })
-                .map_err(|e| SearchError::DatabaseError(e.to_string()))?;
-
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(|e| SearchError::DatabaseError(e.to_string()))?
-        };
-
         let count = files.len();
 
+        // Index all provided files
         for (id, path, name, extension, size, modified_at, directory_id) in files {
             self.index_file(
                 id,
@@ -900,98 +848,13 @@ impl SearchEngine for TantivySearchEngine {
         access_count: i64,
         access_timestamp: i64,
     ) -> Result<(), SearchError> {
-        // Debounce check: skip Tantivy update if last update was within threshold
-        {
-            let last_update_map = self.bookmark_frecency_last_update.lock()
-                .map_err(|_| SearchError::LockError("bookmark frecency debounce lock poisoned"))?;
-
-            if let Some(last_update) = last_update_map.get(&id) {
-                if last_update.elapsed().as_secs() < FRECENCY_UPDATE_DEBOUNCE_SECS {
-                    // Skip Tantivy update - SQLite already has latest data
-                    // Tantivy will sync on next search or rebuild
-                    return Ok(());
-                }
-            }
-        }
-
-        // Read existing document from index
-        let searcher = self.bookmark_reader.searcher();
-        let id_field = self
-            .bookmark_schema
-            .get_field("id")
-            .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
-        // Find the document by ID
-        let query_parser = QueryParser::for_index(&self.bookmark_index, vec![]);
-        let query = tantivy::query::TermQuery::new(
-            Term::from_field_i64(id_field, id),
-            tantivy::schema::IndexRecordOption::Basic,
-        );
-
-        let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(1))
-            .map_err(|e| SearchError::IndexError(e.to_string()))?;
-        let _ = query_parser; // suppress unused warning
-
-        if let Some((_score, doc_address)) = top_docs.into_iter().next() {
-            let doc: TantivyDocument = searcher
-                .doc(doc_address)
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
-            // Extract existing fields
-            let title_field = self.bookmark_schema.get_field("title").unwrap();
-            let url_field = self.bookmark_schema.get_field("url").unwrap();
-            let description_field = self.bookmark_schema.get_field("description").unwrap();
-            let tags_field = self.bookmark_schema.get_field("tags").unwrap();
-            let last_accessed_field = self.bookmark_schema.get_field("last_accessed").unwrap();
-            let created_at_field = self.bookmark_schema.get_field("created_at").unwrap();
-            let updated_at_field = self.bookmark_schema.get_field("updated_at").unwrap();
-            let access_count_field = self.bookmark_schema.get_field("access_count").unwrap();
-            let access_timestamp_field = self.bookmark_schema.get_field("access_timestamp").unwrap();
-
-            let title = doc.get_first(title_field).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let url = doc.get_first(url_field).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let description = doc.get_first(description_field).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let tags = doc.get_first(tags_field).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let created_at = doc.get_first(created_at_field).and_then(|v| v.as_i64()).unwrap_or(0);
-            let updated_at = doc.get_first(updated_at_field).and_then(|v| v.as_i64()).unwrap_or(0);
-
-            // Delete and re-add with updated frecency
-            let mut writer = self.bookmark_writer.lock().map_err(|_| {
-                SearchError::LockError("bookmark writer lock poisoned")
-            })?;
-            writer.delete_term(Term::from_field_i64(id_field, id));
-
-            let new_doc = doc!(
-                id_field => id,
-                title_field => title,
-                url_field => url,
-                description_field => description,
-                tags_field => tags,
-                last_accessed_field => access_timestamp,
-                created_at_field => created_at,
-                updated_at_field => updated_at,
-                access_count_field => access_count,
-                access_timestamp_field => access_timestamp
-            );
-
-            writer
-                .add_document(new_doc)
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-            writer
-                .commit()
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-            self.bookmark_reader
-                .reload()
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
-            // Record update time for debouncing
-            if let Ok(mut last_update_map) = self.bookmark_frecency_last_update.lock() {
-                last_update_map.insert(id, Instant::now());
-            }
-        }
-
-        Ok(())
+        // Send update to batch worker (non-blocking)
+        // Worker will batch updates and commit when: 10+ updates OR 5 seconds elapsed
+        self.frecency_worker.send_update(FrecencyUpdate::Bookmark {
+            id,
+            access_count,
+            access_timestamp,
+        })
     }
 
     fn update_file_frecency(
@@ -1000,90 +863,12 @@ impl SearchEngine for TantivySearchEngine {
         access_count: i64,
         access_timestamp: i64,
     ) -> Result<(), SearchError> {
-        // Debounce check: skip Tantivy update if last update was within threshold
-        {
-            let last_update_map = self.file_frecency_last_update.lock()
-                .map_err(|_| SearchError::LockError("file frecency debounce lock poisoned"))?;
-
-            if let Some(last_update) = last_update_map.get(&id) {
-                if last_update.elapsed().as_secs() < FRECENCY_UPDATE_DEBOUNCE_SECS {
-                    // Skip Tantivy update - SQLite already has latest data
-                    return Ok(());
-                }
-            }
-        }
-
-        // Read existing document from index
-        let searcher = self.file_reader.searcher();
-        let id_field = self
-            .file_schema
-            .get_field("id")
-            .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
-        let query = tantivy::query::TermQuery::new(
-            Term::from_field_i64(id_field, id),
-            tantivy::schema::IndexRecordOption::Basic,
-        );
-
-        let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(1))
-            .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
-        if let Some((_score, doc_address)) = top_docs.into_iter().next() {
-            let doc: TantivyDocument = searcher
-                .doc(doc_address)
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
-            let path_field = self.file_schema.get_field("path").unwrap();
-            let name_field = self.file_schema.get_field("name").unwrap();
-            let extension_field = self.file_schema.get_field("extension").unwrap();
-            let size_field = self.file_schema.get_field("size").unwrap();
-            let modified_at_field = self.file_schema.get_field("modified_at").unwrap();
-            let directory_id_field = self.file_schema.get_field("directory_id").unwrap();
-            let access_count_field = self.file_schema.get_field("access_count").unwrap();
-            let access_timestamp_field = self.file_schema.get_field("access_timestamp").unwrap();
-
-            let path = doc.get_first(path_field).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let name = doc.get_first(name_field).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let extension = doc.get_first(extension_field).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let size = doc.get_first(size_field).and_then(|v| v.as_i64()).unwrap_or(0);
-            let modified_at = doc.get_first(modified_at_field).and_then(|v| v.as_i64()).unwrap_or(0);
-            let directory_id = doc.get_first(directory_id_field).and_then(|v| v.as_i64()).unwrap_or(0);
-
-            let mut writer = self.file_writer.lock().map_err(|_| {
-                SearchError::LockError("file writer lock poisoned")
-            })?;
-            writer.delete_term(Term::from_field_i64(id_field, id));
-
-            let new_doc = doc!(
-                id_field => id,
-                path_field => path,
-                name_field => name,
-                extension_field => extension,
-                size_field => size,
-                modified_at_field => modified_at,
-                directory_id_field => directory_id,
-                access_count_field => access_count,
-                access_timestamp_field => access_timestamp
-            );
-
-            writer
-                .add_document(new_doc)
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-            writer
-                .commit()
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-            self.file_reader
-                .reload()
-                .map_err(|e| SearchError::IndexError(e.to_string()))?;
-
-            // Record update time for debouncing
-            if let Ok(mut last_update_map) = self.file_frecency_last_update.lock() {
-                last_update_map.insert(id, Instant::now());
-            }
-        }
-
-        Ok(())
+        // Send update to batch worker (non-blocking)
+        self.frecency_worker.send_update(FrecencyUpdate::File {
+            id,
+            access_count,
+            access_timestamp,
+        })
     }
 }
 

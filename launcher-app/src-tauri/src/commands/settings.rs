@@ -108,6 +108,12 @@ pub fn get_app_settings(state: State<AppState>) -> Result<AppSettings, String> {
             .get("theme.accent_color")
             .cloned()
             .unwrap_or_else(|| "#ff6b6b".to_string()),
+        bg_color: settings.get("theme.bg_color").cloned(),
+        text_color: settings.get("theme.text_color").cloned(),
+        secondary_text_color: settings.get("theme.secondary_text_color").cloned(),
+        border_color: settings.get("theme.border_color").cloned(),
+        selection_bg_color: settings.get("theme.selection_bg_color").cloned(),
+        selection_text_color: settings.get("theme.selection_text_color").cloned(),
         font_size: settings
             .get("theme.font_size")
             .and_then(|s| s.parse().ok())
@@ -271,6 +277,29 @@ pub fn save_app_settings(
         .map_err(|e| format!("Failed to save setting {}: {}", key, e))?;
     }
 
+    // Save optional theme color settings
+    let optional_settings: Vec<(&str, &Option<String>)> = vec![
+        ("theme.bg_color", &settings.theme.bg_color),
+        ("theme.text_color", &settings.theme.text_color),
+        ("theme.secondary_text_color", &settings.theme.secondary_text_color),
+        ("theme.border_color", &settings.theme.border_color),
+        ("theme.selection_bg_color", &settings.theme.selection_bg_color),
+        ("theme.selection_text_color", &settings.theme.selection_text_color),
+    ];
+
+    for (key, value) in optional_settings {
+        if let Some(v) = value {
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                rusqlite::params![key, v, now],
+            )
+            .map_err(|e| format!("Failed to save setting {}: {}", key, e))?;
+        } else {
+            conn.execute("DELETE FROM settings WHERE key = ?1", rusqlite::params![key])
+                .map_err(|e| format!("Failed to delete setting {}: {}", key, e))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -330,6 +359,29 @@ pub fn save_theme_settings(state: State<AppState>, theme: ThemeSettings) -> Resu
             rusqlite::params![key, value, now],
         )
         .map_err(|e| format!("Failed to save theme setting: {}", e))?;
+    }
+
+    // Save optional theme color settings
+    let optional_settings: Vec<(&str, &Option<String>)> = vec![
+        ("theme.bg_color", &theme.bg_color),
+        ("theme.text_color", &theme.text_color),
+        ("theme.secondary_text_color", &theme.secondary_text_color),
+        ("theme.border_color", &theme.border_color),
+        ("theme.selection_bg_color", &theme.selection_bg_color),
+        ("theme.selection_text_color", &theme.selection_text_color),
+    ];
+
+    for (key, value) in optional_settings {
+        if let Some(v) = value {
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                rusqlite::params![key, v, now],
+            )
+            .map_err(|e| format!("Failed to save theme setting: {}", e))?;
+        } else {
+            conn.execute("DELETE FROM settings WHERE key = ?1", rusqlite::params![key])
+                .map_err(|e| format!("Failed to delete theme setting: {}", e))?;
+        }
     }
 
     Ok(())

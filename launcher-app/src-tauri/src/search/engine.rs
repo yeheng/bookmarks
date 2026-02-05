@@ -87,15 +87,27 @@ pub trait SearchEngine: Send + Sync {
     /// Delete all files for a directory.
     fn delete_directory_files(&self, directory_id: i64) -> Result<(), SearchError>;
 
-    /// Rebuild the entire bookmark index from the database.
+    /// Rebuild the entire bookmark index from provided bookmark data.
+    ///
+    /// This method no longer fetches data from the database itself.
+    /// The caller (Service layer) is responsible for fetching bookmark data.
     ///
     /// Returns the number of bookmarks indexed.
-    fn rebuild_bookmark_index(&self) -> Result<usize, SearchError>;
+    fn rebuild_bookmark_index_from_data(
+        &self,
+        bookmarks: Vec<(i64, String, String, Option<String>, Option<String>, Option<i64>, i64, i64)>,
+    ) -> Result<usize, SearchError>;
 
-    /// Rebuild the entire file index from the database.
+    /// Rebuild the entire file index from provided file data.
+    ///
+    /// This method no longer fetches data from the database itself.
+    /// The caller (Service layer) is responsible for fetching file data.
     ///
     /// Returns the number of files indexed.
-    fn rebuild_file_index(&self) -> Result<usize, SearchError>;
+    fn rebuild_file_index_from_data(
+        &self,
+        files: Vec<(i64, String, String, Option<String>, i64, i64, i64)>,
+    ) -> Result<usize, SearchError>;
 
     /// Get index statistics.
     fn get_stats(&self) -> Result<IndexStats, SearchError>;

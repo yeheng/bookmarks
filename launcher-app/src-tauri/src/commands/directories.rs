@@ -208,9 +208,36 @@ pub fn index_directory(state: State<AppState>, directory_id: i64) -> Result<Inde
     let (path, scan_result) = result;
 
     // Rebuild file index in Tantivy to pick up new files
+    // Fetch file data from database
+    let files = {
+        let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
+        let conn = db.get_connection();
+
+        let mut stmt = conn
+            .prepare("SELECT id, path, name, extension, size, modified_at, directory_id FROM files")
+            .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+        let files: Result<Vec<_>, _> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .map_err(|e| format!("Failed to query files: {}", e))?
+            .collect();
+
+        files.map_err(|e| format!("Failed to collect files: {}", e))?
+    };
+
     let _ = state
         .search_engine
-        .rebuild_file_index()
+        .rebuild_file_index_from_data(files)
         .map_err(|e| format!("Failed to rebuild file index: {}", e))?;
 
     Ok(IndexingProgress {

@@ -4,6 +4,7 @@
 //! replacing SQLite FTS5 with Tantivy for better performance and features.
 
 mod engine;
+mod frecency_worker;
 mod schema;
 mod tantivy_engine;
 

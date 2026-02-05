@@ -97,6 +97,16 @@ impl Database {
                 value TEXT NOT NULL,
                 updated_at INTEGER NOT NULL
             );
+
+            -- Pending Index Operations Table
+            -- Ensures index consistency after crashes or failed index updates
+            -- SQLite is the source of truth; this table tracks what needs to be synced to Tantivy
+
+            CREATE TABLE IF NOT EXISTS pending_index_ops (
+                bookmark_id INTEGER PRIMARY KEY,
+                operation TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
             "#,
         )?;
 
