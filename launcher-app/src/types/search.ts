@@ -6,6 +6,8 @@ export interface SearchResult {
   icon?: string;
   url?: string;
   path?: string;
+  frecency_score?: number;  // Frecency score from backend
+  match_score?: number;      // Search match score
 }
 
 export interface SearchState {

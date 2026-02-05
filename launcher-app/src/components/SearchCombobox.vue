@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, reactive } from 'vue';
 import {
   Combobox,
   ComboboxInput,
@@ -9,15 +9,20 @@ import {
 } from '@headlessui/vue';
 import type { SearchResult } from '../types/search';
 import SearchResultItem from './SearchResultItem.vue';
+import ResultGroupHeader from './ResultGroupHeader.vue';
+import SkeletonLoader from './SkeletonLoader.vue';
+import { useGroupedResults } from '../composables/useGroupedResults';
 
 interface Props {
   results: SearchResult[];
   loading?: boolean;
+  error?: string | null;
 }
 
 interface Emits {
   (e: 'search', query: string): void;
   (e: 'select', result: SearchResult): void;
+  (e: 'retry'): void;
 }
 
 const props = defineProps<Props>();
@@ -50,9 +55,38 @@ const displayResults = computed(() => {
   return props.results.slice(0, 10);
 });
 
+// Grouping logic
+const { groupedResults } = useGroupedResults(displayResults);
+
+// Track collapsed state for each group
+const collapsedGroups = reactive<Record<string, boolean>>({});
+
+const toggleGroup = (groupType: string) => {
+  collapsedGroups[groupType] = !collapsedGroups[groupType];
+};
+
+const isGroupCollapsed = (groupType: string) => {
+  return collapsedGroups[groupType] ?? false;
+};
+
+// Reset collapsed state when query changes
+watch(query, () => {
+  Object.keys(collapsedGroups).forEach(key => {
+    collapsedGroups[key] = false;
+  });
+});
+
 const hasResults = computed(() => displayResults.value.length > 0);
-const showEmpty = computed(() => !props.loading && !hasResults.value && query.value.length > 0);
-const showRecent = computed(() => !props.loading && !hasResults.value && query.value.length === 0);
+const hasMultipleGroups = computed(() => groupedResults.value.hasMultipleGroups);
+const showEmpty = computed(() => !props.loading && !props.error && !hasResults.value && query.value.length > 0);
+const showRecent = computed(() => !props.loading && !props.error && !hasResults.value && query.value.length === 0);
+const showError = computed(() => !props.loading && props.error && query.value.length > 0);
+
+// Handle retry for error state
+const handleRetry = () => {
+  emit('retry');
+  emit('search', query.value);
+};
 
 const searchInput = ref<InstanceType<typeof ComboboxInput> | null>(null);
 
@@ -70,6 +104,19 @@ const clearQuery = () => {
 
 const hasQuery = computed(() => query.value.length > 0);
 
+// ARIA: Generate unique IDs for accessibility
+const listboxId = 'search-results-listbox';
+
+// ARIA: Keyboard navigation announcement
+const navigationAnnouncement = ref('');
+
+// Update announcement when selection changes
+watch(selectedResult, (newResult) => {
+  if (newResult) {
+    navigationAnnouncement.value = `Selected: ${newResult.title}, ${newResult.type === 'bookmark' ? 'Bookmark' : 'File'}`;
+  }
+});
+
 defineExpose({
     focusInput,
     clearQuery,
@@ -80,6 +127,11 @@ defineExpose({
 <template>
   <Combobox v-model="selectedResult" @update:model-value="handleSelect">
     <div class="search-combobox">
+      <!-- Keyboard navigation announcements -->
+      <div aria-live="polite" aria-atomic="true" class="visually-hidden">
+        {{ navigationAnnouncement }}
+      </div>
+
       <ComboboxInput
         ref="searchInput"
         @change="(e: Event) => query = (e.target as HTMLInputElement).value"
@@ -87,14 +139,19 @@ defineExpose({
         class="search-input"
         placeholder="Search bookmarks and files..."
         autocomplete="off"
+        aria-label="Search bookmarks and files"
+        aria-autocomplete="list"
+        :aria-controls="listboxId"
+        :aria-expanded="hasResults || loading"
       />
-      
-      <button 
-        class="settings-icon-btn" 
+
+      <button
+        class="settings-icon-btn"
         @click="emit('select', { id: 'internal-settings', type: 'file', title: 'Settings', subtitle: '', path: '' })"
-        title="Open Settings (Type 'settings')"
+        aria-label="Open Settings (Cmd+Comma or type 'settings')"
+        aria-keyshortcuts="Meta+Comma"
       >
-        ⚙️
+        <span role="img" aria-label="Settings icon">⚙️</span>
       </button>
 
       <TransitionRoot
@@ -105,7 +162,11 @@ defineExpose({
         leave-from="opacity-100"
         leave-to="opacity-0"
       >
-        <ComboboxOptions class="results-container">
+        <ComboboxOptions
+          class="results-container"
+          :id="listboxId"
+          aria-label="Search results"
+        >
           <TransitionRoot
             enter="transition-opacity duration-200 delay-200"
             enter-from="opacity-0"
@@ -114,21 +175,49 @@ defineExpose({
             leave-from="opacity-100"
             leave-to="opacity-0"
           >
-            <div v-if="loading" class="state-message">
-              <div class="loading-spinner"></div>
-              <span>Searching...</span>
+            <div v-if="loading" class="loading-state" role="status" aria-live="polite">
+              <div class="loading-header">
+                <div class="loading-spinner-small" aria-hidden="true"></div>
+                <span class="loading-text">Searching...</span>
+              </div>
+              <SkeletonLoader :count="3" />
             </div>
           </TransitionRoot>
 
-          <div v-if="showEmpty" class="state-message">
-            <span class="empty-icon">🔍</span>
-            <div class="empty-text">No results found</div>
-            <div class="empty-hint">
-              Tip: Type <span class="highlight">settings</span> to configure
+          <div v-if="showEmpty" class="state-message empty-state" role="status" aria-live="polite">
+            <div class="empty-icon-container">
+              <span class="empty-icon" role="img" aria-label="No results">🔍</span>
+              <span class="empty-icon-overlay">❌</span>
+            </div>
+            <div class="empty-text">No results for "{{ query }}"</div>
+            <div class="empty-suggestions">
+              <div class="empty-hint">Try these tips:</div>
+              <ul class="suggestion-list">
+                <li>Check your spelling</li>
+                <li>Use fewer or different keywords</li>
+                <li>Type <span class="highlight">settings</span> to configure search</li>
+              </ul>
             </div>
           </div>
 
-          <div v-else-if="showRecent" class="state-message">
+          <!-- Error State -->
+          <div v-else-if="showError" class="state-message error-state" role="alert" aria-live="assertive">
+            <div class="error-icon-container">
+              <span class="error-icon" role="img" aria-label="Error">⚠️</span>
+            </div>
+            <div class="error-text">Search failed</div>
+            <div class="error-description">{{ error }}</div>
+            <button
+              class="retry-btn"
+              @click="handleRetry"
+              aria-label="Retry search"
+            >
+              <span class="retry-icon">🔄</span>
+              Try Again
+            </button>
+          </div>
+
+          <div v-else-if="showRecent" class="state-message" role="status">
             <div class="section-label">Recent</div>
             <div class="empty-hint">Your recent items will appear here</div>
           </div>
@@ -142,15 +231,50 @@ defineExpose({
             leave-from="opacity-100"
             leave-to="opacity-0"
           >
-            <ComboboxOption
-              v-for="result in displayResults"
-              :key="result.id"
-              :value="result"
-              v-slot="{ active }"
-              class="result-option"
-            >
-              <SearchResultItem :result="result" :is-selected="active" />
-            </ComboboxOption>
+            <!-- Grouped Results Display -->
+            <div v-if="hasMultipleGroups" class="grouped-results">
+              <template v-for="(group, groupIndex) in groupedResults.groups" :key="group.type">
+                <ResultGroupHeader
+                  :group="{ ...group, collapsed: isGroupCollapsed(group.type) }"
+                  :is-first="groupIndex === 0"
+                  @toggle="toggleGroup(group.type)"
+                />
+                <TransitionRoot
+                  :show="!isGroupCollapsed(group.type)"
+                  enter="transition-all duration-150 ease-out"
+                  enter-from="opacity-0 max-h-0"
+                  enter-to="opacity-100 max-h-96"
+                  leave="transition-all duration-100 ease-in"
+                  leave-from="opacity-100 max-h-96"
+                  leave-to="opacity-0 max-h-0"
+                >
+                  <div class="group-items">
+                    <ComboboxOption
+                      v-for="result in group.results"
+                      :key="result.id"
+                      :value="result"
+                      v-slot="{ active }"
+                      class="result-option"
+                    >
+                      <SearchResultItem :result="result" :is-selected="active" />
+                    </ComboboxOption>
+                  </div>
+                </TransitionRoot>
+              </template>
+            </div>
+
+            <!-- Flat Results Display (single type) -->
+            <div v-else class="flat-results">
+              <ComboboxOption
+                v-for="result in displayResults"
+                :key="result.id"
+                :value="result"
+                v-slot="{ active }"
+                class="result-option"
+              >
+                <SearchResultItem :result="result" :is-selected="active" />
+              </ComboboxOption>
+            </div>
           </TransitionRoot>
 
           <div v-if="hasResults && results.length > 10" class="more-results">
@@ -257,10 +381,140 @@ defineExpose({
   }
 }
 
+/* Enhanced Loading State */
+.loading-state {
+  padding: 12px 0;
+}
+
+.loading-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px 16px;
+}
+
+.loading-spinner-small {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 107, 107, 0.2);
+  border-top-color: var(--accent-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loading-text {
+  font-size: 12px;
+  color: var(--secondary-text);
+  font-weight: 500;
+}
+
 .empty-icon {
   font-size: 48px;
   margin-bottom: 16px;
   opacity: 0.5;
+}
+
+/* Enhanced Empty State */
+.empty-state {
+  padding: 32px 24px;
+}
+
+.empty-icon-container {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 16px;
+}
+
+.empty-icon-overlay {
+  position: absolute;
+  bottom: 0;
+  right: -8px;
+  font-size: 20px;
+  background: var(--bg-color);
+  border-radius: 50%;
+  padding: 2px;
+}
+
+.empty-suggestions {
+  margin-top: 16px;
+  text-align: left;
+  max-width: 240px;
+}
+
+.suggestion-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0 0;
+  font-size: 13px;
+  color: var(--secondary-text);
+}
+
+.suggestion-list li {
+  padding: 4px 0;
+  padding-left: 20px;
+  position: relative;
+}
+
+.suggestion-list li::before {
+  content: "•";
+  position: absolute;
+  left: 8px;
+  color: var(--accent-color);
+}
+
+/* Error State */
+.error-state {
+  padding: 32px 24px;
+}
+
+.error-icon-container {
+  margin-bottom: 16px;
+}
+
+.error-icon {
+  font-size: 48px;
+}
+
+.error-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 8px;
+}
+
+.error-description {
+  font-size: 13px;
+  color: var(--secondary-text);
+  margin-bottom: 16px;
+  max-width: 280px;
+}
+
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-color);
+  background: rgba(128, 128, 128, 0.1);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.retry-btn:hover {
+  background: rgba(128, 128, 128, 0.2);
+  border-color: var(--accent-color);
+}
+
+.retry-btn:active {
+  transform: scale(0.98);
+}
+
+.retry-icon {
+  font-size: 14px;
 }
 
 .empty-text {
@@ -298,5 +552,33 @@ defineExpose({
   font-size: 12px;
   color: var(--secondary-text);
   border-top: 1px solid var(--border-color);
+}
+
+/* Grouped Results Styles */
+.grouped-results {
+  display: flex;
+  flex-direction: column;
+}
+
+.group-items {
+  overflow: hidden;
+}
+
+.flat-results {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Visually hidden class for screen reader announcements */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 </style>

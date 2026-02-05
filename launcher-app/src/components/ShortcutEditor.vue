@@ -64,16 +64,18 @@ function cancelRecording() {
 </script>
 
 <template>
-  <div class="shortcut-editor">
+  <div class="shortcut-editor" role="group" :aria-labelledby="`shortcut-label-${actionId}`">
     <div class="shortcut-info">
-      <div class="shortcut-label">{{ label }}</div>
-      <div v-if="description" class="shortcut-description">{{ description }}</div>
+      <div :id="`shortcut-label-${actionId}`" class="shortcut-label">{{ label }}</div>
+      <div v-if="description" :id="`shortcut-desc-${actionId}`" class="shortcut-description">{{ description }}</div>
     </div>
     <div class="shortcut-input-container">
       <button
         v-if="!isRecording"
         class="shortcut-display"
         @click="startRecording"
+        :aria-label="`Edit shortcut for ${label}. Current shortcut: ${currentShortcut}`"
+        :aria-describedby="description ? `shortcut-desc-${actionId}` : undefined"
       >
         {{ currentShortcut }}
       </button>
@@ -85,6 +87,9 @@ function cancelRecording() {
         @blur="cancelRecording"
         readonly
         autofocus
+        :aria-label="`Recording shortcut for ${label}. Press a key combination.`"
+        role="textbox"
+        aria-live="polite"
       />
     </div>
   </div>
@@ -112,7 +117,7 @@ function cancelRecording() {
 
 .shortcut-description {
   font-size: 12px;
-  color: var(--secondary-text, #9a9a9a);
+  color: var(--color-text-secondary, #b3b3b3);
 }
 
 .shortcut-input-container {

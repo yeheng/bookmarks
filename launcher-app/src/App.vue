@@ -4,9 +4,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from '@tauri-apps/api/event';
 import { LogicalSize } from "@tauri-apps/api/dpi";
+import { Toaster } from 'vue-sonner';
 import SearchCombobox from "./components/SearchCombobox.vue";
-import SettingsPanel from "./components/SettingsPanel.vue";
+import SettingsPanel from "./components/settings/SettingsPanelNew.vue";
+import ErrorBoundary from "./components/ErrorBoundary.vue";
 import { ShortcutManager } from "./services/shortcuts";
+import { useToast } from "./composables/useToast";
 import type {
   SearchResult,
   BookmarkSearchResult,
@@ -19,9 +22,11 @@ const appWindow = getCurrentWebviewWindow();
 const searchResults = ref<SearchResult[]>([]);
 const searchComboboxRef = ref<InstanceType<typeof SearchCombobox> | null>(null);
 const isLoading = ref(false);
+const searchError = ref<string | null>(null);
 const showSettings = ref(false);
 const settings = ref<AppSettings | null>(null);
 const shortcutManager = ref<ShortcutManager>(new ShortcutManager());
+const { success, error } = useToast();
 
 const themeStyle = computed(() => {
   if (!settings.value) return {};
@@ -76,6 +81,8 @@ function mapBookmarkToSearchResult(b: BookmarkSearchResult): SearchResult {
     subtitle: b.url,
     icon: b.favicon_url ?? undefined,
     url: b.url,
+    frecency_score: b.frecency_score,
+    match_score: b.score,
   };
 }
 
@@ -86,10 +93,15 @@ function mapFileToSearchResult(f: FileSearchResult): SearchResult {
     title: f.name,
     subtitle: f.path,
     path: f.path,
+    frecency_score: f.frecency_score,
+    match_score: f.score,
   };
 }
 
 const handleSearch = async (query: string) => {
+  // Clear previous error
+  searchError.value = null;
+
   if (!query.trim()) {
     searchResults.value = [];
     return;
@@ -123,9 +135,14 @@ const handleSearch = async (query: string) => {
   } catch (err) {
     console.error("Search failed:", err);
     searchResults.value = [];
+    searchError.value = err instanceof Error ? err.message : "Unable to connect to search service. Please try again.";
   } finally {
     isLoading.value = false;
   }
+};
+
+const handleRetry = () => {
+  searchError.value = null;
 };
 
 const handleSelect = async (result: SearchResult) => {
@@ -141,11 +158,20 @@ const handleSelect = async (result: SearchResult) => {
       resourceId: resourceId,
     });
 
-    if (!res.success && res.error) {
+    if (res.success) {
+      // Show success toast
+      const itemType = result.type === 'bookmark' ? 'Bookmark' : 'File';
+      success(`${itemType} opened`, result.title);
+    } else if (res.error) {
+      // Show error toast
       console.error("Failed to open resource:", res.error);
+      error('Failed to open', res.error);
+      return; // Don't hide window on error
     }
   } catch (err) {
     console.error("Failed to open resource:", err);
+    error('Operation failed', err instanceof Error ? err.message : 'Unknown error occurred');
+    return; // Don't hide window on error
   }
 
   searchResults.value = [];
@@ -213,20 +239,36 @@ function handleSettingsClose() {
 </script>
 
 <template>
-  <div class="app-root" :style="themeStyle">
-    <div class="launcher-container" v-show="!showSettings">
-      <SearchCombobox
-        ref="searchComboboxRef"
-        :results="searchResults"
-        :loading="isLoading"
-        @search="handleSearch"
-        @select="handleSelect"
+  <ErrorBoundary
+    fallback-title="App Error"
+    fallback-description="The application encountered an unexpected error."
+  >
+    <div class="app-root" :style="themeStyle">
+      <!-- Toast Notifications -->
+      <Toaster
+        position="top-center"
+        :duration="3000"
+        :close-button="true"
+        rich-colors
+        :theme="settings?.theme.mode || 'dark'"
       />
+
+      <div class="launcher-container" v-show="!showSettings">
+        <SearchCombobox
+          ref="searchComboboxRef"
+          :results="searchResults"
+          :loading="isLoading"
+          :error="searchError"
+          @search="handleSearch"
+          @select="handleSelect"
+          @retry="handleRetry"
+        />
+      </div>
+      <div class="settings-container" v-if="showSettings">
+          <SettingsPanel @close="handleSettingsClose" />
+      </div>
     </div>
-    <div class="settings-container" v-if="showSettings">
-        <SettingsPanel @close="handleSettingsClose" />
-    </div>
-  </div>
+  </ErrorBoundary>
 </template>
 
 <style scoped>
