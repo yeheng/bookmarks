@@ -1,6 +1,7 @@
 use crate::commands::bookmarks::AppState;
 use crate::models::bookmark::BookmarkSearchResult;
 use crate::search::IndexStats;
+use crate::error::AppError;
 use tauri::State;
 
 #[tauri::command]
@@ -27,21 +28,18 @@ pub fn record_bookmark_access(state: State<AppState>, bookmark_id: i64) -> Resul
         .as_secs() as i64;
 
     // Update SQLite and get the new access count
-    let access_count = {
-        let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
-        let conn = db.get_connection();
-
+    let access_count = state.data_service.with_db(|conn| {
         conn.execute(
             "UPDATE bookmarks SET last_accessed = ?1 WHERE id = ?2",
             rusqlite::params![now, bookmark_id],
         )
-        .map_err(|e| format!("Failed to update last_accessed: {}", e))?;
+        .map_err(|e| AppError::Generic(format!("Failed to update last_accessed: {}", e)))?;
 
         conn.execute(
             "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
             rusqlite::params![bookmark_id, now],
         )
-        .map_err(|e| format!("Failed to insert usage history: {}", e))?;
+        .map_err(|e| AppError::Generic(format!("Failed to insert usage history: {}", e)))?;
 
         // Get the total access count for this bookmark
         let count: i64 = conn
@@ -52,9 +50,8 @@ pub fn record_bookmark_access(state: State<AppState>, bookmark_id: i64) -> Resul
             )
             .unwrap_or(1);
 
-        count
-        // DB lock released here
-    };
+        Ok(count)
+    }).map_err(|e| e.to_string())?;
 
     // Update Tantivy index with new frecency data (fire and forget for UI responsiveness)
     let _ = state.search_engine.update_bookmark_frecency(bookmark_id, access_count, now);
@@ -64,14 +61,12 @@ pub fn record_bookmark_access(state: State<AppState>, bookmark_id: i64) -> Resul
 
 #[tauri::command]
 pub fn rebuild_search_index(state: State<AppState>) -> Result<(usize, usize), String> {
-    // Fetch bookmark data from database
-    let bookmarks = {
-        let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
-        let conn = db.get_connection();
-
+    // Fetch both bookmark and file data in a single lock acquisition
+    let (bookmarks, files) = state.data_service.with_db(|conn| {
+        // Fetch all bookmarks
         let mut stmt = conn
             .prepare("SELECT id, title, url, description, tags, last_accessed, created_at, updated_at FROM bookmarks")
-            .map_err(|e| format!("Failed to prepare query: {}", e))?;
+            .map_err(|e| AppError::Generic(format!("Failed to prepare query: {}", e)))?;
 
         let bookmarks: Result<Vec<_>, _> = stmt
             .query_map([], |row| {
@@ -86,20 +81,15 @@ pub fn rebuild_search_index(state: State<AppState>) -> Result<(usize, usize), St
                     row.get::<_, i64>(7)?,
                 ))
             })
-            .map_err(|e| format!("Failed to query bookmarks: {}", e))?
+            .map_err(|e| AppError::Generic(format!("Failed to query bookmarks: {}", e)))?
             .collect();
 
-        bookmarks.map_err(|e| format!("Failed to collect bookmarks: {}", e))?
-    };
+        let bookmarks = bookmarks.map_err(|e| AppError::Generic(format!("Failed to collect bookmarks: {}", e)))?;
 
-    // Fetch file data from database
-    let files = {
-        let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
-        let conn = db.get_connection();
-
+        // Fetch all files
         let mut stmt = conn
-            .prepare("SELECT id, path, name, extension, size, modified_at, directory_id FROM files")
-            .map_err(|e| format!("Failed to prepare query: {}", e))?;
+            .prepare("SELECT id, path, name, extension, size, modified_at, directory_id FROM indexed_files")
+            .map_err(|e| AppError::Generic(format!("Failed to prepare query: {}", e)))?;
 
         let files: Result<Vec<_>, _> = stmt
             .query_map([], |row| {
@@ -113,13 +103,15 @@ pub fn rebuild_search_index(state: State<AppState>) -> Result<(usize, usize), St
                     row.get::<_, i64>(6)?,
                 ))
             })
-            .map_err(|e| format!("Failed to query files: {}", e))?
+            .map_err(|e| AppError::Generic(format!("Failed to query files: {}", e)))?
             .collect();
 
-        files.map_err(|e| format!("Failed to collect files: {}", e))?
-    };
+        let files = files.map_err(|e| AppError::Generic(format!("Failed to collect files: {}", e)))?;
 
-    // Rebuild indexes with data
+        Ok((bookmarks, files))
+    }).map_err(|e| e.to_string())?;
+
+    // Rebuild indexes with data (lock already released)
     let bookmark_count = state
         .search_engine
         .rebuild_bookmark_index_from_data(bookmarks)

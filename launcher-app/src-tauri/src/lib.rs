@@ -9,7 +9,7 @@ use commands::bookmarks::AppState;
 use db::Database;
 use search::TantivySearchEngine;
 use services::data_service::DataService;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -107,15 +107,10 @@ pub fn run() {
                 }
             });
 
-            // Create a new DB connection for AppState (for read operations and legacy code)
-            let db_path = app_dir.join("bookmarks.db");
-            let app_db = Database::new(db_path)
-                .map_err(|e| format!("Failed to create app database: {}", e))?;
-
+            // AppState now uses DataService for all DB access (no duplicate connections)
             app.manage(AppState {
-                db: Mutex::new(app_db),
                 search_engine,
-                data_service,
+                data_service: data_service.clone(),
             });
             
             let handle = app.handle().clone();
@@ -149,24 +144,23 @@ pub fn run() {
 
                 #[cfg(target_os = "macos")]
             {
-                let db_path = app_dir.join("bookmarks.db");
-                if let Ok(db) = Database::new(db_path) {
-                    if let Ok(conn) = db.initialize().and_then(|_| Ok(db.get_connection())) {
-                         let hide_dock: bool = conn
-                            .query_row(
-                                "SELECT value FROM settings WHERE key = 'general.hide_dock_icon'",
-                                [],
-                                |row| row.get::<_, String>(0),
-                            )
-                            .map(|v| v == "true")
-                            .unwrap_or(true);
+                // Read dock icon setting using data_service
+                let hide_dock = data_service.with_db(|conn| {
+                    let hide: bool = conn
+                        .query_row(
+                            "SELECT value FROM settings WHERE key = 'general.hide_dock_icon'",
+                            [],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .map(|v| v == "true")
+                        .unwrap_or(true);
+                    Ok(hide)
+                }).unwrap_or(true);
 
-                        if hide_dock {
-                            app.handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
-                        } else {
-                            app.handle().set_activation_policy(tauri::ActivationPolicy::Regular);
-                        }
-                    }
+                if hide_dock {
+                    app.handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
+                } else {
+                    app.handle().set_activation_policy(tauri::ActivationPolicy::Regular);
                 }
             }
 

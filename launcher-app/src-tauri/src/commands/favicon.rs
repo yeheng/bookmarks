@@ -1,4 +1,5 @@
 use crate::commands::bookmarks::AppState;
+use crate::error::AppError;
 use tauri::State;
 use std::time::Duration;
 use url;
@@ -11,13 +12,13 @@ pub async fn fetch_favicon(
 ) -> Result<String, String> {
     let parsed_url = url::Url::parse(&url_str)
         .map_err(|e| format!("Invalid URL: {}", e))?;
-    
+
     let base_url = format!(
-        "{}://{}", 
-        parsed_url.scheme(), 
+        "{}://{}",
+        parsed_url.scheme(),
         parsed_url.host_str().unwrap_or("")
     );
-    
+
     let favicon_url = format!("{}/favicon.ico", base_url);
 
     let client = reqwest::Client::builder()
@@ -27,29 +28,31 @@ pub async fn fetch_favicon(
 
     match client.get(&favicon_url).send().await {
         Ok(response) if response.status().is_success() => {
-            let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
-            let conn = db.get_connection();
-            
-            conn.execute(
-                "UPDATE bookmarks SET favicon_url = ?1 WHERE id = ?2",
-                rusqlite::params![&favicon_url, bookmark_id],
-            )
-            .map_err(|e| format!("Failed to update favicon: {}", e))?;
-            
+            state.data_service.with_db(|conn| {
+                conn.execute(
+                    "UPDATE bookmarks SET favicon_url = ?1 WHERE id = ?2",
+                    rusqlite::params![&favicon_url, bookmark_id],
+                )
+                .map_err(|e| AppError::Generic(format!("Failed to update favicon: {}", e)))?;
+
+                Ok(())
+            }).map_err(|e| e.to_string())?;
+
             Ok(favicon_url)
         }
         _ => {
             let google_favicon = format!("https://www.google.com/s2/favicons?domain={}&sz=64", base_url);
-            
-            let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
-            let conn = db.get_connection();
-            
-            conn.execute(
-                "UPDATE bookmarks SET favicon_url = ?1 WHERE id = ?2",
-                rusqlite::params![&google_favicon, bookmark_id],
-            )
-            .map_err(|e| format!("Failed to update favicon: {}", e))?;
-            
+
+            state.data_service.with_db(|conn| {
+                conn.execute(
+                    "UPDATE bookmarks SET favicon_url = ?1 WHERE id = ?2",
+                    rusqlite::params![&google_favicon, bookmark_id],
+                )
+                .map_err(|e| AppError::Generic(format!("Failed to update favicon: {}", e)))?;
+
+                Ok(())
+            }).map_err(|e| e.to_string())?;
+
             Ok(google_favicon)
         }
     }

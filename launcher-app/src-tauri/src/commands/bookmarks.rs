@@ -1,28 +1,23 @@
-use crate::db::Database;
 use crate::models::bookmark::ImportResult;
 use crate::search::TantivySearchEngine;
 use crate::services::{
     chrome_importer::ChromeImporter, firefox_importer::FirefoxImporter,
     safari_importer::SafariImporter, data_service::DataService,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::State;
 
 pub struct AppState {
-    pub db: Mutex<Database>,
     pub search_engine: Arc<TantivySearchEngine>,
     pub data_service: Arc<DataService>,
 }
 
 /// Helper function to rebuild bookmark index after import
 fn rebuild_bookmark_index_after_import(state: &State<AppState>) -> Result<(), String> {
-    let bookmarks = {
-        let db = state.db.lock().map_err(|e| format!("Failed to acquire database lock: {}", e))?;
-        let conn = db.get_connection();
-
+    let bookmarks = state.data_service.with_db(|conn| {
         let mut stmt = conn
             .prepare("SELECT id, title, url, description, tags, last_accessed, created_at, updated_at FROM bookmarks")
-            .map_err(|e| format!("Failed to prepare query: {}", e))?;
+            .map_err(|e| crate::error::AppError::Generic(format!("Failed to prepare query: {}", e)))?;
 
         let bookmarks: Result<Vec<_>, _> = stmt
             .query_map([], |row| {
@@ -37,12 +32,11 @@ fn rebuild_bookmark_index_after_import(state: &State<AppState>) -> Result<(), St
                     row.get::<_, i64>(7)?,
                 ))
             })
-            .map_err(|e| format!("Failed to query bookmarks: {}", e))?
+            .map_err(|e| crate::error::AppError::Generic(format!("Failed to query bookmarks: {}", e)))?
             .collect();
 
-        bookmarks.map_err(|e| format!("Failed to collect bookmarks: {}", e))?
-        // db lock released here automatically
-    };
+        bookmarks.map_err(|e| crate::error::AppError::Generic(format!("Failed to collect bookmarks: {}", e)))
+    }).map_err(|e| e.to_string())?;
 
     state.search_engine
         .rebuild_bookmark_index_from_data(bookmarks)
@@ -87,13 +81,10 @@ pub fn delete_bookmark(state: State<AppState>, id: i64) -> Result<(), String> {
 
 #[tauri::command]
 pub fn import_chrome_bookmarks(state: State<AppState>) -> Result<ImportResult, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("Failed to acquire database lock: {}", e))?;
-    let conn = db.get_connection();
-    let result = ChromeImporter::import(conn)?;
-    drop(db);
+    let result = state.data_service.with_db(|conn| {
+        ChromeImporter::import(conn)
+            .map_err(|e| crate::error::AppError::ChromeImport(e))
+    }).map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
         if let Err(e) = rebuild_bookmark_index_after_import(&state) {
@@ -109,13 +100,10 @@ pub fn import_chrome_bookmarks(state: State<AppState>) -> Result<ImportResult, S
 
 #[tauri::command]
 pub fn import_firefox_bookmarks(state: State<AppState>) -> Result<ImportResult, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("Failed to acquire database lock: {}", e))?;
-    let conn = db.get_connection();
-    let result = FirefoxImporter::import(conn)?;
-    drop(db);
+    let result = state.data_service.with_db(|conn| {
+        FirefoxImporter::import(conn)
+            .map_err(|e| crate::error::AppError::FirefoxImport(e))
+    }).map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
         if let Err(e) = rebuild_bookmark_index_after_import(&state) {
@@ -131,13 +119,10 @@ pub fn import_firefox_bookmarks(state: State<AppState>) -> Result<ImportResult, 
 
 #[tauri::command]
 pub fn import_safari_bookmarks(state: State<AppState>) -> Result<ImportResult, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("Failed to acquire database lock: {}", e))?;
-    let conn = db.get_connection();
-    let result = SafariImporter::import(conn)?;
-    drop(db);
+    let result = state.data_service.with_db(|conn| {
+        SafariImporter::import(conn)
+            .map_err(|e| crate::error::AppError::SafariImport(e))
+    }).map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
         if let Err(e) = rebuild_bookmark_index_after_import(&state) {

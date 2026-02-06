@@ -1,4 +1,5 @@
 use crate::commands::bookmarks::AppState;
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,16 +15,16 @@ pub struct OpenResult {
 
 #[tauri::command]
 pub fn open_bookmark(state: State<AppState>, bookmark_id: i64) -> Result<OpenResult, String> {
-    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
-    let conn = db.get_connection();
-
-    let url: String = conn
-        .query_row(
-            "SELECT url FROM bookmarks WHERE id = ?1",
-            [bookmark_id],
-            |row| row.get(0),
-        )
-        .map_err(|_| "Bookmark not found".to_string())?;
+    let url = state.data_service.with_db(|conn| {
+        let url: String = conn
+            .query_row(
+                "SELECT url FROM bookmarks WHERE id = ?1",
+                [bookmark_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| AppError::BookmarkNotFound)?;
+        Ok(url)
+    }).map_err(|e| e.to_string())?;
 
     if url.is_empty() {
         return Ok(OpenResult {
@@ -45,7 +46,10 @@ pub fn open_bookmark(state: State<AppState>, bookmark_id: i64) -> Result<OpenRes
 
     match open::that(&url) {
         Ok(_) => {
-            record_resource_access(conn, "bookmark", bookmark_id)?;
+            // Record access in database
+            let _ = state.data_service.with_db(|conn| {
+                record_resource_access(conn, "bookmark", bookmark_id)
+            });
 
             Ok(OpenResult {
                 success: true,
@@ -65,22 +69,25 @@ pub fn open_bookmark(state: State<AppState>, bookmark_id: i64) -> Result<OpenRes
 
 #[tauri::command]
 pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, String> {
-    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
-    let conn = db.get_connection();
-
-    let path: String = conn
-        .query_row(
-            "SELECT path FROM indexed_files WHERE id = ?1",
-            [file_id],
-            |row| row.get(0),
-        )
-        .map_err(|_| "File not found in index".to_string())?;
+    let path = state.data_service.with_db(|conn| {
+        let path: String = conn
+            .query_row(
+                "SELECT path FROM indexed_files WHERE id = ?1",
+                [file_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| AppError::FileNotFound("File not found in index".to_string()))?;
+        Ok(path)
+    }).map_err(|e| e.to_string())?;
 
     let file_path = Path::new(&path);
 
     match open::that(&path) {
         Ok(_) => {
-            record_resource_access(conn, "file", file_id)?;
+            // Record access in database
+            let _ = state.data_service.with_db(|conn| {
+                record_resource_access(conn, "file", file_id)
+            });
 
             Ok(OpenResult {
                 success: true,
@@ -92,7 +99,11 @@ pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, Str
         Err(e) => {
             // If file doesn't exist, clean up the database record
             if !file_path.exists() {
-                let _ = conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id]);
+                let _ = state.data_service.with_db(|conn| {
+                    conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
+                        .map_err(|e| AppError::Generic(e.to_string()))?;
+                    Ok(())
+                });
             }
 
             Ok(OpenResult {
@@ -258,10 +269,9 @@ fn record_resource_access(
     conn: &rusqlite::Connection,
     resource_type: &str,
     resource_id: i64,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| format!("System clock error: {}", e))?
+        .duration_since(UNIX_EPOCH)?
         .as_secs() as i64;
 
     match resource_type {
@@ -269,21 +279,18 @@ fn record_resource_access(
             conn.execute(
                 "UPDATE bookmarks SET last_accessed = ?1 WHERE id = ?2",
                 rusqlite::params![now, resource_id],
-            )
-            .map_err(|e| format!("Failed to update bookmark access: {}", e))?;
+            )?;
 
             conn.execute(
                 "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
                 rusqlite::params![resource_id, now],
-            )
-            .map_err(|e| format!("Failed to record bookmark usage: {}", e))?;
+            )?;
         }
         "file" => {
             conn.execute(
                 "INSERT INTO file_usage_history (file_id, accessed_at) VALUES (?1, ?2)",
                 rusqlite::params![resource_id, now],
-            )
-            .map_err(|e| format!("Failed to record file usage: {}", e))?;
+            )?;
         }
         _ => {}
     }
@@ -301,16 +308,16 @@ fn is_valid_url(url: &str) -> bool {
 
 #[tauri::command]
 pub fn check_bookmark_url(state: State<AppState>, bookmark_id: i64) -> Result<UrlCheckResult, String> {
-    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
-    let conn = db.get_connection();
-
-    let url: String = conn
-        .query_row(
-            "SELECT url FROM bookmarks WHERE id = ?1",
-            [bookmark_id],
-            |row| row.get(0),
-        )
-        .map_err(|_| "Bookmark not found".to_string())?;
+    let url = state.data_service.with_db(|conn| {
+        let url: String = conn
+            .query_row(
+                "SELECT url FROM bookmarks WHERE id = ?1",
+                [bookmark_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| AppError::BookmarkNotFound)?;
+        Ok(url)
+    }).map_err(|e| e.to_string())?;
 
     let valid = is_valid_url(&url);
 
@@ -328,22 +335,25 @@ pub fn check_bookmark_url(state: State<AppState>, bookmark_id: i64) -> Result<Ur
 
 #[tauri::command]
 pub fn check_file_exists(state: State<AppState>, file_id: i64) -> Result<FileCheckResult, String> {
-    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
-    let conn = db.get_connection();
-
-    let path: String = conn
-        .query_row(
-            "SELECT path FROM indexed_files WHERE id = ?1",
-            [file_id],
-            |row| row.get(0),
-        )
-        .map_err(|_| "File not found in index".to_string())?;
+    let path = state.data_service.with_db(|conn| {
+        let path: String = conn
+            .query_row(
+                "SELECT path FROM indexed_files WHERE id = ?1",
+                [file_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| AppError::FileNotFound("File not found in index".to_string()))?;
+        Ok(path)
+    }).map_err(|e| e.to_string())?;
 
     let exists = Path::new(&path).exists();
 
     if !exists {
-        conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
-            .ok();
+        let _ = state.data_service.with_db(|conn| {
+            conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
+                .map_err(|e| AppError::Generic(e.to_string()))?;
+            Ok(())
+        });
     }
 
     Ok(FileCheckResult {
