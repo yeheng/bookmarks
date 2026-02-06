@@ -14,7 +14,7 @@ pub struct OpenResult {
 
 #[tauri::command]
 pub fn open_bookmark(state: State<AppState>, bookmark_id: i64) -> Result<OpenResult, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let url: String = conn
@@ -65,7 +65,7 @@ pub fn open_bookmark(state: State<AppState>, bookmark_id: i64) -> Result<OpenRes
 
 #[tauri::command]
 pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let path: String = conn
@@ -301,7 +301,7 @@ fn is_valid_url(url: &str) -> bool {
 
 #[tauri::command]
 pub fn check_bookmark_url(state: State<AppState>, bookmark_id: i64) -> Result<UrlCheckResult, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let url: String = conn
@@ -328,7 +328,7 @@ pub fn check_bookmark_url(state: State<AppState>, bookmark_id: i64) -> Result<Ur
 
 #[tauri::command]
 pub fn check_file_exists(state: State<AppState>, file_id: i64) -> Result<FileCheckResult, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let path: String = conn

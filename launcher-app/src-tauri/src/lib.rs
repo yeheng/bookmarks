@@ -7,7 +7,7 @@ mod services;
 
 use commands::bookmarks::AppState;
 use db::Database;
-use search::{SearchEngine, TantivySearchEngine};
+use search::TantivySearchEngine;
 use services::data_service::DataService;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
@@ -144,10 +144,10 @@ pub fn run() {
             
             app.global_shortcut().register(shortcut)?;
             
-            let window = app.get_webview_window("main").unwrap();
-            let window_clone = window.clone();
+            if let Some(window) = app.get_webview_window("main") {
+                let window_clone = window.clone();
 
-            #[cfg(target_os = "macos")]
+                #[cfg(target_os = "macos")]
             {
                 let db_path = app_dir.join("bookmarks.db");
                 if let Ok(db) = Database::new(db_path) {
@@ -175,7 +175,8 @@ pub fn run() {
                     let _ = window_clone.hide();
                 }
             });
-            
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

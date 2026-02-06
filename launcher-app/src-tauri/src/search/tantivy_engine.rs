@@ -24,7 +24,7 @@
 //! - Service layer coordinates between Database and SearchEngine
 //! - All lock poisoning is handled via SearchError::LockError
 
-use super::engine::{IndexStats, SearchEngine, SearchError};
+use super::engine::{IndexStats, SearchError};
 use super::frecency_worker::{FrecencyBatchWorker, FrecencyUpdate};
 use super::schema::{build_bookmark_schema, build_file_schema, register_tokenizers};
 use crate::models::bookmark::BookmarkSearchResult;
@@ -291,10 +291,12 @@ impl TantivySearchEngine {
 
         Ok(results)
     }
-}
 
-impl SearchEngine for TantivySearchEngine {
-    fn search_bookmarks(
+    /// Search bookmarks with query string.
+    ///
+    /// Returns bookmarks matching the query, ranked by combined BM25 + frecency score.
+    /// If query is empty, returns recently accessed bookmarks.
+    pub fn search_bookmarks(
         &self,
         query: &str,
         limit: usize,
@@ -403,7 +405,11 @@ impl SearchEngine for TantivySearchEngine {
         Ok(results)
     }
 
-    fn search_files(
+    /// Search files with query string.
+    ///
+    /// Returns files matching the query with fuzzy matching support.
+    /// If query is empty, returns recently accessed files.
+    pub fn search_files(
         &self,
         query: &str,
         limit: usize,
@@ -491,7 +497,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(results)
     }
 
-    fn index_bookmark(
+    /// Index a single bookmark (add or update).
+    pub fn index_bookmark(
         &self,
         id: i64,
         title: &str,
@@ -581,7 +588,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(())
     }
 
-    fn index_file(
+    /// Index a single file (add or update).
+    pub fn index_file(
         &self,
         id: i64,
         path: &str,
@@ -664,7 +672,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(())
     }
 
-    fn delete_bookmark(&self, id: i64) -> Result<(), SearchError> {
+    /// Delete a bookmark from the index.
+    pub fn delete_bookmark(&self, id: i64) -> Result<(), SearchError> {
         let mut writer = self.bookmark_writer.lock().map_err(|_| {
             SearchError::LockError("bookmark writer lock poisoned")
         })?;
@@ -683,7 +692,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(())
     }
 
-    fn delete_file(&self, id: i64) -> Result<(), SearchError> {
+    /// Delete a file from the index.
+    pub fn delete_file(&self, id: i64) -> Result<(), SearchError> {
         let mut writer = self
             .file_writer
             .lock()
@@ -703,7 +713,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(())
     }
 
-    fn delete_directory_files(&self, directory_id: i64) -> Result<(), SearchError> {
+    /// Delete all files for a directory.
+    pub fn delete_directory_files(&self, directory_id: i64) -> Result<(), SearchError> {
         let mut writer = self
             .file_writer
             .lock()
@@ -723,7 +734,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(())
     }
 
-    fn rebuild_bookmark_index_from_data(
+    /// Rebuild the entire bookmark index from provided bookmark data.
+    pub fn rebuild_bookmark_index_from_data(
         &self,
         bookmarks: Vec<(i64, String, String, Option<String>, Option<String>, Option<i64>, i64, i64)>,
     ) -> Result<usize, SearchError> {
@@ -763,7 +775,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(count)
     }
 
-    fn rebuild_file_index_from_data(
+    /// Rebuild the entire file index from provided file data.
+    pub fn rebuild_file_index_from_data(
         &self,
         files: Vec<(i64, String, String, Option<String>, i64, i64, i64)>,
     ) -> Result<usize, SearchError> {
@@ -801,7 +814,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(count)
     }
 
-    fn get_stats(&self) -> Result<IndexStats, SearchError> {
+    /// Get index statistics.
+    pub fn get_stats(&self) -> Result<IndexStats, SearchError> {
         let bookmark_count = self.bookmark_reader.searcher().num_docs() as usize;
         let file_count = self.file_reader.searcher().num_docs() as usize;
 
@@ -816,7 +830,8 @@ impl SearchEngine for TantivySearchEngine {
         })
     }
 
-    fn commit(&self) -> Result<(), SearchError> {
+    /// Commit any pending changes to the index.
+    pub fn commit(&self) -> Result<(), SearchError> {
         {
             let mut writer = self.bookmark_writer.lock().map_err(|_| {
                 SearchError::LockError("bookmark writer lock poisoned")
@@ -842,7 +857,8 @@ impl SearchEngine for TantivySearchEngine {
         Ok(())
     }
 
-    fn update_bookmark_frecency(
+    /// Update bookmark frecency data in the index.
+    pub fn update_bookmark_frecency(
         &self,
         id: i64,
         access_count: i64,
@@ -857,7 +873,8 @@ impl SearchEngine for TantivySearchEngine {
         })
     }
 
-    fn update_file_frecency(
+    /// Update file frecency data in the index.
+    pub fn update_file_frecency(
         &self,
         id: i64,
         access_count: i64,

@@ -115,7 +115,7 @@ impl FileScanner {
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs() as i64;
 
         self.scan_recursive(conn, directory_id, path, now, &mut result)?;
@@ -287,7 +287,7 @@ impl FileScanner {
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs() as i64;
 
         for (file_id, file_path, indexed_modified_at) in files {

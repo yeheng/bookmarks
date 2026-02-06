@@ -1,6 +1,6 @@
 use crate::db::Database;
 use crate::models::bookmark::ImportResult;
-use crate::search::{SearchEngine, TantivySearchEngine};
+use crate::search::TantivySearchEngine;
 use crate::services::{
     chrome_importer::ChromeImporter, firefox_importer::FirefoxImporter,
     safari_importer::SafariImporter, data_service::DataService,

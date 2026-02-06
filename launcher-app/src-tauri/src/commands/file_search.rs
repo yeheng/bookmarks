@@ -1,6 +1,5 @@
 use crate::commands::bookmarks::AppState;
 use crate::models::file::FileSearchResult;
-use crate::search::SearchEngine;
 use tauri::State;
 
 #[tauri::command]
@@ -23,7 +22,7 @@ pub fn search_files_by_extension(
     extension: String,
     limit: Option<usize>,
 ) -> Result<Vec<FileSearchResult>, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let limit = limit.unwrap_or(10);
@@ -70,12 +69,12 @@ pub fn search_files_by_extension(
 pub fn record_file_access(state: State<AppState>, file_id: i64) -> Result<(), String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64;
 
     // Update SQLite and get the new access count
     let access_count = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
         let conn = db.get_connection();
 
         conn.execute(
@@ -107,7 +106,7 @@ pub fn get_file_by_id(
     state: State<AppState>,
     file_id: i64,
 ) -> Result<Option<FileSearchResult>, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let result = conn

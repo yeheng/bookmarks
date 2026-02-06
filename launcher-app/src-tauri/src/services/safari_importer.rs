@@ -72,7 +72,7 @@ impl SafariImporter {
     fn insert_bookmark(conn: &Connection, title: &str, url: &str) -> Result<bool, String> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs() as i64;
 
         let existing: Result<i64, _> =

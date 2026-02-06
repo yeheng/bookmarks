@@ -1,6 +1,6 @@
 use crate::commands::bookmarks::AppState;
 use crate::models::bookmark::BookmarkSearchResult;
-use crate::search::{SearchEngine, IndexStats};
+use crate::search::IndexStats;
 use tauri::State;
 
 #[tauri::command]

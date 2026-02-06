@@ -1,6 +1,5 @@
 use crate::commands::bookmarks::AppState;
 use crate::models::file::{DirectoryValidationResult, IndexingProgress, SearchDirectory};
-use crate::search::SearchEngine;
 use crate::services::file_scanner::FileScanner;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -47,7 +46,7 @@ pub fn add_search_directory(
     path: String,
     include_hidden: Option<bool>,
 ) -> Result<SearchDirectory, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let dir_path = Path::new(&path);
@@ -80,7 +79,7 @@ pub fn add_search_directory(
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64;
 
     let include_hidden = include_hidden.unwrap_or(false);
@@ -108,7 +107,7 @@ pub fn add_search_directory(
 #[tauri::command]
 pub fn remove_search_directory(state: State<AppState>, directory_id: i64) -> Result<(), String> {
     {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
         let conn = db.get_connection();
 
         FileScanner::remove_directory_files(conn, directory_id)?;
@@ -131,7 +130,7 @@ pub fn remove_search_directory(state: State<AppState>, directory_id: i64) -> Res
 
 #[tauri::command]
 pub fn get_search_directories(state: State<AppState>) -> Result<Vec<SearchDirectory>, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let mut stmt = conn
@@ -167,7 +166,7 @@ pub fn toggle_search_directory(
     directory_id: i64,
     enabled: bool,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     conn.execute(
@@ -182,7 +181,7 @@ pub fn toggle_search_directory(
 #[tauri::command]
 pub fn index_directory(state: State<AppState>, directory_id: i64) -> Result<IndexingProgress, String> {
     let result = {
-        let db = state.db.lock().unwrap();
+        let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
         let conn = db.get_connection();
 
         let (path, include_hidden): (String, bool) = conn
@@ -259,7 +258,7 @@ pub fn refresh_directory_index(
     state: State<AppState>,
     directory_id: i64,
 ) -> Result<(usize, usize), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let path: String = conn
@@ -287,7 +286,7 @@ pub fn get_default_search_directories() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub fn get_indexing_stats(state: State<AppState>) -> Result<IndexingStats, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let total_directories: i64 = conn

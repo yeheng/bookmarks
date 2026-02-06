@@ -13,13 +13,13 @@ use tauri::State;
 fn get_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64
 }
 
 #[tauri::command]
 pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let result: Option<String> = conn
@@ -33,7 +33,7 @@ pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>
 
 #[tauri::command]
 pub fn set_setting(state: State<AppState>, key: String, value: String) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let now = get_now();
@@ -49,7 +49,7 @@ pub fn set_setting(state: State<AppState>, key: String, value: String) -> Result
 
 #[tauri::command]
 pub fn delete_setting(state: State<AppState>, key: String) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     conn.execute("DELETE FROM settings WHERE key = ?1", [&key])
@@ -60,7 +60,7 @@ pub fn delete_setting(state: State<AppState>, key: String) -> Result<(), String>
 
 #[tauri::command]
 pub fn get_all_settings(state: State<AppState>) -> Result<HashMap<String, String>, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let mut stmt = conn
@@ -188,7 +188,7 @@ pub fn save_app_settings(
     state: State<AppState>,
     settings: AppSettings,
 ) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
     let now = get_now();
 
@@ -311,7 +311,7 @@ pub fn get_hotkey_settings(state: State<AppState>) -> Result<HotkeySettings, Str
 
 #[tauri::command]
 pub fn save_hotkey_settings(state: State<AppState>, hotkey: HotkeySettings) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
     let now = get_now();
 
@@ -332,7 +332,7 @@ pub fn get_theme_settings(state: State<AppState>) -> Result<ThemeSettings, Strin
 
 #[tauri::command]
 pub fn save_theme_settings(state: State<AppState>, theme: ThemeSettings) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
     let now = get_now();
 
@@ -395,7 +395,7 @@ pub fn get_search_settings(state: State<AppState>) -> Result<SearchSettings, Str
 
 #[tauri::command]
 pub fn save_search_settings(state: State<AppState>, search: SearchSettings) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
     let now = get_now();
 
@@ -419,7 +419,7 @@ pub fn save_search_settings(state: State<AppState>, search: SearchSettings) -> R
 
 #[tauri::command]
 pub fn export_data(state: State<AppState>, file_path: String) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let mut bookmark_stmt = conn
@@ -492,7 +492,7 @@ pub fn import_data(state: State<AppState>, file_path: String) -> Result<ImportRe
     let import: ExportData =
         serde_json::from_str(&content).map_err(|e| format!("Invalid file format: {}", e))?;
 
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let mut result = ImportResult {
@@ -589,7 +589,7 @@ pub fn import_data(state: State<AppState>, file_path: String) -> Result<ImportRe
 
 #[tauri::command]
 pub fn reset_settings(state: State<AppState>) -> Result<(), String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     conn.execute("DELETE FROM settings", [])
@@ -600,7 +600,7 @@ pub fn reset_settings(state: State<AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_data_stats(state: State<AppState>) -> Result<DataStats, String> {
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
     let conn = db.get_connection();
 
     let bookmarks_count: i64 = conn

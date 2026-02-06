@@ -131,7 +131,7 @@ impl FileWatcher {
             }
         });
 
-        let mut watchers = self.watchers.lock().unwrap();
+        let mut watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
         watchers.insert(
             directory_id,
             WatcherHandle {
@@ -144,18 +144,18 @@ impl FileWatcher {
     }
 
     pub fn unwatch_directory(&self, directory_id: i64) -> Result<(), String> {
-        let mut watchers = self.watchers.lock().unwrap();
+        let mut watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
         watchers.remove(&directory_id);
         Ok(())
     }
 
     pub fn is_watching(&self, directory_id: i64) -> bool {
-        let watchers = self.watchers.lock().unwrap();
+        let watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
         watchers.contains_key(&directory_id)
     }
 
     pub fn get_watched_directories(&self) -> Vec<(i64, PathBuf)> {
-        let watchers = self.watchers.lock().unwrap();
+        let watchers = self.watchers.lock().unwrap_or_else(|e| e.into_inner());
         watchers
             .iter()
             .map(|(id, handle)| (*id, handle.path.clone()))
@@ -209,7 +209,7 @@ fn handle_file_created(
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64;
 
     let modified_at = metadata
@@ -262,7 +262,7 @@ fn handle_file_modified(conn: &Connection, path: &Path, _directory_id: i64) -> R
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64;
 
     let modified_at = metadata

@@ -27,7 +27,7 @@ pub async fn fetch_favicon(
 
     match client.get(&favicon_url).send().await {
         Ok(response) if response.status().is_success() => {
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
             let conn = db.get_connection();
             
             conn.execute(
@@ -41,7 +41,7 @@ pub async fn fetch_favicon(
         _ => {
             let google_favicon = format!("https://www.google.com/s2/favicons?domain={}&sz=64", base_url);
             
-            let db = state.db.lock().unwrap();
+            let db = state.db.lock().map_err(|e| format!("Failed to acquire lock: {}", e))?;
             let conn = db.get_connection();
             
             conn.execute(

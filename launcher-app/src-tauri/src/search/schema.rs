@@ -17,7 +17,10 @@ pub fn register_tokenizers(index: &Index) -> tantivy::Result<()> {
 
     // Ngram tokenizer with min=2, max=3 for CJK and fuzzy matching
     // This breaks "中文搜索" into ["中文", "文搜", "搜索", "中文搜", "文搜索"]
-    let ngram_tokenizer = TextAnalyzer::builder(NgramTokenizer::new(2, 3, false).unwrap())
+    let ngram_tokenizer = TextAnalyzer::builder(
+        NgramTokenizer::new(2, 3, false)
+            .map_err(|e| tantivy::TantivyError::InvalidArgument(format!("Invalid ngram tokenizer config: {:?}", e)))?
+    )
         .filter(tantivy::tokenizer::LowerCaser)
         .build();
 

@@ -8,10 +8,15 @@
 /// 2. Index updates should NOT block database commits
 /// 3. Failed index updates are logged and recovered on next startup
 /// 4. No defensive "rollback" logic - we trust our write path
+///
+/// Locking Strategy:
+/// - ALWAYS acquire DB lock first, then release BEFORE calling search_engine methods
+/// - This prevents deadlocks and ensures DB operations are not blocked by slow index updates
+/// - Pattern: acquire DB lock -> read/write DB -> release DB lock -> update index
 
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
-use crate::search::{SearchEngine, TantivySearchEngine};
+use crate::search::TantivySearchEngine;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -290,10 +295,14 @@ impl DataService {
         for (bookmark_id, operation) in pending {
             match operation.as_str() {
                 "index" => {
-                    // Re-fetch bookmark data and index it
-                    if let Ok(db) = self.db.lock() {
+                    // Re-fetch bookmark data (acquire lock, then release before indexing)
+                    let bookmark_data = {
+                        let db = match self.db.lock() {
+                            Ok(db) => db,
+                            Err(_) => continue,
+                        };
                         let conn = db.get_connection();
-                        if let Ok((title, url, description, tags, created_at, updated_at, last_accessed)) = conn.query_row(
+                        conn.query_row(
                             "SELECT title, url, description, tags, created_at, updated_at, last_accessed FROM bookmarks WHERE id = ?1",
                             [bookmark_id],
                             |row| {
@@ -307,24 +316,31 @@ impl DataService {
                                     row.get::<_, Option<i64>>(6)?,
                                 ))
                             },
+                        ).ok()
+                        // DB lock released here
+                    };
+
+                    // Index without holding DB lock
+                    if let Some((title, url, description, tags, created_at, updated_at, last_accessed)) = bookmark_data {
+                        if let Err(e) = self.search_engine.index_bookmark(
+                            bookmark_id,
+                            &title,
+                            &url,
+                            description.as_deref(),
+                            tags.as_deref(),
+                            last_accessed,
+                            created_at,
+                            updated_at,
                         ) {
-                            if let Err(e) = self.search_engine.index_bookmark(
-                                bookmark_id,
-                                &title,
-                                &url,
-                                description.as_deref(),
-                                tags.as_deref(),
-                                last_accessed,
-                                created_at,
-                                updated_at,
-                            ) {
-                                eprintln!(
-                                    "[DataService] Failed to recover index for bookmark {}: {}",
-                                    bookmark_id, e
-                                );
-                                continue;
-                            }
+                            eprintln!(
+                                "[DataService] Failed to recover index for bookmark {}: {}",
+                                bookmark_id, e
+                            );
+                            continue;
                         }
+                    } else {
+                        // Bookmark was deleted, skip
+                        continue;
                     }
                 }
                 "delete" => {
