@@ -31,6 +31,8 @@ const { success, error } = useToast();
 const themeStyle = computed(() => {
   if (!settings.value) return {};
   const { theme } = settings.value;
+  const isLight = theme.mode === "light";
+
   return {
     "--accent-color": theme.accent_color,
     "--font-size": `${theme.font_size}px`,
@@ -39,12 +41,22 @@ const themeStyle = computed(() => {
     "--input-height": `${theme.input_height}px`,
     "--item-height": `${theme.item_height}px`,
     "--border-radius": `${theme.border_radius}px`,
-    "--bg-color": theme.bg_color || (theme.mode === "light" ? "rgba(255, 255, 255, 0.95)" : "rgba(26, 26, 26, 0.95)"),
-    "--text-color": theme.text_color || (theme.mode === "light" ? "#1a1a1a" : "#e0e0e0"),
-    "--secondary-text": theme.secondary_text_color || (theme.mode === "light" ? "#6a6a6a" : "#9a9a9a"),
-    "--border-color": theme.border_color || (theme.mode === "light" ? "#e0e0e0" : "#3a3a3a"),
+    "--bg-color": theme.bg_color || (isLight ? "rgba(255,255,255, 0.95)" : "rgba(26, 26, 26, 0.95)"),
+    "--text-color": theme.text_color || (isLight ? "#1a1a1a" : "#e0e0e0"),
+    "--secondary-text": theme.secondary_text_color || (isLight ? "#6a6a6a" : "#9a9a9a"),
+    "--border-color": theme.border_color || (isLight ? "#e0e0e0" : "#3a3a3a"),
     "--selection-bg": theme.selection_bg_color || theme.accent_color,
     "--selection-text": theme.selection_text_color || "#ffffff",
+    "--color-bg-primary": theme.bg_color || (isLight ? "rgba(255,255,255, 0.95)" : "rgba(26, 26, 26, 0.95)"),
+    "--color-text-primary": theme.text_color || (isLight ? "#1a1a1a" : "#e0e0e0"),
+    "--color-text-secondary": theme.secondary_text_color || (isLight ? "#6a6a6a" : "#9a9a9a"),
+    "--color-text-tertiary": isLight ? "#6b6b6b" : "#a3a3a3",
+    "--color-border-default": theme.border_color || (isLight ? "#e0e0e0" : "#3a3a3a"),
+    "--color-border-subtle": isLight ? "#f5f5f5" : "#262626",
+    "--color-interactive-hover": isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.08)",
+    "--color-interactive-active": isLight ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.12)",
+    "--color-highlight-bg": isLight ? "rgba(0, 0, 0, 0.05)" : "rgba(0, 0, 0, 0.05)",
+    "--color-highlight-border": isLight ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.08)",
   };
 });
 
@@ -74,6 +86,12 @@ async function loadSettings() {
 }
 
 function mapBookmarkToSearchResult(b: BookmarkSearchResult): SearchResult {
+  const metadata: { domain?: string } = {};
+  try {
+    const url = new URL(b.url);
+    metadata.domain = url.hostname;
+  } catch {}
+
   return {
     id: `bookmark-${b.id}`,
     type: "bookmark",
@@ -83,7 +101,32 @@ function mapBookmarkToSearchResult(b: BookmarkSearchResult): SearchResult {
     url: b.url,
     frecency_score: b.frecency_score,
     match_score: b.score,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
   };
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function formatDate(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 60) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function mapFileToSearchResult(f: FileSearchResult): SearchResult {
@@ -95,6 +138,10 @@ function mapFileToSearchResult(f: FileSearchResult): SearchResult {
     path: f.path,
     frecency_score: f.frecency_score,
     match_score: f.score,
+    metadata: {
+      size: formatFileSize(f.size),
+      modified: formatDate(f.modified_at),
+    },
   };
 }
 

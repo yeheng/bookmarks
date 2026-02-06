@@ -19,33 +19,33 @@
  * Raw color values used to build semantic colors
  */
 export const primitiveColors = {
-  // Grays (neutral palette)
+  // Grays (warm neutral palette - "Gentle Slate")
   gray: {
-    50: '#fafafa',
-    100: '#f5f5f5',
-    200: '#e5e5e5',
-    300: '#d4d4d4',
-    400: '#a3a3a3',
-    500: '#737373',
-    600: '#525252',
-    700: '#404040',
-    800: '#262626',
-    900: '#171717',
-    950: '#0a0a0a',
+    50: '#f8f7f6',   // Warm off-white
+    100: '#f0efed',  // Soft cream
+    200: '#e3e1df',  // Warmer mid-tone
+    300: '#d1cfcc',  // Gentle stone
+    400: '#a8a49f',  // Muted mid-gray
+    500: '#7a766f',  // Balanced gray
+    600: '#5c5852',  // Warm dark gray
+    700: '#454139',  // Deep charcoal
+    800: '#2d2a26',  // Warm dark
+    900: '#3d3a36',  // Warm dark text
+    950: '#1c1a17',  // Deep warm black
   },
 
-  // Primary accent (coral/red)
+  // Primary accent (sage green - calming)
   coral: {
-    50: '#fff5f5',
-    100: '#ffe3e3',
-    200: '#ffc9c9',
-    300: '#ffa8a8',
-    400: '#ff8787',
-    500: '#ff6b6b',  // Main accent
-    600: '#fa5252',
-    700: '#f03e3e',
-    800: '#e03131',
-    900: '#c92a2a',
+    50: '#f4f7f5',   // Lightest sage
+    100: '#e5ebe8',  // Very light sage
+    200: '#c8d7cf',  // Light sage
+    300: '#a5c0b0',  // Soft sage
+    400: '#81a594',  // Medium sage
+    500: '#6b9080',  // Main accent - muted sage green
+    600: '#557a68',  // Darker sage for hover
+    700: '#436354',  // Deep sage
+    800: '#354f43',  // Very deep sage
+    900: '#2a3f35',  // Darkest sage
   },
 
   // Success (green)
@@ -97,88 +97,98 @@ export const primitiveColors = {
  */
 export const semanticColors = {
   light: {
-    // Backgrounds
+    // Backgrounds - warm cream tones for reduced eye strain
     bg: {
-      primary: 'rgba(255, 255, 255, 0.95)',
+      primary: 'rgba(248, 247, 246, 0.96)',  // Warm off-white
       secondary: primitiveColors.gray[100],
       tertiary: primitiveColors.gray[50],
-      elevated: '#ffffff',
-      overlay: 'rgba(0, 0, 0, 0.5)',
+      elevated: '#fdfcfb',  // Subtle cream
+      overlay: 'rgba(45, 42, 38, 0.4)',  // Warm overlay
     },
 
-    // Text - WCAG 2.1 AA compliant (4.5:1+ contrast on light backgrounds)
+    // Text - softer contrast for comfortable extended reading
     text: {
-      primary: primitiveColors.gray[900],
-      secondary: primitiveColors.gray[600],  // 7.5:1 contrast on #ffffff
-      tertiary: '#6b6b6b',                   // 5.0:1 contrast on #ffffff
+      primary: '#3d3a36',                    // Warm dark gray (not near-black)
+      secondary: '#6b6660',                  // Soft secondary
+      tertiary: '#8a857e',                   // Gentle tertiary
       disabled: primitiveColors.gray[400],
-      inverse: '#ffffff',
+      inverse: '#fdfcfb',
     },
 
-    // Borders
+    // Borders - subtle warm tones
     border: {
       default: primitiveColors.gray[200],
       subtle: primitiveColors.gray[100],
       strong: primitiveColors.gray[300],
-      focus: primitiveColors.coral[500],
+      focus: primitiveColors.coral[500],  // Sage green focus
     },
 
-    // Interactive states
+    // Interactive states - gentler feedback
     interactive: {
-      hover: 'rgba(0, 0, 0, 0.04)',
-      active: 'rgba(0, 0, 0, 0.08)',
+      hover: 'rgba(107, 144, 128, 0.08)',   // Sage-tinted hover
+      active: 'rgba(107, 144, 128, 0.15)',  // Sage-tinted active
       selected: primitiveColors.coral[500],
       selectedText: '#ffffff',
     },
 
-    // Semantic
+    highlight: {
+      bg: 'rgba(107, 144, 128, 0.08)',      // Sage-tinted highlight
+      border: 'rgba(107, 144, 128, 0.15)',
+    },
+
+    // Semantic - muted tones
     accent: primitiveColors.coral[500],
     success: primitiveColors.green[600],
     warning: primitiveColors.amber[500],
-    error: primitiveColors.coral[600],
+    error: '#b85450',  // Muted red for errors
     info: primitiveColors.blue[500],
   },
 
   dark: {
-    // Backgrounds
+    // Backgrounds - warm charcoal for reduced eye strain in dark mode
     bg: {
-      primary: 'rgba(26, 26, 26, 0.95)',
+      primary: 'rgba(32, 30, 28, 0.96)',     // Warm charcoal
       secondary: primitiveColors.gray[800],
-      tertiary: primitiveColors.gray[900],
-      elevated: primitiveColors.gray[800],
-      overlay: 'rgba(0, 0, 0, 0.7)',
+      tertiary: '#252320',                    // Slightly lighter warm dark
+      elevated: '#363330',                    // Elevated warm surface
+      overlay: 'rgba(0, 0, 0, 0.6)',
     },
 
-    // Text - WCAG 2.1 AA compliant (4.5:1+ contrast on dark backgrounds)
+    // Text - warm off-whites for comfortable reading
     text: {
-      primary: primitiveColors.gray[100],
-      secondary: '#b3b3b3',  // 5.5:1 contrast on #1a1a1a
-      tertiary: '#a3a3a3',   // 4.3:1 contrast on #1a1a1a
+      primary: '#e8e6e3',                     // Warm off-white
+      secondary: '#a8a49f',                   // Muted warm secondary
+      tertiary: '#8a857e',                    // Consistent tertiary
       disabled: primitiveColors.gray[600],
       inverse: primitiveColors.gray[900],
     },
 
-    // Borders
+    // Borders - subtle warm tones
     border: {
-      default: primitiveColors.gray[700],
-      subtle: primitiveColors.gray[800],
-      strong: primitiveColors.gray[600],
-      focus: primitiveColors.coral[500],
+      default: '#454139',                     // Warm border
+      subtle: '#363330',                      // Subtle warm
+      strong: '#5c5852',                      // Stronger warm
+      focus: primitiveColors.coral[400],      // Lighter sage for dark mode
     },
 
-    // Interactive states
+    // Interactive states - sage-tinted feedback
     interactive: {
-      hover: 'rgba(255, 255, 255, 0.08)',
-      active: 'rgba(255, 255, 255, 0.12)',
+      hover: 'rgba(129, 165, 148, 0.12)',    // Sage-tinted hover
+      active: 'rgba(129, 165, 148, 0.18)',   // Sage-tinted active
       selected: primitiveColors.coral[500],
       selectedText: '#ffffff',
     },
 
-    // Semantic
-    accent: primitiveColors.coral[500],
+    highlight: {
+      bg: 'rgba(129, 165, 148, 0.10)',       // Sage-tinted highlight
+      border: 'rgba(129, 165, 148, 0.18)',
+    },
+
+    // Semantic - muted tones for dark mode
+    accent: primitiveColors.coral[400],       // Lighter sage in dark mode
     success: primitiveColors.green[500],
     warning: primitiveColors.amber[400],
-    error: primitiveColors.coral[500],
+    error: '#c97370',                         // Softer red for dark mode
     info: primitiveColors.blue[400],
   },
 } as const;
@@ -466,7 +476,7 @@ export const shadow = {
 
   // Component-specific
   hover: '0 2px 8px rgba(0, 0, 0, 0.1)',
-  selected: '0 2px 12px rgba(255, 107, 107, 0.2)',
+  selected: '0 2px 12px rgba(107, 144, 128, 0.2)',
   elevated: '0 4px 12px rgba(0, 0, 0, 0.15)',
 } as const;
 

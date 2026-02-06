@@ -38,28 +38,36 @@ export default {
         'error': tokens.colors.semantic.light.error,
         'info': tokens.colors.semantic.light.info,
 
-        'hover-bg': tokens.colors.semantic.light.interactive.hover,
-        'active-bg': tokens.colors.semantic.light.interactive.active,
-        'selected': tokens.colors.semantic.light.interactive.selected,
-        'selected-text': tokens.colors.semantic.light.interactive.selectedText,
+         'hover-bg': tokens.colors.semantic.light.interactive.hover,
+         'active-bg': tokens.colors.semantic.light.interactive.active,
+         'selected': tokens.colors.semantic.light.interactive.selected,
+         'selected-text': tokens.colors.semantic.light.interactive.selectedText,
 
-        // Legacy compatibility (maps to new tokens)
-        dark: {
-          bg: tokens.colors.semantic.dark.bg.primary,
-          'input-bg': tokens.colors.semantic.dark.bg.secondary,
-          'text-primary': tokens.colors.semantic.dark.text.primary,
-          'text-secondary': tokens.colors.semantic.dark.text.secondary,
-          accent: tokens.colors.semantic.dark.accent,
-          border: tokens.colors.semantic.dark.border.default,
-        },
-        light: {
-          bg: tokens.colors.semantic.light.bg.primary,
-          'input-bg': tokens.colors.semantic.light.bg.secondary,
-          'text-primary': tokens.colors.semantic.light.text.primary,
-          'text-secondary': tokens.colors.semantic.light.text.secondary,
-          accent: tokens.colors.semantic.light.accent,
-          border: tokens.colors.semantic.light.border.default,
-        }
+         // Ghost highlight
+         'highlight-bg': tokens.colors.semantic.light.highlight.bg,
+         'highlight-border': tokens.colors.semantic.light.highlight.border,
+
+         // Legacy compatibility (maps to new tokens)
+         dark: {
+           bg: tokens.colors.semantic.dark.bg.primary,
+           'input-bg': tokens.colors.semantic.dark.bg.secondary,
+           'text-primary': tokens.colors.semantic.dark.text.primary,
+           'text-secondary': tokens.colors.semantic.dark.text.secondary,
+           accent: tokens.colors.semantic.dark.accent,
+           border: tokens.colors.semantic.dark.border.default,
+           'highlight-bg': tokens.colors.semantic.dark.highlight.bg,
+           'highlight-border': tokens.colors.semantic.dark.highlight.border,
+         },
+         light: {
+           bg: tokens.colors.semantic.light.bg.primary,
+           'input-bg': tokens.colors.semantic.light.bg.secondary,
+           'text-primary': tokens.colors.semantic.light.text.primary,
+           'text-secondary': tokens.colors.semantic.light.text.secondary,
+           accent: tokens.colors.semantic.light.accent,
+           border: tokens.colors.semantic.light.border.default,
+           'highlight-bg': tokens.colors.semantic.light.highlight.bg,
+           'highlight-border': tokens.colors.semantic.light.highlight.border,
+         }
       },
 
       // Typography tokens

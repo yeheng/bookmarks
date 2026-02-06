@@ -224,10 +224,10 @@ defineExpose({
 
           <TransitionRoot
             v-else
-            enter="transition-all duration-100"
+            enter="transition-all duration-200 ease-out"
             enter-from="opacity-0 translate-y-1"
             enter-to="opacity-100 translate-y-0"
-            leave="transition-opacity duration-75"
+            leave="transition-opacity duration-150"
             leave-from="opacity-100"
             leave-to="opacity-0"
           >
@@ -239,15 +239,15 @@ defineExpose({
                   :is-first="groupIndex === 0"
                   @toggle="toggleGroup(group.type)"
                 />
-                <TransitionRoot
-                  :show="!isGroupCollapsed(group.type)"
-                  enter="transition-all duration-150 ease-out"
-                  enter-from="opacity-0 max-h-0"
-                  enter-to="opacity-100 max-h-96"
-                  leave="transition-all duration-100 ease-in"
-                  leave-from="opacity-100 max-h-96"
-                  leave-to="opacity-0 max-h-0"
-                >
+                  <TransitionRoot
+                    :show="!isGroupCollapsed(group.type)"
+                    enter="transition-all duration-200 ease-out"
+                    enter-from="opacity-0 max-h-0"
+                    enter-to="opacity-100 max-h-96"
+                    leave="transition-all duration-150 ease-in"
+                    leave-from="opacity-100 max-h-96"
+                    leave-to="opacity-0 max-h-0"
+                  >
                   <div class="group-items">
                     <ComboboxOption
                       v-for="result in group.results"
@@ -297,30 +297,32 @@ defineExpose({
 
 .search-input {
   width: 100%;
-  height: var(--input-height, 60px);
+  height: var(--input-height, 64px);
   padding: 0 50px 0 24px;
-  font-size: calc(var(--font-size) * 1.5);
+  font-size: 20px;
+  font-weight: 400;
   border: none;
   outline: none;
   background: transparent;
   color: var(--text-color);
-  border-bottom: 1px solid var(--border-color);
+  line-height: 1;
 }
 
 .search-input::placeholder {
-  color: var(--secondary-text);
+  color: var(--color-text-tertiary);
+  font-weight: 300;
 }
 
 .settings-icon-btn {
   position: absolute;
   top: 0;
   right: 16px;
-  height: var(--input-height, 60px);
+  height: var(--input-height, 64px);
   background: none;
   border: none;
   font-size: 20px;
   cursor: pointer;
-  opacity: 0.3;
+  opacity: 0.4;
   transition: opacity 0.2s;
   display: flex;
   align-items: center;
@@ -335,19 +337,40 @@ defineExpose({
 .results-container {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 12px;
+  padding: 12px 12px 16px;
+  position: relative;
+}
+
+/* Scroll mask gradient - fade out content near input */
+.results-container::before {
+  content: '';
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  background: linear-gradient(
+    to bottom,
+    var(--color-bg-primary) 0%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 1;
 }
 
 /* Custom scrollbar */
 .results-container::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 .results-container::-webkit-scrollbar-track {
   background: transparent;
 }
 .results-container::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
+  background: var(--color-border-subtle);
+  border-radius: 3px;
+}
+.results-container::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-default);
 }
 
 .result-option {
@@ -361,7 +384,7 @@ defineExpose({
   justify-content: center;
   padding: 48px 24px;
   text-align: center;
-  color: var(--secondary-text);
+  color: var(--color-text-secondary);
   height: 100%;
 }
 
@@ -404,7 +427,7 @@ defineExpose({
 
 .loading-text {
   font-size: 12px;
-  color: var(--secondary-text);
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
@@ -446,7 +469,7 @@ defineExpose({
   padding: 0;
   margin: 8px 0 0 0;
   font-size: 13px;
-  color: var(--secondary-text);
+  color: var(--color-text-secondary);
 }
 
 .suggestion-list li {
@@ -484,7 +507,7 @@ defineExpose({
 
 .error-description {
   font-size: 13px;
-  color: var(--secondary-text);
+  color: var(--color-text-secondary);
   margin-bottom: 16px;
   max-width: 280px;
 }
@@ -526,7 +549,7 @@ defineExpose({
 
 .empty-hint {
   font-size: 14px;
-  color: var(--secondary-text);
+  color: var(--color-text-secondary);
 }
 
 .highlight {
@@ -542,7 +565,7 @@ defineExpose({
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--secondary-text);
+  color: var(--color-text-secondary);
   margin-bottom: 12px;
 }
 
@@ -550,8 +573,8 @@ defineExpose({
   padding: 12px 16px;
   text-align: center;
   font-size: 12px;
-  color: var(--secondary-text);
-  border-top: 1px solid var(--border-color);
+  color: var(--color-text-secondary);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 /* Grouped Results Styles */
@@ -567,6 +590,7 @@ defineExpose({
 .flat-results {
   display: flex;
   flex-direction: column;
+  gap: 4px;
 }
 
 /* Visually hidden class for screen reader announcements */
