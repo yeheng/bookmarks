@@ -97,13 +97,13 @@ pub fn run() {
             // Initialize DataService for atomic DB + Index operations
             let data_service = Arc::new(DataService::new(db, search_engine.clone()));
 
-            // Recover any pending index operations from previous crashes
+            // Check index integrity and rebuild if needed (simple, Linus-style)
             let data_service_clone = data_service.clone();
             std::thread::spawn(move || {
-                if let Err(e) = data_service_clone.recover_pending_operations() {
-                    eprintln!("[Startup] Failed to recover pending index operations: {}", e);
-                } else {
-                    println!("[Startup] Pending index operations recovered successfully");
+                match data_service_clone.rebuild_index_if_needed() {
+                    Ok(true) => println!("[Startup] Index rebuilt successfully"),
+                    Ok(false) => println!("[Startup] Index integrity check passed"),
+                    Err(e) => eprintln!("[Startup] Index check failed: {}", e),
                 }
             });
 

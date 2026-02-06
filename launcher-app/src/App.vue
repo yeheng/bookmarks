@@ -6,7 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { Toaster } from 'vue-sonner';
 import SearchCombobox from "./components/SearchCombobox.vue";
-import SettingsPanel from "./components/settings/SettingsPanelNew.vue";
+import SettingsPanel from "./components/settings/SettingsPanel.vue";
 import ErrorBoundary from "./components/ErrorBoundary.vue";
 import { ShortcutManager } from "./services/shortcuts";
 import { useToast } from "./composables/useToast";
