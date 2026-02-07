@@ -46,11 +46,6 @@ pub fn open_bookmark(state: State<AppState>, bookmark_id: i64) -> Result<OpenRes
 
     match open::that(&url) {
         Ok(_) => {
-            // Record access in database
-            let _ = state.data_service.with_db(|conn| {
-                record_resource_access(conn, "bookmark", bookmark_id)
-            });
-
             Ok(OpenResult {
                 success: true,
                 resource_type: "bookmark".to_string(),
@@ -82,6 +77,22 @@ pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, Str
 
     let file_path = Path::new(&path);
 
+    // Check file existence before attempting to open
+    if !file_path.exists() {
+        // Clean up stale DB record
+        let _ = state.data_service.with_db(|conn| {
+            conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
+                .map_err(|e| AppError::Generic(e.to_string()))?;
+            Ok(())
+        });
+        return Ok(OpenResult {
+            success: false,
+            resource_type: "file".to_string(),
+            resource_id: file_id,
+            error: Some("File no longer exists".to_string()),
+        });
+    }
+
     match open::that(&path) {
         Ok(_) => {
             // Record access in database
@@ -96,23 +107,12 @@ pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, Str
                 error: None,
             })
         }
-        Err(e) => {
-            // If file doesn't exist, clean up the database record
-            if !file_path.exists() {
-                let _ = state.data_service.with_db(|conn| {
-                    conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
-                        .map_err(|e| AppError::Generic(e.to_string()))?;
-                    Ok(())
-                });
-            }
-
-            Ok(OpenResult {
-                success: false,
-                resource_type: "file".to_string(),
-                resource_id: file_id,
-                error: Some(format!("Failed to open file: {}", e)),
-            })
-        }
+        Err(e) => Ok(OpenResult {
+            success: false,
+            resource_type: "file".to_string(),
+            resource_id: file_id,
+            error: Some(format!("Failed to open file: {}", e)),
+        }),
     }
 }
 

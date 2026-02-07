@@ -12,7 +12,8 @@ pub fn search_files(
     let limit = limit.unwrap_or(10);
 
     state
-        .search_engine
+        .data_service
+        .search_engine()
         .search_files(&query, limit)
         .map_err(|e| format!("Search failed: {}", e))
 }
@@ -92,7 +93,7 @@ pub fn record_file_access(state: State<AppState>, file_id: i64) -> Result<(), St
     }).map_err(|e| e.to_string())?;
 
     // Update Tantivy index with new frecency data (fire and forget)
-    let _ = state.search_engine.update_file_frecency(file_id, access_count, now);
+    let _ = state.data_service.search_engine().update_file_frecency(file_id, access_count, now);
 
     Ok(())
 }

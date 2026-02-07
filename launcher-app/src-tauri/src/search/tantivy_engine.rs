@@ -496,6 +496,12 @@ impl TantivySearchEngine {
     }
 
     /// Index a single bookmark (add or update).
+    ///
+    /// **Performance note:** This method commits after each individual bookmark,
+    /// which is fine for single add/update operations from the UI. For bulk imports
+    /// (e.g., Chrome/Firefox/Safari import), use `batch_index_bookmarks` instead —
+    /// it accumulates all documents and performs a single commit, which is significantly
+    /// faster for large batches.
     pub fn index_bookmark(
         &self,
         id: i64,
@@ -548,6 +554,11 @@ impl TantivySearchEngine {
     }
 
     /// Index a single file (add or update).
+    ///
+    /// **Performance note:** This method commits after each individual file,
+    /// which is fine for single operations. For directory indexing, use
+    /// `index_directory_files` instead — it performs a single commit for
+    /// all files in a directory, which is significantly faster.
     pub fn index_file(
         &self,
         id: i64,
@@ -646,6 +657,61 @@ impl TantivySearchEngine {
         Ok(())
     }
 
+    /// Batch index bookmarks incrementally (add or update).
+    ///
+    /// Unlike `rebuild_bookmark_index_from_data` which wipes the entire bookmark index,
+    /// this method only deletes and re-adds the specified bookmarks. Existing bookmarks
+    /// not in the input list remain untouched.
+    ///
+    /// Use this for post-import indexing where only newly imported bookmarks need indexing.
+    pub fn batch_index_bookmarks(
+        &self,
+        bookmarks: Vec<(i64, String, String, Option<String>, Option<String>, Option<i64>, i64, i64)>,
+    ) -> Result<usize, SearchError> {
+        let mut writer = self.bookmark_writer.lock().map_err(|_| {
+            SearchError::LockError("bookmark writer lock poisoned")
+        })?;
+
+        let count = bookmarks.len();
+        let fields = &self.bookmark_fields;
+
+        // For each bookmark: delete existing (if any) then add
+        for (id, title, url, description, tags, last_accessed, created_at, updated_at) in bookmarks {
+            let term = Term::from_field_i64(fields.id, id);
+            writer.delete_term(term);
+
+            let doc = doc!(
+                fields.id => id,
+                fields.title => title.as_str(),
+                fields.url => url.as_str(),
+                fields.description => description.as_deref().unwrap_or(""),
+                fields.tags => tags.as_deref().unwrap_or(""),
+                fields.last_accessed => last_accessed.unwrap_or(0),
+                fields.created_at => created_at,
+                fields.updated_at => updated_at,
+                fields.access_count => 0i64,
+                fields.access_timestamp => 0i64
+            );
+
+            writer
+                .add_document(doc)
+                .map_err(|e| SearchError::IndexError(e.to_string()))?;
+        }
+
+        // Single commit after all documents
+        writer
+            .commit()
+            .map_err(|e| SearchError::IndexError(e.to_string()))?;
+
+        drop(writer);
+
+        self.bookmark_reader
+            .reload()
+            .map_err(|e| SearchError::IndexError(e.to_string()))?;
+
+        Ok(count)
+    }
+
     /// Rebuild the entire bookmark index from provided bookmark data.
     /// Uses batch indexing with single commit for performance.
     pub fn rebuild_bookmark_index_from_data(
@@ -696,6 +762,64 @@ impl TantivySearchEngine {
 
         // Reload reader to see the changes
         self.bookmark_reader
+            .reload()
+            .map_err(|e| SearchError::IndexError(e.to_string()))?;
+
+        Ok(count)
+    }
+
+    /// Index files for a specific directory (incremental).
+    ///
+    /// Unlike `rebuild_file_index_from_data` which wipes the entire file index,
+    /// this method only removes files belonging to the given `directory_id` and
+    /// re-adds the provided files. Other directories' files remain untouched.
+    ///
+    /// Complexity: O(directory_files) instead of O(total_files).
+    pub fn index_directory_files(
+        &self,
+        directory_id: i64,
+        files: Vec<(i64, String, String, Option<String>, i64, i64, i64)>,
+    ) -> Result<usize, SearchError> {
+        let mut writer = self.file_writer.lock().map_err(|_| {
+            SearchError::LockError("file writer lock poisoned")
+        })?;
+
+        let fields = &self.file_fields;
+
+        // Delete only files belonging to this directory
+        let dir_term = Term::from_field_i64(fields.directory_id, directory_id);
+        writer.delete_term(dir_term);
+
+        let count = files.len();
+
+        // Batch add new files for this directory
+        for (id, path, name, extension, size, modified_at, dir_id) in files {
+            let doc = doc!(
+                fields.id => id,
+                fields.path => path.as_str(),
+                fields.name => name.as_str(),
+                fields.extension => extension.as_deref().unwrap_or(""),
+                fields.size => size,
+                fields.modified_at => modified_at,
+                fields.directory_id => dir_id,
+                fields.access_count => 0i64,
+                fields.access_timestamp => 0i64
+            );
+
+            writer
+                .add_document(doc)
+                .map_err(|e| SearchError::IndexError(e.to_string()))?;
+        }
+
+        // Single commit after all documents added
+        writer
+            .commit()
+            .map_err(|e| SearchError::IndexError(e.to_string()))?;
+
+        drop(writer);
+
+        // Reload reader to see the changes
+        self.file_reader
             .reload()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
@@ -804,6 +928,13 @@ impl TantivySearchEngine {
     ///
     /// Performs a direct index update (read-delete-reindex pattern).
     /// This is efficient enough for desktop app click rates.
+    ///
+    /// **TOCTOU note:** There is a race condition between reading the existing
+    /// document and writing the updated one — a concurrent write could be lost.
+    /// This is acceptable for a desktop app where concurrent bookmark access
+    /// events are extremely rare (requires two clicks within the same commit cycle).
+    /// The worst case is a slightly stale frecency score, which self-corrects
+    /// on the next access.
     pub fn update_bookmark_frecency(
         &self,
         id: i64,
@@ -872,6 +1003,9 @@ impl TantivySearchEngine {
     /// Update file frecency data in the index.
     ///
     /// Performs a direct index update (read-delete-reindex pattern).
+    ///
+    /// **TOCTOU note:** Same race condition as `update_bookmark_frecency`.
+    /// Acceptable for desktop app — see that method's documentation.
     pub fn update_file_frecency(
         &self,
         id: i64,

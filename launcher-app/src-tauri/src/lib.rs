@@ -95,7 +95,7 @@ pub fn run() {
             let search_engine = Arc::new(search_engine);
 
             // Initialize DataService for atomic DB + Index operations
-            let data_service = Arc::new(DataService::new(db, search_engine.clone()));
+            let data_service = Arc::new(DataService::new(db, search_engine));
 
             // Check index integrity and rebuild if needed (simple, Linus-style)
             let data_service_clone = data_service.clone();
@@ -108,9 +108,14 @@ pub fn run() {
             });
 
             // AppState now uses DataService for all DB access (no duplicate connections)
+            let http_client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
             app.manage(AppState {
-                search_engine,
                 data_service: data_service.clone(),
+                http_client,
             });
             
             let handle = app.handle().clone();

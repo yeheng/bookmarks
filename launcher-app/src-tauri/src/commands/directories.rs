@@ -121,7 +121,8 @@ pub fn remove_search_directory(state: State<AppState>, directory_id: i64) -> Res
 
     // Also remove from Tantivy index
     state
-        .search_engine
+        .data_service
+        .search_engine()
         .delete_directory_files(directory_id)
         .map_err(|e| format!("Failed to clean search index: {}", e))?;
 
@@ -198,13 +199,13 @@ pub fn index_directory(state: State<AppState>, directory_id: i64) -> Result<Inde
         let scan_result = scanner.scan_directory(conn, directory_id, dir_path)
             .map_err(|e| AppError::Generic(e))?;
 
-        // Fetch all files for index rebuild
+        // Fetch only files belonging to this directory (incremental, not full scan)
         let mut stmt = conn
-            .prepare("SELECT id, path, name, extension, size, modified_at, directory_id FROM indexed_files")
+            .prepare("SELECT id, path, name, extension, size, modified_at, directory_id FROM indexed_files WHERE directory_id = ?1")
             .map_err(|e| AppError::Generic(format!("Failed to prepare query: {}", e)))?;
 
         let files: Result<Vec<_>, _> = stmt
-            .query_map([], |row| {
+            .query_map([directory_id], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
@@ -223,11 +224,12 @@ pub fn index_directory(state: State<AppState>, directory_id: i64) -> Result<Inde
         Ok((path, scan_result, files))
     }).map_err(|e| e.to_string())?;
 
-    // Rebuild file index (lock already released)
+    // Incremental file index update: only affects this directory (DB lock already released)
     let _ = state
-        .search_engine
-        .rebuild_file_index_from_data(files)
-        .map_err(|e| format!("Failed to rebuild file index: {}", e))?;
+        .data_service
+        .search_engine()
+        .index_directory_files(directory_id, files)
+        .map_err(|e| format!("Failed to update file index: {}", e))?;
 
     Ok(IndexingProgress {
         directory_id,
@@ -277,36 +279,23 @@ pub fn get_default_search_directories() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn get_indexing_stats(state: State<AppState>) -> Result<IndexingStats, String> {
     state.data_service.with_db(|conn| {
-        let total_directories: i64 = conn
-            .query_row("SELECT COUNT(*) FROM search_directories", [], |row| {
-                row.get(0)
-            })
-            .map_err(|e| AppError::Generic(format!("Failed to count directories: {}", e)))?;
-
-        let enabled_directories: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM search_directories WHERE enabled = 1",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|e| AppError::Generic(format!("Failed to count enabled directories: {}", e)))?;
-
-        let total_files: i64 = conn
-            .query_row("SELECT COUNT(*) FROM indexed_files", [], |row| row.get(0))
-            .map_err(|e| AppError::Generic(format!("Failed to count files: {}", e)))?;
-
-        let total_size: i64 = conn
-            .query_row("SELECT COALESCE(SUM(size), 0) FROM indexed_files", [], |row| {
-                row.get(0)
-            })
-            .map_err(|e| AppError::Generic(format!("Failed to sum file sizes: {}", e)))?;
-
-        Ok(IndexingStats {
-            total_directories,
-            enabled_directories,
-            total_files,
-            total_size,
-        })
+        conn.query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM search_directories) AS total_directories,
+                (SELECT COUNT(*) FROM search_directories WHERE enabled = 1) AS enabled_directories,
+                (SELECT COUNT(*) FROM indexed_files) AS total_files,
+                (SELECT COALESCE(SUM(size), 0) FROM indexed_files) AS total_size",
+            [],
+            |row| {
+                Ok(IndexingStats {
+                    total_directories: row.get(0)?,
+                    enabled_directories: row.get(1)?,
+                    total_files: row.get(2)?,
+                    total_size: row.get(3)?,
+                })
+            },
+        )
+        .map_err(|e| AppError::Generic(format!("Failed to get indexing stats: {}", e)))
     }).map_err(|e| e.to_string())
 }
 

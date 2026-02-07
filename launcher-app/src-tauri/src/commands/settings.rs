@@ -18,6 +18,59 @@ fn get_now() -> i64 {
         .as_secs() as i64
 }
 
+/// Save a batch of settings within a transaction.
+///
+/// Handles both required settings (always written) and optional settings
+/// (written if Some, deleted if None). Wraps everything in BEGIN/COMMIT
+/// for atomicity and performance (single fsync).
+fn save_settings_batch(
+    conn: &rusqlite::Connection,
+    required: &[(&str, String)],
+    optional: &[(&str, &Option<String>)],
+    now: i64,
+) -> Result<(), AppError> {
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| AppError::Generic(format!("Failed to begin transaction: {}", e)))?;
+
+    let result = (|| -> Result<(), AppError> {
+        for (key, value) in required {
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                rusqlite::params![key, value, now],
+            )
+            .map_err(|e| AppError::Generic(format!("Failed to save setting {}: {}", key, e)))?;
+        }
+
+        for (key, value) in optional {
+            if let Some(v) = value {
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![key, v, now],
+                )
+                .map_err(|e| AppError::Generic(format!("Failed to save setting {}: {}", key, e)))?;
+            } else {
+                conn.execute("DELETE FROM settings WHERE key = ?1", rusqlite::params![key])
+                    .map_err(|e| AppError::Generic(format!("Failed to delete setting {}: {}", key, e)))?;
+            }
+        }
+
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT")
+                .map_err(|e| AppError::Generic(format!("Failed to commit: {}", e)))?;
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(e);
+        }
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_setting(state: State<AppState>, key: String) -> Result<Option<String>, String> {
     state.data_service.with_db(|conn| {
@@ -68,7 +121,9 @@ pub fn get_all_settings(state: State<AppState>) -> Result<HashMap<String, String
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|e| AppError::Generic(format!("Failed to query settings: {}", e)))?
-            .filter_map(|r| r.ok())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Generic(format!("Failed to collect settings: {}", e)))?
+            .into_iter()
             .collect();
 
         Ok(settings)
@@ -265,14 +320,6 @@ pub fn save_app_settings(
             ),
         ];
 
-        for (key, value) in settings_map {
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-                rusqlite::params![key, value, now],
-            )
-            .map_err(|e| AppError::Generic(format!("Failed to save setting {}: {}", key, e)))?;
-        }
-
         // Save optional theme color settings
         let optional_settings: Vec<(&str, &Option<String>)> = vec![
             ("theme.bg_color", &settings.theme.bg_color),
@@ -283,18 +330,7 @@ pub fn save_app_settings(
             ("theme.selection_text_color", &settings.theme.selection_text_color),
         ];
 
-        for (key, value) in optional_settings {
-            if let Some(v) = value {
-                conn.execute(
-                    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-                    rusqlite::params![key, v, now],
-                )
-                .map_err(|e| AppError::Generic(format!("Failed to save setting {}: {}", key, e)))?;
-            } else {
-                conn.execute("DELETE FROM settings WHERE key = ?1", rusqlite::params![key])
-                    .map_err(|e| AppError::Generic(format!("Failed to delete setting {}: {}", key, e)))?;
-            }
-        }
+        save_settings_batch(conn, &settings_map, &optional_settings, now)?;
 
         Ok(())
     }).map_err(|e| e.to_string())
@@ -349,14 +385,6 @@ pub fn save_theme_settings(state: State<AppState>, theme: ThemeSettings) -> Resu
             ("theme.border_radius", theme.border_radius.to_string()),
         ];
 
-        for (key, value) in settings {
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-                rusqlite::params![key, value, now],
-            )
-            .map_err(|e| AppError::Generic(format!("Failed to save theme setting: {}", e)))?;
-        }
-
         // Save optional theme color settings
         let optional_settings: Vec<(&str, &Option<String>)> = vec![
             ("theme.bg_color", &theme.bg_color),
@@ -367,18 +395,7 @@ pub fn save_theme_settings(state: State<AppState>, theme: ThemeSettings) -> Resu
             ("theme.selection_text_color", &theme.selection_text_color),
         ];
 
-        for (key, value) in optional_settings {
-            if let Some(v) = value {
-                conn.execute(
-                    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
-                    rusqlite::params![key, v, now],
-                )
-                .map_err(|e| AppError::Generic(format!("Failed to save theme setting: {}", e)))?;
-            } else {
-                conn.execute("DELETE FROM settings WHERE key = ?1", rusqlite::params![key])
-                    .map_err(|e| AppError::Generic(format!("Failed to delete theme setting: {}", e)))?;
-            }
-        }
+        save_settings_batch(conn, &settings, &optional_settings, now)?;
 
         Ok(())
     }).map_err(|e| e.to_string())
@@ -433,8 +450,8 @@ pub fn export_data(state: State<AppState>, file_path: String) -> Result<(), Stri
                 })
             })
             .map_err(|e| AppError::Generic(format!("Failed to query bookmarks: {}", e)))?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Generic(format!("Failed to collect bookmarks: {}", e)))?;
 
         let mut dir_stmt = conn
             .prepare("SELECT path FROM search_directories WHERE enabled = 1")
@@ -443,8 +460,8 @@ pub fn export_data(state: State<AppState>, file_path: String) -> Result<(), Stri
         let directories: Vec<String> = dir_stmt
             .query_map([], |row| row.get(0))
             .map_err(|e| AppError::Generic(format!("Failed to query directories: {}", e)))?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Generic(format!("Failed to collect directories: {}", e)))?;
 
         let mut settings_stmt = conn
             .prepare("SELECT key, value FROM settings")
@@ -455,7 +472,9 @@ pub fn export_data(state: State<AppState>, file_path: String) -> Result<(), Stri
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|e| AppError::Generic(format!("Failed to query settings: {}", e)))?
-            .filter_map(|r| r.ok())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Generic(format!("Failed to collect settings: {}", e)))?
+            .into_iter()
             .collect();
 
         Ok((bookmarks, directories, settings))
@@ -597,30 +616,23 @@ pub fn reset_settings(state: State<AppState>) -> Result<(), String> {
 #[tauri::command]
 pub fn get_data_stats(state: State<AppState>) -> Result<DataStats, String> {
     state.data_service.with_db(|conn| {
-        let bookmarks_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM bookmarks", [], |row| row.get(0))
-            .map_err(|e| AppError::Generic(format!("Failed to count bookmarks: {}", e)))?;
-
-        let files_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM indexed_files", [], |row| row.get(0))
-            .map_err(|e| AppError::Generic(format!("Failed to count files: {}", e)))?;
-
-        let directories_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM search_directories", [], |row| {
-                row.get(0)
-            })
-            .map_err(|e| AppError::Generic(format!("Failed to count directories: {}", e)))?;
-
-        let settings_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
-            .map_err(|e| AppError::Generic(format!("Failed to count settings: {}", e)))?;
-
-        Ok(DataStats {
-            bookmarks_count,
-            files_count,
-            directories_count,
-            settings_count,
-        })
+        conn.query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM bookmarks) AS bookmarks_count,
+                (SELECT COUNT(*) FROM indexed_files) AS files_count,
+                (SELECT COUNT(*) FROM search_directories) AS directories_count,
+                (SELECT COUNT(*) FROM settings) AS settings_count",
+            [],
+            |row| {
+                Ok(DataStats {
+                    bookmarks_count: row.get(0)?,
+                    files_count: row.get(1)?,
+                    directories_count: row.get(2)?,
+                    settings_count: row.get(3)?,
+                })
+            },
+        )
+        .map_err(|e| AppError::Generic(format!("Failed to get data stats: {}", e)))
     }).map_err(|e| e.to_string())
 }
 

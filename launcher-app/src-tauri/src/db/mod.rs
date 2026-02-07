@@ -20,7 +20,12 @@ impl Database {
     pub fn initialize(&self) -> Result<()> {
         // Enable WAL mode for better concurrent read/write performance
         // WAL mode allows readers to not block writers and vice versa
-        self.conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        self.conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA foreign_keys=ON;
+             PRAGMA busy_timeout=5000;
+             PRAGMA synchronous=NORMAL;"
+        )?;
 
         self.conn.execute_batch(
             r#"

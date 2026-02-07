@@ -1,26 +1,36 @@
 use crate::models::bookmark::ImportResult;
-use crate::search::TantivySearchEngine;
 use crate::services::{
     chrome_importer::ChromeImporter, firefox_importer::FirefoxImporter,
     safari_importer::SafariImporter, data_service::DataService,
 };
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 pub struct AppState {
-    pub search_engine: Arc<TantivySearchEngine>,
     pub data_service: Arc<DataService>,
+    pub http_client: reqwest::Client,
 }
 
-/// Helper function to rebuild bookmark index after import
-fn rebuild_bookmark_index_after_import(state: &State<AppState>) -> Result<(), String> {
+/// Incrementally index only newly imported bookmarks.
+///
+/// Filters by `source` and `created_at >= import_start_time` to avoid
+/// re-indexing the entire bookmark table after each import.
+fn index_newly_imported_bookmarks(
+    state: &State<AppState>,
+    source: &str,
+    import_start_time: i64,
+) -> Result<(), String> {
     let bookmarks = state.data_service.with_db(|conn| {
         let mut stmt = conn
-            .prepare("SELECT id, title, url, description, tags, last_accessed, created_at, updated_at FROM bookmarks")
+            .prepare(
+                "SELECT id, title, url, description, tags, last_accessed, created_at, updated_at \
+                 FROM bookmarks WHERE source = ?1 AND created_at >= ?2"
+            )
             .map_err(|e| crate::error::AppError::Generic(format!("Failed to prepare query: {}", e)))?;
 
         let bookmarks: Result<Vec<_>, _> = stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params![source, import_start_time], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
@@ -38,9 +48,9 @@ fn rebuild_bookmark_index_after_import(state: &State<AppState>) -> Result<(), St
         bookmarks.map_err(|e| crate::error::AppError::Generic(format!("Failed to collect bookmarks: {}", e)))
     }).map_err(|e| e.to_string())?;
 
-    state.search_engine
-        .rebuild_bookmark_index_from_data(bookmarks)
-        .map_err(|e| format!("Failed to rebuild index: {}", e))?;
+    state.data_service.search_engine()
+        .batch_index_bookmarks(bookmarks)
+        .map_err(|e| format!("Failed to index bookmarks: {}", e))?;
 
     Ok(())
 }
@@ -81,15 +91,20 @@ pub fn delete_bookmark(state: State<AppState>, id: i64) -> Result<(), String> {
 
 #[tauri::command]
 pub fn import_chrome_bookmarks(state: State<AppState>) -> Result<ImportResult, String> {
+    let import_start_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
     let result = state.data_service.with_db(|conn| {
         ChromeImporter::import(conn)
             .map_err(|e| crate::error::AppError::ChromeImport(e))
     }).map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
-        if let Err(e) = rebuild_bookmark_index_after_import(&state) {
+        if let Err(e) = index_newly_imported_bookmarks(&state, "chrome", import_start_time) {
             eprintln!(
-                "Warning: Failed to rebuild bookmark index after Chrome import: {}",
+                "Warning: Failed to index bookmarks after Chrome import: {}",
                 e
             );
         }
@@ -100,15 +115,20 @@ pub fn import_chrome_bookmarks(state: State<AppState>) -> Result<ImportResult, S
 
 #[tauri::command]
 pub fn import_firefox_bookmarks(state: State<AppState>) -> Result<ImportResult, String> {
+    let import_start_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
     let result = state.data_service.with_db(|conn| {
         FirefoxImporter::import(conn)
             .map_err(|e| crate::error::AppError::FirefoxImport(e))
     }).map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
-        if let Err(e) = rebuild_bookmark_index_after_import(&state) {
+        if let Err(e) = index_newly_imported_bookmarks(&state, "firefox", import_start_time) {
             eprintln!(
-                "Warning: Failed to rebuild bookmark index after Firefox import: {}",
+                "Warning: Failed to index bookmarks after Firefox import: {}",
                 e
             );
         }
@@ -119,15 +139,20 @@ pub fn import_firefox_bookmarks(state: State<AppState>) -> Result<ImportResult, 
 
 #[tauri::command]
 pub fn import_safari_bookmarks(state: State<AppState>) -> Result<ImportResult, String> {
+    let import_start_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
     let result = state.data_service.with_db(|conn| {
         SafariImporter::import(conn)
             .map_err(|e| crate::error::AppError::SafariImport(e))
     }).map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
-        if let Err(e) = rebuild_bookmark_index_after_import(&state) {
+        if let Err(e) = index_newly_imported_bookmarks(&state, "safari", import_start_time) {
             eprintln!(
-                "Warning: Failed to rebuild bookmark index after Safari import: {}",
+                "Warning: Failed to index bookmarks after Safari import: {}",
                 e
             );
         }

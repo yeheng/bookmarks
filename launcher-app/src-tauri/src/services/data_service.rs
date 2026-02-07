@@ -46,18 +46,6 @@ impl DataService {
         f(db.get_connection())
     }
 
-    /// Execute a closure with mutable database access
-    ///
-    /// This method provides safe access to the database connection for write operations.
-    /// The lock is released when the closure returns.
-    pub fn with_db_mut<F, T>(&self, f: F) -> AppResult<T>
-    where
-        F: FnOnce(&Connection) -> AppResult<T>,
-    {
-        let db = self.db.lock().map_err(|_| AppError::DatabaseLock)?;
-        f(db.get_connection())
-    }
-
     /// Get access to the search engine
     pub fn search_engine(&self) -> &Arc<TantivySearchEngine> {
         &self.search_engine

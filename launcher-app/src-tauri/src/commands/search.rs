@@ -13,7 +13,8 @@ pub fn search_bookmarks(
     let limit = limit.unwrap_or(10);
 
     let results = state
-        .search_engine
+        .data_service
+        .search_engine()
         .search_bookmarks(&query, limit)
         .map_err(|e| format!("Search failed: {}", e))?;
 
@@ -54,7 +55,7 @@ pub fn record_bookmark_access(state: State<AppState>, bookmark_id: i64) -> Resul
     }).map_err(|e| e.to_string())?;
 
     // Update Tantivy index with new frecency data (fire and forget for UI responsiveness)
-    let _ = state.search_engine.update_bookmark_frecency(bookmark_id, access_count, now);
+    let _ = state.data_service.search_engine().update_bookmark_frecency(bookmark_id, access_count, now);
 
     Ok(())
 }
@@ -113,12 +114,14 @@ pub fn rebuild_search_index(state: State<AppState>) -> Result<(usize, usize), St
 
     // Rebuild indexes with data (lock already released)
     let bookmark_count = state
-        .search_engine
+        .data_service
+        .search_engine()
         .rebuild_bookmark_index_from_data(bookmarks)
         .map_err(|e| format!("Failed to rebuild bookmark index: {}", e))?;
 
     let file_count = state
-        .search_engine
+        .data_service
+        .search_engine()
         .rebuild_file_index_from_data(files)
         .map_err(|e| format!("Failed to rebuild file index: {}", e))?;
 
@@ -128,7 +131,8 @@ pub fn rebuild_search_index(state: State<AppState>) -> Result<(usize, usize), St
 #[tauri::command]
 pub fn get_search_stats(state: State<AppState>) -> Result<IndexStats, String> {
     state
-        .search_engine
+        .data_service
+        .search_engine()
         .get_stats()
         .map_err(|e| format!("Failed to get search stats: {}", e))
 }

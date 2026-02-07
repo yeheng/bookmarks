@@ -1,7 +1,6 @@
 use crate::commands::bookmarks::AppState;
 use crate::error::AppError;
 use tauri::State;
-use std::time::Duration;
 use url;
 
 #[tauri::command]
@@ -21,12 +20,7 @@ pub async fn fetch_favicon(
 
     let favicon_url = format!("{}/favicon.ico", base_url);
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    match client.get(&favicon_url).send().await {
+    match state.http_client.get(&favicon_url).send().await {
         Ok(response) if response.status().is_success() => {
             state.data_service.with_db(|conn| {
                 conn.execute(
