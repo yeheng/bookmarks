@@ -27,7 +27,7 @@ const searchError = ref<string | null>(null);
 const showSettings = ref(false);
 const settings = ref<AppSettings | null>(null);
 const shortcutManager = ref<ShortcutManager>(new ShortcutManager());
-const { success, error } = useToast();
+const { error } = useToast();
 
 const themeStyle = computed(() => {
   if (!settings.value) return {};
@@ -209,9 +209,7 @@ const handleSelect = async (result: SearchResult) => {
     });
 
     if (res.success) {
-      // Show success toast
-      const itemType = result.type === 'bookmark' ? 'Bookmark' : 'File';
-      success(`${itemType} opened`, result.title);
+      // Successfully opened, no toast needed
     } else if (res.error) {
       // Show error toast
       console.error("Failed to open resource:", res.error);

@@ -50,9 +50,9 @@ fn default_ui_shortcuts() -> HashMap<String, String> {
 impl Default for HotkeySettings {
     fn default() -> Self {
         #[cfg(target_os = "macos")]
-        let shortcut = "Cmd+Space".to_string();
+        let shortcut = "Cmd+F1".to_string();
         #[cfg(not(target_os = "macos"))]
-        let shortcut = "Ctrl+Space".to_string();
+        let shortcut = "Ctrl+F1".to_string();
 
         HotkeySettings {
             global_shortcut: shortcut,

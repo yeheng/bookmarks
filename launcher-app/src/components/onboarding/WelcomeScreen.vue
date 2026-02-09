@@ -15,7 +15,7 @@ const features = [
     icon: '🔍',
     title: 'Lightning-Fast Search',
     description: 'Search through your bookmarks and files instantly with fuzzy matching',
-    shortcut: 'Cmd+Space',
+    shortcut: 'Cmd+F1',
   },
   {
     icon: '⚡',

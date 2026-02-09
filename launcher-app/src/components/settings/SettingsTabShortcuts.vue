@@ -30,10 +30,10 @@ function handleShortcutUpdate(actionId: string, shortcut: string) {
           id="global-shortcut"
           v-model="settings.hotkey.global_shortcut"
           class="hotkey-input"
-          placeholder="Cmd+Space"
+          placeholder="Cmd+F1"
           aria-describedby="hotkey-help"
         />
-        <p id="hotkey-help" class="hotkey-help">Examples: Cmd+Space, Alt+Space, Ctrl+Shift+P</p>
+        <p id="hotkey-help" class="hotkey-help">Examples: Cmd+F1, Alt+Space, Ctrl+Shift+P</p>
       </div>
     </SettingSection>
 

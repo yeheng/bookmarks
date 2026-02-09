@@ -100,7 +100,7 @@ onMounted(loadSettings);
           <input
             v-model="settings.hotkey.global_shortcut"
             class="field-input"
-            placeholder="Cmd+Space"
+            placeholder="Cmd+F1"
             aria-label="Global shortcut key combination"
             aria-describedby="hotkey-desc"
           />

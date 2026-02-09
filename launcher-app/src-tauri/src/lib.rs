@@ -138,9 +138,9 @@ pub fn run() {
             )?;
             
             #[cfg(target_os = "macos")]
-            let shortcut = "Cmd+Space";
+            let shortcut = "Cmd+F1";
             #[cfg(not(target_os = "macos"))]
-            let shortcut = "Ctrl+Space";
+            let shortcut = "Ctrl+F1";
             
             app.global_shortcut().register(shortcut)?;
             

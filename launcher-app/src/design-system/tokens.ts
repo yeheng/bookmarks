@@ -228,31 +228,6 @@ export const spacing = {
   32: '128px',
 } as const;
 
-/**
- * Component-specific spacing
- */
-export const componentSpacing = {
-  input: {
-    paddingX: spacing[6],    // 24px
-    paddingY: spacing[3],    // 12px
-    height: '60px',
-  },
-  resultItem: {
-    paddingX: spacing[4],    // 16px
-    paddingY: spacing[0],
-    height: '44px',
-    gap: spacing[3],         // 12px
-  },
-  button: {
-    paddingX: spacing[4],    // 16px
-    paddingY: spacing[2],    // 8px
-    gap: spacing[2],         // 8px
-  },
-  panel: {
-    padding: spacing[4],     // 16px
-    gap: spacing[6],         // 24px
-  },
-} as const;
 
 // ============================================================================
 // TYPOGRAPHY TOKENS
@@ -303,82 +278,14 @@ export const lineHeight = {
 } as const;
 
 /**
- * Letter Spacing
- */
-export const letterSpacing = {
-  tighter: '-0.05em',
-  tight: '-0.025em',
-  normal: '0em',
-  wide: '0.025em',
-  wider: '0.05em',
-  widest: '0.1em',
-} as const;
-
-/**
  * Typography Presets
+ * Only searchInput is actively used via tailwind.config.js
  */
 export const typography = {
-  // Headings
-  h1: {
-    fontSize: fontSize['3xl'],
-    fontWeight: fontWeight.bold,
-    lineHeight: lineHeight.tight,
-    letterSpacing: letterSpacing.tight,
-  },
-  h2: {
-    fontSize: fontSize['2xl'],
-    fontWeight: fontWeight.semibold,
-    lineHeight: lineHeight.tight,
-    letterSpacing: letterSpacing.tight,
-  },
-  h3: {
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.semibold,
-    lineHeight: lineHeight.snug,
-    letterSpacing: letterSpacing.normal,
-  },
-
-  // Body text
-  body: {
-    fontSize: fontSize.base,
-    fontWeight: fontWeight.normal,
-    lineHeight: lineHeight.normal,
-    letterSpacing: letterSpacing.normal,
-  },
-  bodySmall: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.normal,
-    lineHeight: lineHeight.normal,
-    letterSpacing: letterSpacing.normal,
-  },
-
-  // UI elements
-  label: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
-    lineHeight: lineHeight.none,
-    letterSpacing: letterSpacing.normal,
-  },
-  caption: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-    lineHeight: lineHeight.normal,
-    letterSpacing: letterSpacing.wide,
-  },
-
-  // Special
   searchInput: {
     fontSize: fontSize.xl,
     fontWeight: fontWeight.normal,
     lineHeight: lineHeight.normal,
-    letterSpacing: letterSpacing.normal,
-  },
-  sectionLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-    lineHeight: lineHeight.none,
-    letterSpacing: letterSpacing.wider,
-    textTransform: 'uppercase' as const,
   },
 } as const;
 
@@ -409,57 +316,6 @@ export const easing = {
   // Custom easings
   bounce: 'cubic-bezier(0.68, -0.55, 0.265, 1.55)',
   smooth: 'cubic-bezier(0.25, 0.1, 0.25, 1)',
-} as const;
-
-/**
- * Animation Presets
- */
-export const animation = {
-  // Transitions
-  fadeIn: {
-    duration: duration.normal,
-    easing: easing.easeOut,
-  },
-  fadeOut: {
-    duration: duration.fast,
-    easing: easing.easeIn,
-  },
-  slideIn: {
-    duration: duration.slow,
-    easing: easing.easeOut,
-  },
-  slideOut: {
-    duration: duration.normal,
-    easing: easing.easeIn,
-  },
-
-  // Interactive states
-  hover: {
-    duration: duration.normal,
-    easing: easing.easeOut,
-  },
-  press: {
-    duration: duration.fast,
-    easing: easing.easeOut,
-  },
-  focus: {
-    duration: duration.normal,
-    easing: easing.easeOut,
-  },
-
-  // Special
-  ripple: {
-    duration: '600ms',
-    easing: easing.easeOut,
-  },
-  skeleton: {
-    duration: '1500ms',
-    easing: easing.easeInOut,
-  },
-  spin: {
-    duration: '800ms',
-    easing: easing.linear,
-  },
 } as const;
 
 // ============================================================================
@@ -512,69 +368,6 @@ export const zIndex = {
 } as const;
 
 // ============================================================================
-// CSS CUSTOM PROPERTIES GENERATOR
-// ============================================================================
-
-/**
- * Generates CSS custom properties string for the given theme
- */
-export function generateCSSVariables(theme: 'light' | 'dark'): string {
-  const colors = semanticColors[theme];
-
-  return `
-    /* Background Colors */
-    --color-bg-primary: ${colors.bg.primary};
-    --color-bg-secondary: ${colors.bg.secondary};
-    --color-bg-tertiary: ${colors.bg.tertiary};
-    --color-bg-elevated: ${colors.bg.elevated};
-    --color-bg-overlay: ${colors.bg.overlay};
-
-    /* Text Colors */
-    --color-text-primary: ${colors.text.primary};
-    --color-text-secondary: ${colors.text.secondary};
-    --color-text-tertiary: ${colors.text.tertiary};
-    --color-text-disabled: ${colors.text.disabled};
-    --color-text-inverse: ${colors.text.inverse};
-
-    /* Border Colors */
-    --color-border-default: ${colors.border.default};
-    --color-border-subtle: ${colors.border.subtle};
-    --color-border-strong: ${colors.border.strong};
-    --color-border-focus: ${colors.border.focus};
-
-    /* Interactive Colors */
-    --color-interactive-hover: ${colors.interactive.hover};
-    --color-interactive-active: ${colors.interactive.active};
-    --color-interactive-selected: ${colors.interactive.selected};
-    --color-interactive-selected-text: ${colors.interactive.selectedText};
-
-    /* Semantic Colors */
-    --color-accent: ${colors.accent};
-    --color-success: ${colors.success};
-    --color-warning: ${colors.warning};
-    --color-error: ${colors.error};
-    --color-info: ${colors.info};
-  `.trim();
-}
-
-// ============================================================================
-// THEME MAPPING (for existing CSS variables compatibility)
-// ============================================================================
-
-/**
- * Maps new tokens to existing CSS variable names for backward compatibility
- */
-export const legacyVariableMapping = {
-  '--bg-color': 'bg.primary',
-  '--text-color': 'text.primary',
-  '--secondary-text': 'text.secondary',
-  '--border-color': 'border.default',
-  '--accent-color': 'accent',
-  '--selection-bg': 'interactive.selected',
-  '--selection-text': 'interactive.selectedText',
-} as const;
-
-// ============================================================================
 // EXPORT ALL TOKENS
 // ============================================================================
 
@@ -584,14 +377,11 @@ export const tokens = {
     semantic: semanticColors,
   },
   spacing,
-  componentSpacing,
   typography,
   fontFamily,
   fontSize,
   fontWeight,
   lineHeight,
-  letterSpacing,
-  animation,
   duration,
   easing,
   shadow,

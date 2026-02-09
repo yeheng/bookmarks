@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { SearchResult } from '../types/search';
-import { highlightText } from '../composables/useHighlight';
+import { highlightParts } from '../composables/useHighlight';
 
 interface Props {
   result: SearchResult;
@@ -38,13 +38,13 @@ const handleFaviconError = () => {
   faviconError.value = true;
 };
 
-// Highlighted text
-const highlightedTitle = computed(() =>
-  highlightText(props.result.title, props.highlightQuery)
+// Highlighted text parts (structured data, no v-html needed)
+const titleParts = computed(() =>
+  highlightParts(props.result.title, props.highlightQuery)
 );
 
-const highlightedSubtitle = computed(() =>
-  highlightText(props.result.subtitle, props.highlightQuery)
+const subtitleParts = computed(() =>
+  highlightParts(props.result.subtitle, props.highlightQuery)
 );
 
 const adaptiveMetadata = computed(() => {
@@ -95,9 +95,9 @@ const adaptiveMetadata = computed(() => {
 
     <!-- Content -->
     <div class="result-body">
-      <div class="result-title" v-html="highlightedTitle"></div>
+      <div class="result-title"><template v-for="(part, i) in titleParts" :key="i"><mark v-if="part.highlight" class="search-highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></div>
       <div v-if="adaptiveMetadata" class="result-meta">{{ adaptiveMetadata }}</div>
-      <div v-else class="result-subtitle" v-html="highlightedSubtitle"></div>
+      <div v-else class="result-subtitle"><template v-for="(part, i) in subtitleParts" :key="i"><mark v-if="part.highlight" class="search-highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></div>
     </div>
 
     <!-- Action hint -->
@@ -235,14 +235,14 @@ const adaptiveMetadata = computed(() => {
 }
 
 /* Search highlight marks */
-:deep(.search-highlight) {
+.search-highlight {
   background: rgba(var(--color-accent-rgb, 107, 144, 128), 0.2);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
 }
 
-.result-item--selected :deep(.search-highlight) {
+.result-item--selected .search-highlight {
   background: rgba(255, 255, 255, 0.25);
   color: #ffffff;
 }

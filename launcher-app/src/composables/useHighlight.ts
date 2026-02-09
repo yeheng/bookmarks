@@ -1,9 +1,14 @@
 /**
  * useHighlight - Search keyword highlighting composable
  *
- * Safely highlights matching text segments in search results.
- * Escapes HTML and regex special characters to prevent XSS.
+ * Returns structured text parts instead of HTML strings,
+ * eliminating the need for v-html and preventing XSS by design.
  */
+
+export interface HighlightPart {
+  text: string;
+  highlight: boolean;
+}
 
 /**
  * Escape special regex characters in user input
@@ -13,48 +18,37 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * Escape HTML entities to prevent XSS when using v-html
- */
-function escapeHtml(str: string): string {
-  const div = document.createElement('div');
-  div.appendChild(document.createTextNode(str));
-  return div.innerHTML;
-}
-
-/**
- * Highlight matching text with <mark> tags
+ * Split text into highlighted and non-highlighted parts
  *
  * @param text - The source text to highlight within
  * @param query - The search query to match
- * @returns HTML string with highlighted matches, safe for v-html
+ * @returns Array of text parts with highlight flags, safe for v-for rendering
  */
-export function highlightText(text: string, query: string): string {
-  if (!query || !text) return escapeHtml(text || '');
+export function highlightParts(text: string, query: string): HighlightPart[] {
+  if (!text) return [];
+  if (!query) return [{ text, highlight: false }];
 
   const escapedQuery = escapeRegex(query.trim());
-  if (!escapedQuery) return escapeHtml(text);
+  if (!escapedQuery) return [{ text, highlight: false }];
 
   // Split query into individual words for multi-word matching
   const words = escapedQuery.split(/\s+/).filter(w => w.length > 0);
-  if (words.length === 0) return escapeHtml(text);
+  if (words.length === 0) return [{ text, highlight: false }];
 
   const pattern = new RegExp(`(${words.join('|')})`, 'gi');
   const parts = text.split(pattern);
 
   return parts
+    .filter(part => part.length > 0)
     .map(part => {
       const isMatch = words.some(w => new RegExp(`^${w}$`, 'i').test(part));
-      if (isMatch) {
-        return `<mark class="search-highlight">${escapeHtml(part)}</mark>`;
-      }
-      return escapeHtml(part);
-    })
-    .join('');
+      return { text: part, highlight: isMatch };
+    });
 }
 
 /**
  * Composable wrapper for reactive highlight usage
  */
 export function useHighlight() {
-  return { highlightText };
+  return { highlightParts };
 }

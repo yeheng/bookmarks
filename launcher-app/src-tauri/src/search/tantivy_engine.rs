@@ -714,9 +714,11 @@ impl TantivySearchEngine {
 
     /// Rebuild the entire bookmark index from provided bookmark data.
     /// Uses batch indexing with single commit for performance.
+    ///
+    /// Accepts any `IntoIterator` — callers can pass `Vec`, slices, or custom iterators.
     pub fn rebuild_bookmark_index_from_data(
         &self,
-        bookmarks: Vec<(i64, String, String, Option<String>, Option<String>, Option<i64>, i64, i64)>,
+        bookmarks: impl IntoIterator<Item = (i64, String, String, Option<String>, Option<String>, Option<i64>, i64, i64)>,
     ) -> Result<usize, SearchError> {
         let mut writer = self.bookmark_writer.lock().map_err(|_| {
             SearchError::LockError("bookmark writer lock poisoned")
@@ -730,7 +732,7 @@ impl TantivySearchEngine {
             .commit()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-        let count = bookmarks.len();
+        let mut count = 0usize;
         let fields = &self.bookmark_fields;
 
         // Batch add all documents without committing
@@ -751,6 +753,7 @@ impl TantivySearchEngine {
             writer
                 .add_document(doc)
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
+            count += 1;
         }
 
         // Single commit after all documents added
@@ -774,11 +777,12 @@ impl TantivySearchEngine {
     /// this method only removes files belonging to the given `directory_id` and
     /// re-adds the provided files. Other directories' files remain untouched.
     ///
+    /// Accepts any `IntoIterator` — callers can pass `Vec`, slices, or custom iterators.
     /// Complexity: O(directory_files) instead of O(total_files).
     pub fn index_directory_files(
         &self,
         directory_id: i64,
-        files: Vec<(i64, String, String, Option<String>, i64, i64, i64)>,
+        files: impl IntoIterator<Item = (i64, String, String, Option<String>, i64, i64, i64)>,
     ) -> Result<usize, SearchError> {
         let mut writer = self.file_writer.lock().map_err(|_| {
             SearchError::LockError("file writer lock poisoned")
@@ -790,7 +794,7 @@ impl TantivySearchEngine {
         let dir_term = Term::from_field_i64(fields.directory_id, directory_id);
         writer.delete_term(dir_term);
 
-        let count = files.len();
+        let mut count = 0usize;
 
         // Batch add new files for this directory
         for (id, path, name, extension, size, modified_at, dir_id) in files {
@@ -809,6 +813,7 @@ impl TantivySearchEngine {
             writer
                 .add_document(doc)
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
+            count += 1;
         }
 
         // Single commit after all documents added
@@ -828,9 +833,11 @@ impl TantivySearchEngine {
 
     /// Rebuild the entire file index from provided file data.
     /// Uses batch indexing with single commit for performance.
+    ///
+    /// Accepts any `IntoIterator` — callers can pass `Vec`, slices, or custom iterators.
     pub fn rebuild_file_index_from_data(
         &self,
-        files: Vec<(i64, String, String, Option<String>, i64, i64, i64)>,
+        files: impl IntoIterator<Item = (i64, String, String, Option<String>, i64, i64, i64)>,
     ) -> Result<usize, SearchError> {
         let mut writer = self.file_writer.lock().map_err(|_| {
             SearchError::LockError("file writer lock poisoned")
@@ -844,7 +851,7 @@ impl TantivySearchEngine {
             .commit()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-        let count = files.len();
+        let mut count = 0usize;
         let fields = &self.file_fields;
 
         // Batch add all documents without committing
@@ -864,6 +871,7 @@ impl TantivySearchEngine {
             writer
                 .add_document(doc)
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
+            count += 1;
         }
 
         // Single commit after all documents added
