@@ -29,6 +29,24 @@ const settings = ref<AppSettings | null>(null);
 const shortcutManager = ref<ShortcutManager>(new ShortcutManager());
 const { error } = useToast();
 
+// ── ESC handler: registered synchronously at script parse time ──
+// Must use document + capture + stopImmediatePropagation so no other
+// listener (HeadlessUI, Tauri, etc.) can swallow the Escape key.
+function onGlobalEscape(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+
+  if (showSettings.value) {
+    showSettings.value = false;
+    loadSettings();
+  }
+  searchComboboxRef.value?.clearQuery();
+  searchResults.value = [];
+  appWindow.hide();
+}
+document.addEventListener('keydown', onGlobalEscape, true);
+
 const themeStyle = computed(() => {
   if (!settings.value) return {};
   const { theme } = settings.value;
@@ -291,20 +309,6 @@ const handleSelect = async (result: SearchResult) => {
 };
 
 const handleKeydown = (e: KeyboardEvent) => {
-  // ESC: always hide the window (direct check, independent of shortcutManager loading)
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    e.stopPropagation();
-    if (showSettings.value) {
-      showSettings.value = false;
-      loadSettings();
-    }
-    searchComboboxRef.value?.clearQuery();
-    searchResults.value = [];
-    appWindow.hide();
-    return;
-  }
-
   // Check for settings shortcut
   if (shortcutManager.value.matches(e, 'general.settings')) {
     e.preventDefault();
@@ -316,8 +320,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 onMounted(async () => {
   loadSettings();
-  // Use capture phase so ESC is handled before HeadlessUI's Combobox swallows it
-  window.addEventListener("keydown", handleKeydown, true);
+  window.addEventListener("keydown", handleKeydown);
 
   // Focus input when window gets focus
   await appWindow.onFocusChanged(({ payload: focused }) => {
@@ -339,7 +342,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", handleKeydown, true);
+  window.removeEventListener("keydown", handleKeydown);
+  document.removeEventListener('keydown', onGlobalEscape, true);
 });
 
 function handleSettingsClose() {

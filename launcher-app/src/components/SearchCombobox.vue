@@ -23,6 +23,7 @@ interface Emits {
   (e: 'search', query: string): void;
   (e: 'select', result: SearchResult): void;
   (e: 'retry'): void;
+  (e: 'escape'): void;
 }
 
 const props = defineProps<Props>();
@@ -102,10 +103,16 @@ const handleRetry = () => {
 const searchInput = ref<InstanceType<typeof ComboboxInput> | null>(null);
 
 const focusInput = () => {
-  // Headless UI ComboboxInput renders an input element
-  // We need to access the underlying DOM element
   if (searchInput.value?.$el) {
     searchInput.value.$el.focus();
+  }
+};
+
+const handleInputKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    emit('escape');
   }
 };
 
@@ -156,6 +163,7 @@ defineExpose({
         <ComboboxInput
           ref="searchInput"
           @change="(e: Event) => query = (e.target as HTMLInputElement).value"
+          @keydown="handleInputKeydown"
           :displayValue="() => query"
           class="search-input"
           placeholder="Search bookmarks and files..."
