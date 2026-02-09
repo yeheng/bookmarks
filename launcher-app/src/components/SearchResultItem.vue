@@ -114,12 +114,12 @@ const adaptiveMetadata = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px;
+  padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
   color: var(--text-color);
   transition: background-color 0.1s ease;
-  min-height: 36px;
+  min-height: 40px;
 }
 
 .result-item:hover:not(.result-item--selected) {
@@ -148,11 +148,12 @@ const adaptiveMetadata = computed(() => {
 /* ===== Icon ===== */
 .result-icon {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
+  align-self: center;
 }
 
 .favicon-img {
@@ -163,9 +164,9 @@ const adaptiveMetadata = computed(() => {
 }
 
 .icon-placeholder {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
   background: rgba(128, 128, 128, 0.12);
   display: flex;
   align-items: center;
@@ -234,17 +235,19 @@ const adaptiveMetadata = computed(() => {
   font-feature-settings: 'tnum';
 }
 
-/* Search highlight marks */
+/* Search highlight marks - Spotlight style */
 .search-highlight {
-  background: rgba(var(--color-accent-rgb, 107, 144, 128), 0.2);
+  background: rgba(0, 122, 255, 0.15);
   color: inherit;
-  border-radius: 2px;
-  padding: 0 1px;
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: 0 -1px;
 }
 
 .result-item--selected .search-highlight {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.3);
   color: #ffffff;
+  font-weight: 600;
 }
 
 /* ===== Action hint ===== */

@@ -81,7 +81,7 @@ defineProps<{
         />
         <SettingNumber
           v-model="settings.theme.window_height"
-          label="Window Height"
+          label="Max Window Height"
           :min="200"
           :max="900"
           :step="10"

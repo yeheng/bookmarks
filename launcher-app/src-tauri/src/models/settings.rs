@@ -24,7 +24,7 @@ pub struct HotkeySettings {
     pub ui_shortcuts: HashMap<String, String>,
 }
 
-fn default_ui_shortcuts() -> HashMap<String, String> {
+pub fn default_ui_shortcuts() -> HashMap<String, String> {
     let mut shortcuts = HashMap::new();
 
     shortcuts.insert("general.close".to_string(), "Escape".to_string());

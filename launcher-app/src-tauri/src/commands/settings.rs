@@ -134,17 +134,23 @@ pub fn get_all_settings(state: State<AppState>) -> Result<HashMap<String, String
 pub fn get_app_settings(state: State<AppState>) -> Result<AppSettings, String> {
     let settings = get_all_settings(state)?;
 
+    // Parse ui_shortcuts from JSON in database, or use defaults
+    let ui_shortcuts = settings
+        .get("hotkey.ui_shortcuts")
+        .and_then(|s| serde_json::from_str::<HashMap<String, String>>(s).ok())
+        .unwrap_or_else(crate::models::settings::default_ui_shortcuts);
+
     let hotkey = HotkeySettings {
         global_shortcut: settings
             .get("hotkey.global_shortcut")
             .cloned()
             .unwrap_or_else(|| {
                 #[cfg(target_os = "macos")]
-                return "Cmd+Space".to_string();
+                return "Cmd+F1".to_string();
                 #[cfg(not(target_os = "macos"))]
-                return "Ctrl+Space".to_string();
+                return "Ctrl+F1".to_string();
             }),
-        ui_shortcuts: Default::default(),
+        ui_shortcuts,
     };
 
     let theme = ThemeSettings {
@@ -263,8 +269,13 @@ pub fn save_app_settings(
             }
         }
 
+        // Serialize ui_shortcuts to JSON for storage
+        let ui_shortcuts_json = serde_json::to_string(&settings.hotkey.ui_shortcuts)
+            .map_err(|e| format!("Failed to serialize ui_shortcuts: {}", e))?;
+
         let settings_map: Vec<(&str, String)> = vec![
             ("hotkey.global_shortcut", settings.hotkey.global_shortcut.clone()),
+            ("hotkey.ui_shortcuts", ui_shortcuts_json),
             (
                 "theme.mode",
                 match settings.theme.mode {

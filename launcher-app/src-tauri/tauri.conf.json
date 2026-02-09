@@ -16,14 +16,14 @@
         "label": "main",
         "title": "Launcher",
         "width": 680,
-        "height": 480,
-        "center": true,
+        "height": 66,
+        "center": false,
         "resizable": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "visible": false,
+        "visible": true,
         "focus": true
       }
     ],

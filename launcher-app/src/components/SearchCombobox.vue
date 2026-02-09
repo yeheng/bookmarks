@@ -79,8 +79,19 @@ watch(query, () => {
 const hasResults = computed(() => displayResults.value.length > 0);
 const hasMultipleGroups = computed(() => groupedResults.value.hasMultipleGroups);
 const showEmpty = computed(() => !props.loading && !props.error && !hasResults.value && query.value.length > 0);
-const showRecent = computed(() => !props.loading && !props.error && !hasResults.value && query.value.length === 0);
 const showError = computed(() => !props.loading && props.error && query.value.length > 0);
+
+// Spotlight-style: results panel only visible when there's a query
+const showResultsPanel = computed(() => query.value.length > 0);
+
+// Content height hint for dynamic window sizing (approximate content item count)
+const contentItemCount = computed(() => {
+  if (!showResultsPanel.value) return 0;
+  if (props.loading) return 3; // skeleton loader shows 3 items
+  if (showEmpty.value) return 3; // empty state takes ~3 item heights
+  if (showError.value) return 3; // error state takes ~3 item heights
+  return displayResults.value.length;
+});
 
 // Handle retry for error state
 const handleRetry = () => {
@@ -120,7 +131,9 @@ watch(selectedResult, (newResult) => {
 defineExpose({
     focusInput,
     clearQuery,
-    hasQuery
+    hasQuery,
+    contentItemCount,
+    showResultsPanel
 });
 </script>
 
@@ -136,7 +149,7 @@ defineExpose({
       </div>
 
       <!-- Spotlight-style search bar -->
-      <div class="search-bar">
+      <div class="search-bar" :class="{ 'has-panel': showResultsPanel }">
         <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M8.5 3a5.5 5.5 0 0 1 4.383 8.823l4.147 4.147a.75.75 0 0 1-1.06 1.06l-4.147-4.147A5.5 5.5 0 1 1 8.5 3Zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" fill="currentColor"/>
         </svg>
@@ -154,18 +167,13 @@ defineExpose({
         />
       </div>
 
-      <TransitionRoot
-        enter="transition-opacity duration-150"
-        enter-from="opacity-0"
-        enter-to="opacity-100"
-        leave="transition-opacity duration-100"
-        leave-from="opacity-100"
-        leave-to="opacity-0"
-      >
+      <!-- Spotlight-style: results panel only when there's a query -->
+      <template v-if="showResultsPanel">
         <ComboboxOptions
           class="results-container"
           :id="listboxId"
           aria-label="Search results"
+          static
         >
           <!-- Loading State -->
           <div v-if="loading" class="loading-state" role="status" aria-live="polite">
@@ -190,17 +198,6 @@ defineExpose({
             <button class="retry-btn" @click="handleRetry" aria-label="Retry search">
               Try Again
             </button>
-          </div>
-
-          <!-- Initial/Recent State -->
-          <div v-else-if="showRecent" class="state-message initial-state" role="status">
-            <div class="initial-hint">Type to search bookmarks and files</div>
-            <div class="shortcuts-bar" aria-label="Keyboard shortcuts">
-              <span class="shortcut-item"><kbd class="kbd">↑↓</kbd> Navigate</span>
-              <span class="shortcut-item"><kbd class="kbd">⏎</kbd> Open</span>
-              <span class="shortcut-item"><kbd class="kbd">⌘,</kbd> Settings</span>
-              <span class="shortcut-item"><kbd class="kbd">esc</kbd> Close</span>
-            </div>
           </div>
 
           <!-- Results -->
@@ -251,7 +248,7 @@ defineExpose({
             </div>
           </template>
         </ComboboxOptions>
-      </TransitionRoot>
+      </template>
 
       <!-- Bottom bar with shortcuts -->
       <div v-if="hasResults" class="bottom-bar">
@@ -282,9 +279,11 @@ defineExpose({
   display: flex;
   flex-direction: column;
   position: relative;
+  /* Vertical padding matches SEARCH_BAR_PADDING (12px = 6+6) in App.vue */
+  padding: 6px 0;
 }
 
-/* ========== Spotlight Search Bar ========== */
+/* Spotlight Search Bar — border only when results panel is visible */
 .search-bar {
   display: flex;
   align-items: center;
@@ -292,6 +291,9 @@ defineExpose({
   padding: 0 16px;
   height: var(--input-height, 54px);
   flex-shrink: 0;
+}
+
+.search-bar.has-panel {
   border-bottom: 0.5px solid var(--color-border-subtle, rgba(128, 128, 128, 0.15));
 }
 
@@ -303,7 +305,7 @@ defineExpose({
 
 .search-input {
   flex: 1;
-  height: 100%;
+  min-width: 0;
   padding: 0;
   font-size: 18px;
   font-weight: 400;
@@ -311,7 +313,7 @@ defineExpose({
   outline: none;
   background: transparent;
   color: var(--text-color);
-  line-height: 1;
+  line-height: 1.2;
 }
 
 .search-input::placeholder {
@@ -326,6 +328,9 @@ defineExpose({
   overflow-y: auto;
   padding: 6px;
   position: relative;
+  /* Reset <ul> default styles from HeadlessUI ComboboxOptions */
+  list-style: none;
+  margin: 0;
 }
 
 /* Custom scrollbar - thin and minimal */
@@ -345,6 +350,8 @@ defineExpose({
 
 .result-option {
   outline: none;
+  /* Reset <li> default styles from HeadlessUI ComboboxOption */
+  list-style: none;
 }
 
 /* ========== State Messages ========== */
@@ -432,17 +439,6 @@ defineExpose({
   transform: scale(0.98);
 }
 
-/* Initial State */
-.initial-state {
-  padding: 24px;
-}
-
-.initial-hint {
-  font-size: 13px;
-  color: var(--color-text-tertiary);
-  margin-bottom: 16px;
-}
-
 /* ========== Grouped Results ========== */
 .grouped-results {
   display: flex;
@@ -503,40 +499,6 @@ defineExpose({
   opacity: 1;
 }
 
-/* ========== Keyboard Shortcuts ========== */
-.shortcuts-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.shortcut-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  opacity: 0.6;
-}
-
-.kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  padding: 1px 4px;
-  font-size: 10px;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  background: rgba(128, 128, 128, 0.08);
-  border: 0.5px solid rgba(128, 128, 128, 0.15);
-  border-radius: 3px;
-  line-height: 1.4;
-}
-
 /* ========== Utility ========== */
 .visually-hidden {
   position: absolute;
@@ -559,5 +521,6 @@ defineExpose({
   height: 8px;
   z-index: 10;
   -webkit-app-region: drag;
+  pointer-events: none;
 }
 </style>

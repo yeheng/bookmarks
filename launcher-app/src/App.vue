@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from '@tauri-apps/api/event';
-import { LogicalSize } from "@tauri-apps/api/dpi";
+import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { Toaster } from 'vue-sonner';
 import SearchCombobox from "./components/SearchCombobox.vue";
 import SettingsPanel from "./components/settings/SettingsPanel.vue";
@@ -63,12 +63,59 @@ const themeStyle = computed(() => {
   };
 });
 
-// Watch window size changes
+// Spotlight-style dynamic window height calculation
+// Constants for height calculation (in px)
+const SEARCH_BAR_PADDING = 12; // top/bottom visual padding around search bar
+const RESULTS_PANEL_PADDING = 12; // results container padding (6px top + 6px bottom)
+const BOTTOM_BAR_HEIGHT = 32; // bottom bar with result count
+
+const searchBarHeight = computed(() => {
+  const inputHeight = settings.value?.theme.input_height ?? 54;
+  return inputHeight + SEARCH_BAR_PADDING;
+});
+
+const maxWindowHeight = computed(() => {
+  return settings.value?.theme.window_height ?? 480;
+});
+
+const computedWindowHeight = computed(() => {
+  // Settings panel uses full height
+  if (showSettings.value) {
+    return maxWindowHeight.value;
+  }
+
+  const itemCount = searchComboboxRef.value?.contentItemCount ?? 0;
+
+  // No results panel → just search bar
+  if (itemCount === 0) {
+    return searchBarHeight.value;
+  }
+
+  // Calculate content height
+  const itemHeight = settings.value?.theme.item_height ?? 44;
+  const contentHeight = itemCount * itemHeight + RESULTS_PANEL_PADDING;
+  const hasActualResults = searchResults.value.length > 0;
+  const bottomBar = hasActualResults ? BOTTOM_BAR_HEIGHT : 0;
+  const totalHeight = searchBarHeight.value + contentHeight + bottomBar;
+
+  return Math.min(totalHeight, maxWindowHeight.value);
+});
+
+// Watch dynamic height and resize window
+watch(computedWindowHeight, async (newHeight) => {
+  if (!settings.value) return;
+  const width = settings.value.theme.window_width;
+  requestAnimationFrame(async () => {
+    await appWindow.setSize(new LogicalSize(width, newHeight));
+  });
+});
+
+// Watch window width changes only (height is now dynamic)
 watch(
-  () => [settings.value?.theme.window_width, settings.value?.theme.window_height],
-  async ([w, h]) => {
-    if (w && h) {
-      await appWindow.setSize(new LogicalSize(w as number, h as number));
+  () => settings.value?.theme.window_width,
+  async (w) => {
+    if (w) {
+      await appWindow.setSize(new LogicalSize(w, computedWindowHeight.value));
     }
   }
 );
@@ -79,9 +126,26 @@ async function loadSettings() {
     // Update shortcut manager with new settings
     if (settings.value) {
       shortcutManager.value = new ShortcutManager(settings.value.hotkey);
-      // Initial resize
-      const { window_width, window_height } = settings.value.theme;
-      await appWindow.setSize(new LogicalSize(window_width, window_height));
+      // Initial resize: use search bar height (Spotlight-style, not full window_height)
+      const { window_width, input_height } = settings.value.theme;
+      const initialHeight = input_height + SEARCH_BAR_PADDING;
+      await appWindow.setSize(new LogicalSize(window_width, initialHeight));
+
+      // Position window at 2/5 of screen height (not centered)
+      const monitor = await appWindow.currentMonitor();
+      if (monitor) {
+        const screenScaleFactor = monitor.scaleFactor;
+        const screenHeight = monitor.size.height / screenScaleFactor;
+        const screenWidth = monitor.size.width / screenScaleFactor;
+        const windowWidth = window_width;
+
+        // Calculate y position: 2/5 from top (40% of screen height)
+        const y = (screenHeight * 0.4) - (initialHeight / 2);
+        // Center horizontally
+        const x = (screenWidth - windowWidth) / 2;
+
+        await appWindow.setPosition(new LogicalPosition(x, y));
+      }
     }
   } catch (err) {
     console.error("Failed to load settings:", err);
@@ -227,26 +291,23 @@ const handleSelect = async (result: SearchResult) => {
 };
 
 const handleKeydown = (e: KeyboardEvent) => {
-  // Check for close shortcut
-  if (shortcutManager.value.matches(e, 'general.close')) {
+  // ESC: always hide the window (direct check, independent of shortcutManager loading)
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
     if (showSettings.value) {
       showSettings.value = false;
-      // Reload settings in case they changed
-      loadSettings(); 
-    } else {
-      // If there is a query, clear it first
-      if (searchComboboxRef.value?.hasQuery) {
-        searchComboboxRef.value.clearQuery();
-      } else {
-        searchResults.value = [];
-        appWindow.hide();
-      }
+      loadSettings();
     }
+    searchComboboxRef.value?.clearQuery();
+    searchResults.value = [];
+    appWindow.hide();
     return;
   }
-  
+
   // Check for settings shortcut
   if (shortcutManager.value.matches(e, 'general.settings')) {
+    e.preventDefault();
     showSettings.value = !showSettings.value;
     if (!showSettings.value) loadSettings();
     return;
@@ -255,7 +316,8 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 onMounted(async () => {
   loadSettings();
-  window.addEventListener("keydown", handleKeydown);
+  // Use capture phase so ESC is handled before HeadlessUI's Combobox swallows it
+  window.addEventListener("keydown", handleKeydown, true);
 
   // Focus input when window gets focus
   await appWindow.onFocusChanged(({ payload: focused }) => {
@@ -277,7 +339,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", handleKeydown);
+  window.removeEventListener("keydown", handleKeydown, true);
 });
 
 function handleSettingsClose() {
@@ -337,6 +399,9 @@ function handleSettingsClose() {
   box-shadow:
     0 24px 80px rgba(0, 0, 0, 0.35),
     0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
+  /* Force WebKit to clip all children to border-radius (fixes macOS corner artifacts) */
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  isolation: isolate;
 }
 
 .launcher-container {

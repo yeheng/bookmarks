@@ -43,7 +43,7 @@ const filteredSettings = computed(() => {
 
   const searchItems: { tab: TabId; section: string; items: string[] }[] = [
     { tab: 'general', section: 'General', items: ['launch at startup', 'hide dock icon', 'check for updates', 'max results', 'fuzzy matching'] },
-    { tab: 'appearance', section: 'Appearance', items: ['theme mode', 'font size', 'border radius', 'window width', 'window height', 'accent color'] },
+    { tab: 'appearance', section: 'Appearance', items: ['theme mode', 'font size', 'border radius', 'window width', 'max window height', 'accent color'] },
     { tab: 'shortcuts', section: 'Shortcuts', items: ['global hotkey', 'close window', 'next result', 'previous result', 'open result'] },
     { tab: 'data', section: 'Data', items: ['import bookmarks', 'export settings', 'statistics', 'reset settings'] },
   ];
