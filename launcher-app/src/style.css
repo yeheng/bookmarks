@@ -3,48 +3,48 @@
 @tailwind utilities;
 
 /* =============================================================================
-   Design System Integration - CSS Variables from Tokens
+   Spotlight-Style Design System - CSS Variables
    ============================================================================= */
 
 @layer base {
   :root {
-    /* Color tokens - Light theme (Gentle Slate) */
-    /* Softer contrast for reduced visual fatigue */
-    --color-bg-primary: rgba(248, 247, 246, 0.96);
-    --color-bg-secondary: #f0efed;
-    --color-bg-elevated: #fdfcfb;
-    --color-bg-overlay: rgba(45, 42, 38, 0.4);
+    /* Light theme - Spotlight-inspired */
+    --color-bg-primary: rgba(246, 246, 246, 0.82);
+    --color-bg-secondary: rgba(240, 240, 240, 0.6);
+    --color-bg-elevated: rgba(255, 255, 255, 0.9);
+    --color-bg-overlay: rgba(0, 0, 0, 0.3);
 
-    --color-text-primary: #3d3a36;
-    --color-text-secondary: #6b6660;
-    --color-text-tertiary: #8a857e;
+    --color-text-primary: #1d1d1f;
+    --color-text-secondary: #6e6e73;
+    --color-text-tertiary: #8e8e93;
 
-    --color-border-default: #e3e1df;
-    --color-border-focus: #6b9080;
+    --color-border-default: rgba(0, 0, 0, 0.1);
+    --color-border-subtle: rgba(0, 0, 0, 0.06);
+    --color-border-focus: #007AFF;
 
-    --color-accent: #6b9080;
-    --color-accent-rgb: 107, 144, 128;
+    --color-accent: #007AFF;
+    --color-accent-rgb: 0, 122, 255;
 
-    /* Legacy compatibility */
     --accent-color: var(--color-accent);
   }
 
   .dark {
-    /* Color tokens - Dark theme (Gentle Slate) */
-    /* Warm charcoal tones for comfortable dark mode viewing */
-    --color-bg-primary: rgba(32, 30, 28, 0.96);
-    --color-bg-secondary: #2d2a26;
-    --color-bg-elevated: #363330;
-    --color-bg-overlay: rgba(0, 0, 0, 0.6);
+    /* Dark theme - macOS dark Spotlight */
+    --color-bg-primary: rgba(30, 30, 30, 0.78);
+    --color-bg-secondary: rgba(44, 44, 46, 0.6);
+    --color-bg-elevated: rgba(58, 58, 60, 0.8);
+    --color-bg-overlay: rgba(0, 0, 0, 0.5);
 
-    --color-text-primary: #e8e6e3;
-    --color-text-secondary: #a8a49f;
-    --color-text-tertiary: #8a857e;
+    --color-text-primary: #f5f5f7;
+    --color-text-secondary: #98989d;
+    --color-text-tertiary: #6e6e73;
 
-    --color-border-default: #454139;
-    --color-border-focus: #81a594;
+    --color-border-default: rgba(255, 255, 255, 0.1);
+    --color-border-subtle: rgba(255, 255, 255, 0.06);
+    --color-border-focus: #0a84ff;
 
-    --color-accent: #81a594;
+    --color-accent: #0a84ff;
+    --color-accent-rgb: 10, 132, 255;
   }
 }
 
@@ -55,7 +55,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -66,8 +66,7 @@ body {
 }
 
 /* =============================================================================
-   T1.2.1 Focus Visibility Enhancements
-   Using Design Token CSS Variables
+   Focus Visibility (WCAG)
    ============================================================================= */
 
 *:focus {
@@ -80,16 +79,14 @@ body {
   border-radius: 4px;
 }
 
-/* Enhanced focus for interactive elements */
 button:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible {
   outline: 2px solid var(--color-border-focus);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(var(--color-accent-rgb), 0.1);
+  box-shadow: 0 0 0 4px rgba(var(--color-accent-rgb), 0.15);
 }
 
-/* Input focus styles */
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
@@ -98,7 +95,6 @@ textarea:focus-visible {
   border-color: var(--color-border-focus);
 }
 
-/* Checkbox and radio focus */
 input[type="checkbox"]:focus-visible,
 input[type="radio"]:focus-visible {
   outline: 2px solid var(--color-border-focus);
@@ -115,15 +111,10 @@ input[type="radio"]:focus-visible {
   .window-fade-leave-to {
     opacity: 0;
   }
-
-  .highlight-move {
-    transition: all 100ms ease-in-out;
-  }
 }
 
 /* =============================================================================
    Reduced Motion Support (WCAG 2.3.3)
-   Users who prefer reduced motion will see minimal/no animations
    ============================================================================= */
 
 @media (prefers-reduced-motion: reduce) {
@@ -135,17 +126,10 @@ input[type="radio"]:focus-visible {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-
-  /* Specific overrides for common animations */
-  .window-fade-enter-active,
-  .window-fade-leave-active,
-  .highlight-move {
-    transition: none !important;
-  }
 }
 
 /* =============================================================================
-   Skip Link for Keyboard Navigation (WCAG 2.4.1)
+   Skip Link (WCAG 2.4.1)
    ============================================================================= */
 
 .skip-link {

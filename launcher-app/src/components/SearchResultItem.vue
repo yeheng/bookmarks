@@ -1,30 +1,63 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import type { SearchResult } from '../types/search';
+import { highlightText } from '../composables/useHighlight';
 
 interface Props {
   result: SearchResult;
   isSelected: boolean;
+  highlightQuery?: string;
+  index?: number;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  highlightQuery: '',
+  index: 0,
+});
+
+// Favicon state management
+const faviconError = ref(false);
+
+const hasFavicon = computed(() => {
+  return props.result.type === 'bookmark' && props.result.icon && !faviconError.value;
+});
+
+const faviconFallbackLetter = computed(() => {
+  if (props.result.metadata?.domain) {
+    return props.result.metadata.domain.charAt(0).toUpperCase();
+  }
+  if (props.result.url) {
+    try {
+      return new URL(props.result.url).hostname.charAt(0).toUpperCase();
+    } catch { /* ignore */ }
+  }
+  return props.result.title.charAt(0).toUpperCase();
+});
+
+const handleFaviconError = () => {
+  faviconError.value = true;
+};
+
+// Highlighted text
+const highlightedTitle = computed(() =>
+  highlightText(props.result.title, props.highlightQuery)
+);
+
+const highlightedSubtitle = computed(() =>
+  highlightText(props.result.subtitle, props.highlightQuery)
+);
 
 const adaptiveMetadata = computed(() => {
-  if (!props.isSelected || !props.result.metadata) return null;
+  if (!props.result.metadata) return null;
 
   const parts: string[] = [];
   const md = props.result.metadata;
 
-  // Add metadata parts in order of importance
+  if (md?.domain) parts.push(md.domain);
   if (md?.modified) parts.push(md.modified);
   if (md?.size) parts.push(md.size);
-  if (md?.domain) parts.push(md.domain);
 
-  return parts.join(' · ');
-});
-
-const shortcutHint = computed(() => {
-  return props.isSelected ? '⏎' : '';
+  return parts.length > 0 ? parts.join(' · ') : null;
 });
 </script>
 
@@ -36,123 +69,196 @@ const shortcutHint = computed(() => {
     :aria-selected="isSelected"
     :aria-label="`${result.title}, ${result.type === 'bookmark' ? 'Bookmark' : 'File'}, ${result.subtitle}`"
   >
-
-    <div class="result-icon-container" aria-hidden="true">
-      <span v-if="result.type === 'bookmark'" class="icon" role="img" aria-label="Bookmark">🔖</span>
-      <span v-else class="icon" role="img" aria-label="File">📄</span>
+    <!-- Icon -->
+    <div class="result-icon" aria-hidden="true">
+      <img
+        v-if="hasFavicon"
+        :src="result.icon"
+        class="favicon-img"
+        alt=""
+        @error="handleFaviconError"
+        loading="lazy"
+      />
+      <div
+        v-else-if="result.type === 'bookmark'"
+        class="icon-placeholder"
+        :class="{ 'icon-placeholder--selected': isSelected }"
+      >
+        <span class="icon-letter">{{ faviconFallbackLetter }}</span>
+      </div>
+      <div v-else class="icon-file" :class="{ 'icon-file--selected': isSelected }">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4 1.5h5.172a2 2 0 0 1 1.414.586l2.828 2.828A2 2 0 0 1 14 6.328V12.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" fill="currentColor" opacity="0.7"/>
+        </svg>
+      </div>
     </div>
 
-    <div class="result-content">
-      <div class="result-title">{{ result.title }}</div>
-      <div class="result-subtitle">{{ result.subtitle }}</div>
+    <!-- Content -->
+    <div class="result-body">
+      <div class="result-title" v-html="highlightedTitle"></div>
+      <div v-if="adaptiveMetadata" class="result-meta">{{ adaptiveMetadata }}</div>
+      <div v-else class="result-subtitle" v-html="highlightedSubtitle"></div>
     </div>
 
-    <!-- Adaptive Metadata (visible only when selected) -->
-    <div v-if="adaptiveMetadata" class="adaptive-metadata">
-      {{ adaptiveMetadata }}
-    </div>
-
+    <!-- Action hint -->
     <div v-if="isSelected" class="action-hint" aria-hidden="true">
-      {{ shortcutHint }}
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M2.5 6.5h5m0 0L5 9m2.5-2.5L5 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" transform="rotate(-45 6 6)"/>
+      </svg>
     </div>
   </div>
 </template>
 
 <style scoped>
 .result-item {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  height: var(--item-height, 44px);
-  border-radius: 12px;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
   cursor: pointer;
   color: var(--text-color);
-  overflow: hidden;
-  transition: background-color 0.2s ease-out, transform 0.15s ease-out, box-shadow 0.2s ease-out, border-color 0.2s ease-out;
+  transition: background-color 0.1s ease;
+  min-height: 36px;
 }
 
-.result-item:hover {
-  background-color: var(--color-interactive-hover);
+.result-item:hover:not(.result-item--selected) {
+  background-color: rgba(128, 128, 128, 0.08);
 }
 
-.result-item:active {
-  transform: scale(0.995);
-  background-color: var(--color-interactive-active);
-}
-
+/* ===== Spotlight-style selected state: accent fill + white text ===== */
 .result-item--selected {
-  background-color: var(--color-highlight-bg);
-  border: 1px solid var(--color-highlight-border);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  background: var(--accent-color, #007AFF);
+  color: #ffffff;
 }
 
-/* Icon container - uniform 32x32 box */
-.result-icon-container {
+.result-item--selected .result-title {
+  color: #ffffff;
+}
+
+.result-item--selected .result-subtitle,
+.result-item--selected .result-meta {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.result-item--selected .action-hint {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ===== Icon ===== */
+.result-icon {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.result-icon-container .icon {
-  font-size: 20px;
+.favicon-img {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: contain;
 }
 
-/* Content area */
-.result-content {
+.icon-placeholder {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-placeholder--selected {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.icon-letter {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.result-item--selected .icon-letter {
+  color: #ffffff;
+}
+
+.icon-file {
+  color: var(--color-text-tertiary);
+}
+
+.icon-file--selected {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* ===== Content ===== */
+.result-body {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .result-title {
-  font-size: var(--font-size, 14px);
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
-  color: var(--text-color);
+  color: var(--color-text-primary, var(--text-color));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
 .result-subtitle {
-  font-size: calc(var(--font-size, 14px) * 0.85);
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Adaptive metadata - only when selected */
-.adaptive-metadata {
-  flex-shrink: 0;
   font-size: 11px;
+  font-weight: 400;
   color: var(--color-text-tertiary);
-  font-feature-settings: 'tnum';
-  max-width: 300px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
 }
 
-.result-item--selected .adaptive-metadata {
+.result-meta {
+  font-size: 11px;
+  font-weight: 400;
   color: var(--color-text-tertiary);
-  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+  font-feature-settings: 'tnum';
 }
 
-/* Action hint (keyboard shortcut) */
+/* Search highlight marks */
+:deep(.search-highlight) {
+  background: rgba(var(--color-accent-rgb, 107, 144, 128), 0.2);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.result-item--selected :deep(.search-highlight) {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* ===== Action hint ===== */
 .action-hint {
   flex-shrink: 0;
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, SF Mono, Consolas, monospace;
-  color: var(--color-text-tertiary);
-  opacity: 0.4;
+  color: rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
 }
 
-.result-item--selected .action-hint {
-  opacity: 0.6;
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .result-item {
+    transition: none;
+  }
 }
 </style>

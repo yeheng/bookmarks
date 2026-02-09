@@ -127,32 +127,32 @@ defineExpose({
 <template>
   <Combobox v-model="selectedResult" @update:model-value="handleSelect">
     <div class="search-combobox">
+      <!-- Window drag region -->
+      <div class="drag-region" data-tauri-drag-region></div>
+
       <!-- Keyboard navigation announcements -->
       <div aria-live="polite" aria-atomic="true" class="visually-hidden">
         {{ navigationAnnouncement }}
       </div>
 
-      <ComboboxInput
-        ref="searchInput"
-        @change="(e: Event) => query = (e.target as HTMLInputElement).value"
-        :displayValue="() => query"
-        class="search-input"
-        placeholder="Search bookmarks and files..."
-        autocomplete="off"
-        aria-label="Search bookmarks and files"
-        aria-autocomplete="list"
-        :aria-controls="listboxId"
-        :aria-expanded="hasResults || loading"
-      />
-
-      <button
-        class="settings-icon-btn"
-        @click="emit('select', { id: 'internal-settings', type: 'file', title: 'Settings', subtitle: '', path: '' })"
-        aria-label="Open Settings (Cmd+Comma or type 'settings')"
-        aria-keyshortcuts="Meta+Comma"
-      >
-        <span role="img" aria-label="Settings icon">⚙️</span>
-      </button>
+      <!-- Spotlight-style search bar -->
+      <div class="search-bar">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M8.5 3a5.5 5.5 0 0 1 4.383 8.823l4.147 4.147a.75.75 0 0 1-1.06 1.06l-4.147-4.147A5.5 5.5 0 1 1 8.5 3Zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" fill="currentColor"/>
+        </svg>
+        <ComboboxInput
+          ref="searchInput"
+          @change="(e: Event) => query = (e.target as HTMLInputElement).value"
+          :displayValue="() => query"
+          class="search-input"
+          placeholder="Search bookmarks and files..."
+          autocomplete="off"
+          aria-label="Search bookmarks and files"
+          aria-autocomplete="list"
+          :aria-controls="listboxId"
+          :aria-expanded="hasResults || loading"
+        />
+      </div>
 
       <TransitionRoot
         enter="transition-opacity duration-150"
@@ -167,70 +167,44 @@ defineExpose({
           :id="listboxId"
           aria-label="Search results"
         >
-          <TransitionRoot
-            enter="transition-opacity duration-200 delay-200"
-            enter-from="opacity-0"
-            enter-to="opacity-100"
-            leave="transition-opacity duration-100"
-            leave-from="opacity-100"
-            leave-to="opacity-0"
-          >
-            <div v-if="loading" class="loading-state" role="status" aria-live="polite">
-              <div class="loading-header">
-                <div class="loading-spinner-small" aria-hidden="true"></div>
-                <span class="loading-text">Searching...</span>
-              </div>
-              <SkeletonLoader :count="3" />
-            </div>
-          </TransitionRoot>
+          <!-- Loading State -->
+          <div v-if="loading" class="loading-state" role="status" aria-live="polite">
+            <SkeletonLoader :count="3" />
+          </div>
 
-          <div v-if="showEmpty" class="state-message empty-state" role="status" aria-live="polite">
-            <div class="empty-icon-container">
-              <span class="empty-icon" role="img" aria-label="No results">🔍</span>
-              <span class="empty-icon-overlay">❌</span>
+          <!-- Empty State -->
+          <div v-else-if="showEmpty" class="state-message empty-state" role="status" aria-live="polite">
+            <div class="empty-visual" aria-hidden="true">
+              <svg width="40" height="40" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8.5 3a5.5 5.5 0 0 1 4.383 8.823l4.147 4.147a.75.75 0 0 1-1.06 1.06l-4.147-4.147A5.5 5.5 0 1 1 8.5 3Zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" fill="currentColor"/>
+              </svg>
             </div>
-            <div class="empty-text">No results for "{{ query }}"</div>
-            <div class="empty-suggestions">
-              <div class="empty-hint">Try these tips:</div>
-              <ul class="suggestion-list">
-                <li>Check your spelling</li>
-                <li>Use fewer or different keywords</li>
-                <li>Type <span class="highlight">settings</span> to configure search</li>
-              </ul>
-            </div>
+            <div class="empty-text">No results for "<strong>{{ query }}</strong>"</div>
+            <div class="empty-hint">Try a different search term</div>
           </div>
 
           <!-- Error State -->
           <div v-else-if="showError" class="state-message error-state" role="alert" aria-live="assertive">
-            <div class="error-icon-container">
-              <span class="error-icon" role="img" aria-label="Error">⚠️</span>
-            </div>
             <div class="error-text">Search failed</div>
             <div class="error-description">{{ error }}</div>
-            <button
-              class="retry-btn"
-              @click="handleRetry"
-              aria-label="Retry search"
-            >
-              <span class="retry-icon">🔄</span>
+            <button class="retry-btn" @click="handleRetry" aria-label="Retry search">
               Try Again
             </button>
           </div>
 
-          <div v-else-if="showRecent" class="state-message" role="status">
-            <div class="section-label">Recent</div>
-            <div class="empty-hint">Your recent items will appear here</div>
+          <!-- Initial/Recent State -->
+          <div v-else-if="showRecent" class="state-message initial-state" role="status">
+            <div class="initial-hint">Type to search bookmarks and files</div>
+            <div class="shortcuts-bar" aria-label="Keyboard shortcuts">
+              <span class="shortcut-item"><kbd class="kbd">↑↓</kbd> Navigate</span>
+              <span class="shortcut-item"><kbd class="kbd">⏎</kbd> Open</span>
+              <span class="shortcut-item"><kbd class="kbd">⌘,</kbd> Settings</span>
+              <span class="shortcut-item"><kbd class="kbd">esc</kbd> Close</span>
+            </div>
           </div>
 
-          <TransitionRoot
-            v-else
-            enter="transition-all duration-200 ease-out"
-            enter-from="opacity-0 translate-y-1"
-            enter-to="opacity-100 translate-y-0"
-            leave="transition-opacity duration-150"
-            leave-from="opacity-100"
-            leave-to="opacity-0"
-          >
+          <!-- Results -->
+          <template v-else>
             <!-- Grouped Results Display -->
             <div v-if="hasMultipleGroups" class="grouped-results">
               <template v-for="(group, groupIndex) in groupedResults.groups" :key="group.type">
@@ -239,24 +213,24 @@ defineExpose({
                   :is-first="groupIndex === 0"
                   @toggle="toggleGroup(group.type)"
                 />
-                  <TransitionRoot
-                    :show="!isGroupCollapsed(group.type)"
-                    enter="transition-all duration-200 ease-out"
-                    enter-from="opacity-0 max-h-0"
-                    enter-to="opacity-100 max-h-96"
-                    leave="transition-all duration-150 ease-in"
-                    leave-from="opacity-100 max-h-96"
-                    leave-to="opacity-0 max-h-0"
-                  >
+                <TransitionRoot
+                  :show="!isGroupCollapsed(group.type)"
+                  enter="transition-all duration-200 ease-out"
+                  enter-from="opacity-0 max-h-0"
+                  enter-to="opacity-100 max-h-96"
+                  leave="transition-all duration-150 ease-in"
+                  leave-from="opacity-100 max-h-96"
+                  leave-to="opacity-0 max-h-0"
+                >
                   <div class="group-items">
                     <ComboboxOption
-                      v-for="result in group.results"
+                      v-for="(result, rIndex) in group.results"
                       :key="result.id"
                       :value="result"
                       v-slot="{ active }"
                       class="result-option"
                     >
-                      <SearchResultItem :result="result" :is-selected="active" />
+                      <SearchResultItem :result="result" :is-selected="active" :highlight-query="query" :index="rIndex" />
                     </ComboboxOption>
                   </div>
                 </TransitionRoot>
@@ -266,22 +240,37 @@ defineExpose({
             <!-- Flat Results Display (single type) -->
             <div v-else class="flat-results">
               <ComboboxOption
-                v-for="result in displayResults"
+                v-for="(result, rIndex) in displayResults"
                 :key="result.id"
                 :value="result"
                 v-slot="{ active }"
                 class="result-option"
               >
-                <SearchResultItem :result="result" :is-selected="active" />
+                <SearchResultItem :result="result" :is-selected="active" :highlight-query="query" :index="rIndex" />
               </ComboboxOption>
             </div>
-          </TransitionRoot>
-
-          <div v-if="hasResults && results.length > 10" class="more-results">
-            Press ↓ to see more ({{ results.length - 10 }} more)
-          </div>
+          </template>
         </ComboboxOptions>
       </TransitionRoot>
+
+      <!-- Bottom bar with shortcuts -->
+      <div v-if="hasResults" class="bottom-bar">
+        <div class="bottom-bar-left">
+          <span class="result-count">{{ displayResults.length }} result{{ displayResults.length !== 1 ? 's' : '' }}</span>
+        </div>
+        <div class="bottom-bar-right">
+          <button
+            class="settings-icon-btn"
+            @click="emit('select', { id: 'internal-settings', type: 'file', title: 'Settings', subtitle: '', path: '' })"
+            aria-label="Open Settings"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" fill="currentColor"/>
+              <path fill-rule="evenodd" d="M6.858 1.212c.252-.912 1.032-.912 1.284 0l.32 1.158c.063.228.225.414.443.51l.468.204c.213.093.457.08.66-.036l1.02-.58c.805-.458 1.37.108.912.912l-.58 1.02a.754.754 0 0 0-.036.66l.205.468c.095.218.281.38.51.443l1.157.32c.912.252.912 1.032 0 1.284l-1.158.32a.754.754 0 0 0-.51.443l-.204.468a.754.754 0 0 0 .036.66l.58 1.02c.458.805-.108 1.37-.912.912l-1.02-.58a.754.754 0 0 0-.66-.036l-.468.205a.754.754 0 0 0-.443.51l-.32 1.157c-.252.912-1.032.912-1.284 0l-.32-1.158a.754.754 0 0 0-.443-.51l-.468-.204a.754.754 0 0 0-.66.036l-1.02.58c-.805.458-1.37-.108-.912-.912l.58-1.02a.754.754 0 0 0 .036-.66L3.446 9.1a.754.754 0 0 0-.51-.443l-1.157-.32c-.912-.252-.912-1.032 0-1.284l1.158-.32a.754.754 0 0 0 .51-.443l.204-.468a.754.754 0 0 0-.036-.66l-.58-1.02c-.458-.805.108-1.37.912-.912l1.02.58a.754.754 0 0 0 .66.036l.468-.205a.754.754 0 0 0 .443-.51l.32-1.157Z" fill="currentColor" opacity="0.5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>
   </Combobox>
 </template>
@@ -295,11 +284,28 @@ defineExpose({
   position: relative;
 }
 
+/* ========== Spotlight Search Bar ========== */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  height: var(--input-height, 54px);
+  flex-shrink: 0;
+  border-bottom: 0.5px solid var(--color-border-subtle, rgba(128, 128, 128, 0.15));
+}
+
+.search-icon {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  opacity: 0.6;
+}
+
 .search-input {
-  width: 100%;
-  height: var(--input-height, 64px);
-  padding: 0 50px 0 24px;
-  font-size: 20px;
+  flex: 1;
+  height: 100%;
+  padding: 0;
+  font-size: 18px;
   font-weight: 400;
   border: none;
   outline: none;
@@ -311,273 +317,133 @@ defineExpose({
 .search-input::placeholder {
   color: var(--color-text-tertiary);
   font-weight: 300;
+  opacity: 0.7;
 }
 
-.settings-icon-btn {
-  position: absolute;
-  top: 0;
-  right: 16px;
-  height: var(--input-height, 64px);
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  opacity: 0.4;
-  transition: opacity 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-color);
-}
-
-.settings-icon-btn:hover {
-  opacity: 1;
-}
-
+/* ========== Results Container ========== */
 .results-container {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 12px 16px;
+  padding: 6px;
   position: relative;
 }
 
-/* Scroll mask gradient - fade out content near input */
-.results-container::before {
-  content: '';
-  position: sticky;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 32px;
-  background: linear-gradient(
-    to bottom,
-    var(--color-bg-primary) 0%,
-    transparent 100%
-  );
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* Custom scrollbar */
+/* Custom scrollbar - thin and minimal */
 .results-container::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 .results-container::-webkit-scrollbar-track {
   background: transparent;
 }
 .results-container::-webkit-scrollbar-thumb {
-  background: var(--color-border-subtle);
-  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 2px;
 }
 .results-container::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-default);
+  background: rgba(128, 128, 128, 0.35);
 }
 
 .result-option {
   outline: none;
 }
 
+/* ========== State Messages ========== */
 .state-message {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 24px;
+  padding: 32px 24px;
   text-align: center;
   color: var(--color-text-secondary);
-  height: 100%;
 }
 
-.loading-spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid rgba(255, 107, 107, 0.2);
-  border-top-color: var(--accent-color);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+/* Loading State */
+.loading-state {
+  padding: 4px 0;
+}
+
+/* Empty State */
+.empty-state {
+  padding: 28px 24px;
+}
+
+.empty-visual {
+  color: var(--color-text-tertiary);
+  opacity: 0.3;
   margin-bottom: 12px;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Enhanced Loading State */
-.loading-state {
-  padding: 12px 0;
-}
-
-.loading-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 16px 12px 16px;
-}
-
-.loading-spinner-small {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 107, 107, 0.2);
-  border-top-color: var(--accent-color);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.loading-text {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  font-weight: 500;
-}
-
-.empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-  opacity: 0.5;
-}
-
-/* Enhanced Empty State */
-.empty-state {
-  padding: 32px 24px;
-}
-
-.empty-icon-container {
-  position: relative;
-  display: inline-block;
-  margin-bottom: 16px;
-}
-
-.empty-icon-overlay {
-  position: absolute;
-  bottom: 0;
-  right: -8px;
-  font-size: 20px;
-  background: var(--bg-color);
-  border-radius: 50%;
-  padding: 2px;
-}
-
-.empty-suggestions {
-  margin-top: 16px;
-  text-align: left;
-  max-width: 240px;
-}
-
-.suggestion-list {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0 0 0;
+.empty-text {
   font-size: 13px;
+  font-weight: 500;
   color: var(--color-text-secondary);
+  margin-bottom: 4px;
 }
 
-.suggestion-list li {
-  padding: 4px 0;
-  padding-left: 20px;
-  position: relative;
+.empty-text strong {
+  font-weight: 600;
+  color: var(--text-color);
 }
 
-.suggestion-list li::before {
-  content: "•";
-  position: absolute;
-  left: 8px;
-  color: var(--accent-color);
+.empty-hint {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
 }
 
 /* Error State */
 .error-state {
-  padding: 32px 24px;
-}
-
-.error-icon-container {
-  margin-bottom: 16px;
-}
-
-.error-icon {
-  font-size: 48px;
+  padding: 28px 24px;
 }
 
 .error-text {
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-color);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .error-description {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-text-secondary);
-  margin-bottom: 16px;
-  max-width: 280px;
+  margin-bottom: 12px;
+  max-width: 260px;
 }
 
 .retry-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  font-size: 13px;
+  padding: 5px 14px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-color);
   background: rgba(128, 128, 128, 0.1);
-  border: 1px solid var(--border-color);
+  border: 0.5px solid rgba(128, 128, 128, 0.2);
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease;
 }
 
 .retry-btn:hover {
-  background: rgba(128, 128, 128, 0.2);
-  border-color: var(--accent-color);
+  background: rgba(128, 128, 128, 0.18);
 }
 
 .retry-btn:active {
   transform: scale(0.98);
 }
 
-.retry-icon {
-  font-size: 14px;
+/* Initial State */
+.initial-state {
+  padding: 24px;
 }
 
-.empty-text {
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--text-color);
-  margin-bottom: 8px;
+.initial-hint {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 16px;
 }
 
-.empty-hint {
-  font-size: 14px;
-  color: var(--color-text-secondary);
-}
-
-.highlight {
-  color: var(--accent-color);
-  font-weight: 600;
-  background: rgba(128, 128, 128, 0.1);
-  padding: 2px 4px;
-  border-radius: 4px;
-}
-
-.section-label {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--color-text-secondary);
-  margin-bottom: 12px;
-}
-
-.more-results {
-  padding: 12px 16px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  border-top: 1px solid var(--color-border-subtle);
-}
-
-/* Grouped Results Styles */
+/* ========== Grouped Results ========== */
 .grouped-results {
   display: flex;
   flex-direction: column;
@@ -590,10 +456,88 @@ defineExpose({
 .flat-results {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
-/* Visually hidden class for screen reader announcements */
+/* ========== Bottom Bar ========== */
+.bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  flex-shrink: 0;
+  border-top: 0.5px solid var(--color-border-subtle, rgba(128, 128, 128, 0.15));
+}
+
+.bottom-bar-left {
+  display: flex;
+  align-items: center;
+}
+
+.result-count {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+
+.bottom-bar-right {
+  display: flex;
+  align-items: center;
+}
+
+.settings-icon-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.settings-icon-btn:hover {
+  opacity: 1;
+}
+
+/* ========== Keyboard Shortcuts ========== */
+.shortcuts-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.shortcut-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  opacity: 0.6;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: rgba(128, 128, 128, 0.08);
+  border: 0.5px solid rgba(128, 128, 128, 0.15);
+  border-radius: 3px;
+  line-height: 1.4;
+}
+
+/* ========== Utility ========== */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -604,5 +548,16 @@ defineExpose({
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* Window drag region */
+.drag-region {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  z-index: 10;
+  -webkit-app-region: drag;
 }
 </style>

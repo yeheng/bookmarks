@@ -10,6 +10,7 @@ import SettingsPanel from "./components/settings/SettingsPanel.vue";
 import ErrorBoundary from "./components/ErrorBoundary.vue";
 import { ShortcutManager } from "./services/shortcuts";
 import { useToast } from "./composables/useToast";
+import { semanticColors } from "./design-system/tokens";
 import type {
   SearchResult,
   BookmarkSearchResult,
@@ -32,6 +33,7 @@ const themeStyle = computed(() => {
   if (!settings.value) return {};
   const { theme } = settings.value;
   const isLight = theme.mode === "light";
+  const themeColors = isLight ? semanticColors.light : semanticColors.dark;
 
   return {
     "--accent-color": theme.accent_color,
@@ -41,22 +43,23 @@ const themeStyle = computed(() => {
     "--input-height": `${theme.input_height}px`,
     "--item-height": `${theme.item_height}px`,
     "--border-radius": `${theme.border_radius}px`,
-    "--bg-color": theme.bg_color || (isLight ? "rgba(255,255,255, 0.95)" : "rgba(26, 26, 26, 0.95)"),
-    "--text-color": theme.text_color || (isLight ? "#1a1a1a" : "#e0e0e0"),
-    "--secondary-text": theme.secondary_text_color || (isLight ? "#6a6a6a" : "#9a9a9a"),
-    "--border-color": theme.border_color || (isLight ? "#e0e0e0" : "#3a3a3a"),
+    "--bg-color": theme.bg_color || themeColors.bg.primary,
+    "--text-color": theme.text_color || themeColors.text.primary,
+    "--secondary-text": theme.secondary_text_color || themeColors.text.secondary,
+    "--border-color": theme.border_color || themeColors.border.default,
     "--selection-bg": theme.selection_bg_color || theme.accent_color,
     "--selection-text": theme.selection_text_color || "#ffffff",
-    "--color-bg-primary": theme.bg_color || (isLight ? "rgba(255,255,255, 0.95)" : "rgba(26, 26, 26, 0.95)"),
-    "--color-text-primary": theme.text_color || (isLight ? "#1a1a1a" : "#e0e0e0"),
-    "--color-text-secondary": theme.secondary_text_color || (isLight ? "#6a6a6a" : "#9a9a9a"),
-    "--color-text-tertiary": isLight ? "#6b6b6b" : "#a3a3a3",
-    "--color-border-default": theme.border_color || (isLight ? "#e0e0e0" : "#3a3a3a"),
-    "--color-border-subtle": isLight ? "#f5f5f5" : "#262626",
-    "--color-interactive-hover": isLight ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.08)",
-    "--color-interactive-active": isLight ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.12)",
-    "--color-highlight-bg": isLight ? "rgba(0, 0, 0, 0.05)" : "rgba(0, 0, 0, 0.05)",
-    "--color-highlight-border": isLight ? "rgba(0, 0, 0, 0.08)" : "rgba(255, 255, 255, 0.08)",
+    "--color-bg-primary": theme.bg_color || themeColors.bg.primary,
+    "--color-bg-secondary": themeColors.bg.secondary,
+    "--color-text-primary": theme.text_color || themeColors.text.primary,
+    "--color-text-secondary": theme.secondary_text_color || themeColors.text.secondary,
+    "--color-text-tertiary": themeColors.text.tertiary,
+    "--color-border-default": theme.border_color || themeColors.border.default,
+    "--color-border-subtle": themeColors.border.subtle,
+    "--color-interactive-hover": themeColors.interactive.hover,
+    "--color-interactive-active": themeColors.interactive.active,
+    "--color-highlight-bg": themeColors.highlight.bg,
+    "--color-highlight-border": themeColors.highlight.border,
   };
 });
 
@@ -300,20 +303,22 @@ function handleSettingsClose() {
         :theme="settings?.theme.mode || 'dark'"
       />
 
-      <div class="launcher-container" v-show="!showSettings">
-        <SearchCombobox
-          ref="searchComboboxRef"
-          :results="searchResults"
-          :loading="isLoading"
-          :error="searchError"
-          @search="handleSearch"
-          @select="handleSelect"
-          @retry="handleRetry"
-        />
-      </div>
-      <div class="settings-container" v-if="showSettings">
+      <Transition name="panel-fade" mode="out-in">
+        <div v-if="!showSettings" key="launcher" class="launcher-container">
+          <SearchCombobox
+            ref="searchComboboxRef"
+            :results="searchResults"
+            :loading="isLoading"
+            :error="searchError"
+            @search="handleSearch"
+            @select="handleSelect"
+            @retry="handleRetry"
+          />
+        </div>
+        <div v-else key="settings" class="settings-container">
           <SettingsPanel @close="handleSettingsClose" />
-      </div>
+        </div>
+      </Transition>
     </div>
   </ErrorBoundary>
 </template>
@@ -323,11 +328,17 @@ function handleSettingsClose() {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: var(--bg-color, rgba(26, 26, 26, 0.95));
+  background: var(--bg-color, rgba(30, 30, 30, 0.78));
+  backdrop-filter: blur(60px) saturate(180%);
+  -webkit-backdrop-filter: blur(60px) saturate(180%);
   color: var(--text-color, #e0e0e0);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: var(--font-size, 14px);
-  /* Use transparent background for rounded corners effect if supported */
+  border-radius: var(--border-radius, 12px);
+  border: 0.5px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.35),
+    0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
 }
 
 .launcher-container {
@@ -339,8 +350,36 @@ function handleSettingsClose() {
 }
 
 .settings-container {
-    width: 100%;
-    height: 100%;
-    background: var(--bg-color);
+  width: 100%;
+  height: 100%;
+  background: var(--bg-color);
+  border-radius: var(--border-radius, 12px);
+}
+
+/* Panel switch transition */
+.panel-fade-enter-active {
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.panel-fade-leave-active {
+  transition: opacity 0.1s ease-in, transform 0.1s ease-in;
+}
+
+.panel-fade-enter-from {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+.panel-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .panel-fade-enter-active,
+  .panel-fade-leave-active {
+    transition: none;
+  }
 }
 </style>

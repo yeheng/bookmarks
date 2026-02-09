@@ -121,18 +121,20 @@ onMounted(() => {
 
     <!-- Tab Panels -->
     <div v-if="settings" class="settings-body">
-      <div v-show="activeTab === 'general'" id="panel-general" role="tabpanel" aria-labelledby="tab-general">
-        <SettingsTabGeneral :settings="settings" />
-      </div>
-      <div v-show="activeTab === 'appearance'" id="panel-appearance" role="tabpanel" aria-labelledby="tab-appearance">
-        <SettingsTabAppearance :settings="settings" />
-      </div>
-      <div v-show="activeTab === 'shortcuts'" id="panel-shortcuts" role="tabpanel" aria-labelledby="tab-shortcuts">
-        <SettingsTabShortcuts :settings="settings" @shortcut-update="handleShortcutUpdate" />
-      </div>
-      <div v-show="activeTab === 'data'" id="panel-data" role="tabpanel" aria-labelledby="tab-data">
-        <SettingsTabData :stats="stats" :import-status="importStatus" @import-bookmarks="importBookmarks" @export-settings="exportSettings" @import-settings="importSettingsFromFile" @reset-settings="resetSettings" />
-      </div>
+      <Transition name="tab-fade" mode="out-in">
+        <div v-if="activeTab === 'general'" key="general" id="panel-general" role="tabpanel" aria-labelledby="tab-general">
+          <SettingsTabGeneral :settings="settings" />
+        </div>
+        <div v-else-if="activeTab === 'appearance'" key="appearance" id="panel-appearance" role="tabpanel" aria-labelledby="tab-appearance">
+          <SettingsTabAppearance :settings="settings" />
+        </div>
+        <div v-else-if="activeTab === 'shortcuts'" key="shortcuts" id="panel-shortcuts" role="tabpanel" aria-labelledby="tab-shortcuts">
+          <SettingsTabShortcuts :settings="settings" @shortcut-update="handleShortcutUpdate" />
+        </div>
+        <div v-else-if="activeTab === 'data'" key="data" id="panel-data" role="tabpanel" aria-labelledby="tab-data">
+          <SettingsTabData :stats="stats" :import-status="importStatus" @import-bookmarks="importBookmarks" @export-settings="exportSettings" @import-settings="importSettingsFromFile" @reset-settings="resetSettings" />
+        </div>
+      </Transition>
     </div>
 
     <!-- Loading State -->
@@ -152,47 +154,46 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.settings-panel { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--color-bg-primary, rgba(26, 26, 26, 0.95)); }
-.settings-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--color-border-default, #3a3a3a); flex-shrink: 0; }
-.settings-title { font-size: 18px; font-weight: 600; color: var(--color-text-primary, #e0e0e0); }
-.close-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: none; border: none; color: var(--color-text-tertiary, #a3a3a3); cursor: pointer; border-radius: 6px; transition: all 0.15s ease; }
-.close-btn:hover { background: rgba(128, 128, 128, 0.1); color: var(--color-text-primary, #e0e0e0); }
-.close-btn:focus-visible { outline: 2px solid var(--color-accent, #ff6b6b); outline-offset: 2px; }
-.settings-search { position: relative; padding: 12px 20px; border-bottom: 1px solid var(--color-border-default, #3a3a3a); flex-shrink: 0; }
-.search-input { width: 100%; padding: 10px 14px; font-size: 14px; background: var(--color-bg-secondary, #262626); border: 1px solid var(--color-border-default, #3a3a3a); border-radius: 8px; color: var(--color-text-primary, #e0e0e0); outline: none; transition: border-color 0.15s ease; }
-.search-input:focus { border-color: var(--color-accent, #ff6b6b); }
-.search-input::placeholder { color: var(--color-text-tertiary, #a3a3a3); }
-.search-results { position: absolute; top: 100%; left: 20px; right: 20px; background: var(--color-bg-elevated, #262626); border: 1px solid var(--color-border-default, #3a3a3a); border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); z-index: 10; max-height: 200px; overflow-y: auto; }
-.search-result { display: flex; flex-direction: column; width: 100%; padding: 10px 14px; background: none; border: none; text-align: left; cursor: pointer; transition: background-color 0.1s ease; }
-.search-result:hover { background: rgba(128, 128, 128, 0.1); }
-.search-result__section { font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--color-accent, #ff6b6b); margin-bottom: 2px; }
-.search-result__label { font-size: 13px; color: var(--color-text-primary, #e0e0e0); text-transform: capitalize; }
-.settings-tabs { display: flex; gap: 4px; padding: 12px 20px; border-bottom: 1px solid var(--color-border-default, #3a3a3a); flex-shrink: 0; overflow-x: auto; }
-.settings-tab { display: flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 13px; font-weight: 500; color: var(--color-text-secondary, #b3b3b3); background: none; border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s ease; white-space: nowrap; }
-.settings-tab:hover { background: rgba(128, 128, 128, 0.1); color: var(--color-text-primary, #e0e0e0); }
-.settings-tab--active { background: var(--color-accent, #ff6b6b); color: white; }
-.settings-tab--active:hover { background: var(--color-accent, #ff6b6b); color: white; }
-.settings-tab:focus-visible { outline: 2px solid var(--color-accent, #ff6b6b); outline-offset: 2px; }
+.settings-panel { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--color-bg-primary, var(--bg-color)); }
+.settings-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--color-border-default, var(--border-color)); flex-shrink: 0; }
+.settings-title { font-size: 18px; font-weight: 600; color: var(--color-text-primary, var(--text-color)); }
+.close-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: none; border: none; color: var(--color-text-tertiary); cursor: pointer; border-radius: 6px; transition: all 0.15s ease; }
+.close-btn:hover { background: var(--color-interactive-hover); color: var(--color-text-primary, var(--text-color)); }
+.close-btn:focus-visible { outline: 2px solid var(--color-accent, var(--accent-color)); outline-offset: 2px; }
+.settings-search { position: relative; padding: 12px 20px; border-bottom: 1px solid var(--color-border-default, var(--border-color)); flex-shrink: 0; }
+.search-input { width: 100%; padding: 10px 14px; font-size: 14px; background: var(--color-bg-secondary); border: 1px solid var(--color-border-default, var(--border-color)); border-radius: 8px; color: var(--color-text-primary, var(--text-color)); outline: none; transition: border-color 0.15s ease; }
+.search-input:focus { border-color: var(--color-accent, var(--accent-color)); }
+.search-input::placeholder { color: var(--color-text-tertiary); }
+.search-results { position: absolute; top: 100%; left: 20px; right: 20px; background: var(--color-bg-elevated, var(--color-bg-secondary)); border: 1px solid var(--color-border-default, var(--border-color)); border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); z-index: 10; max-height: 200px; overflow-y: auto; }
+.search-result { display: flex; flex-direction: column; width: 100%; padding: 10px 14px; background: none; border: none; text-align: left; cursor: pointer; transition: background-color 0.1s ease; color: inherit; }
+.search-result:hover { background: var(--color-interactive-hover); }
+.search-result__section { font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--color-accent, var(--accent-color)); margin-bottom: 2px; }
+.search-result__label { font-size: 13px; color: var(--color-text-primary, var(--text-color)); text-transform: capitalize; }
+.settings-tabs { display: flex; gap: 4px; padding: 12px 20px; border-bottom: 1px solid var(--color-border-default, var(--border-color)); flex-shrink: 0; overflow-x: auto; }
+.settings-tab { display: flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 13px; font-weight: 500; color: var(--color-text-secondary); background: none; border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s ease; white-space: nowrap; }
+.settings-tab:hover { background: var(--color-interactive-hover); color: var(--color-text-primary, var(--text-color)); }
+.settings-tab--active { background: var(--color-accent, var(--accent-color)); color: white; }
+.settings-tab--active:hover { background: var(--color-accent, var(--accent-color)); color: white; }
+.settings-tab:focus-visible { outline: 2px solid var(--color-accent, var(--accent-color)); outline-offset: 2px; }
 .tab-icon { font-size: 14px; }
 .settings-body { flex: 1; overflow-y: auto; padding: 20px; }
-.settings-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--color-text-secondary, #b3b3b3); }
-.loading-spinner { width: 24px; height: 24px; border: 2px solid rgba(255, 107, 107, 0.2); border-top-color: var(--color-accent, #ff6b6b); border-radius: 50%; animation: spin 0.8s linear infinite; }
+.settings-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--color-text-secondary); }
+.loading-spinner { width: 24px; height: 24px; border: 2px solid var(--color-border-subtle, rgba(128, 128, 128, 0.2)); border-top-color: var(--color-accent, var(--accent-color)); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.settings-footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--color-border-default, #3a3a3a); flex-shrink: 0; }
-.save-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-secondary, #b3b3b3); }
-.save-indicator--saved { color: #10b981; }
-.save-spinner { width: 12px; height: 12px; border: 2px solid rgba(255, 107, 107, 0.2); border-top-color: var(--color-accent, #ff6b6b); border-radius: 50%; animation: spin 0.8s linear infinite; }
-@media (prefers-color-scheme: light) {
-  .settings-panel { background: var(--color-bg-primary, rgba(255, 255, 255, 0.95)); }
-  .settings-header, .settings-search, .settings-tabs, .settings-footer { border-color: var(--color-border-default, #e0e0e0); }
-  .settings-title { color: var(--color-text-primary, #1a1a1a); }
-  .search-input { background: var(--color-bg-secondary, #f5f5f5); border-color: var(--color-border-default, #e0e0e0); color: var(--color-text-primary, #1a1a1a); }
-  .search-results { background: var(--color-bg-elevated, #ffffff); border-color: var(--color-border-default, #e0e0e0); }
-  .search-result__label { color: var(--color-text-primary, #1a1a1a); }
-  .settings-tab { color: var(--color-text-secondary, #525252); }
-}
+.settings-footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--color-border-default, var(--border-color)); flex-shrink: 0; }
+.save-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-secondary); }
+.save-indicator--saved { color: var(--color-success, #10b981); }
+.save-spinner { width: 12px; height: 12px; border: 2px solid var(--color-border-subtle, rgba(128, 128, 128, 0.2)); border-top-color: var(--color-accent, var(--accent-color)); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+/* Tab panel switch animation */
+.tab-fade-enter-active { transition: opacity 0.15s ease-out; }
+.tab-fade-leave-active { transition: opacity 0.1s ease-in; }
+.tab-fade-enter-from,
+.tab-fade-leave-to { opacity: 0; }
+
 @media (prefers-reduced-motion: reduce) {
   .loading-spinner, .save-spinner { animation: none; }
   .settings-tab, .close-btn, .search-input { transition: none; }
+  .tab-fade-enter-active, .tab-fade-leave-active { transition: none; }
 }
 </style>

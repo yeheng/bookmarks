@@ -17,14 +17,12 @@ withDefaults(defineProps<Props>(), {
       :key="i"
       class="skeleton-item"
       :class="{ 'skeleton-item--animated': animated }"
-      :style="{ animationDelay: `${i * 0.1}s` }"
     >
       <div class="skeleton-icon"></div>
       <div class="skeleton-content">
-        <div class="skeleton-title"></div>
-        <div class="skeleton-subtitle"></div>
+        <div class="skeleton-title" :style="{ width: `${55 + i * 10}%` }"></div>
+        <div class="skeleton-subtitle" :style="{ width: `${70 + i * 5}%` }"></div>
       </div>
-      <div class="skeleton-badge"></div>
     </div>
   </div>
 </template>
@@ -33,112 +31,64 @@ withDefaults(defineProps<Props>(), {
 .skeleton-container {
   display: flex;
   flex-direction: column;
-  padding: 8px 0;
+  padding: 2px 0;
 }
 
 .skeleton-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  height: var(--item-height, 44px);
+  gap: 10px;
+  padding: 6px 10px;
+  min-height: 36px;
 }
 
 .skeleton-icon {
   width: 24px;
   height: 24px;
   border-radius: 6px;
-  background: linear-gradient(
-    90deg,
-    rgba(128, 128, 128, 0.1) 0%,
-    rgba(128, 128, 128, 0.2) 50%,
-    rgba(128, 128, 128, 0.1) 100%
-  );
-  background-size: 200% 100%;
+  background: rgba(128, 128, 128, 0.08);
+  flex-shrink: 0;
 }
 
 .skeleton-content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .skeleton-title {
-  height: 14px;
-  width: 60%;
-  border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    rgba(128, 128, 128, 0.1) 0%,
-    rgba(128, 128, 128, 0.2) 50%,
-    rgba(128, 128, 128, 0.1) 100%
-  );
-  background-size: 200% 100%;
+  height: 12px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.1);
 }
 
 .skeleton-subtitle {
-  height: 12px;
-  width: 80%;
-  border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    rgba(128, 128, 128, 0.08) 0%,
-    rgba(128, 128, 128, 0.15) 50%,
-    rgba(128, 128, 128, 0.08) 100%
-  );
-  background-size: 200% 100%;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.06);
 }
 
-.skeleton-badge {
-  width: 60px;
-  height: 20px;
-  border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    rgba(128, 128, 128, 0.08) 0%,
-    rgba(128, 128, 128, 0.15) 50%,
-    rgba(128, 128, 128, 0.08) 100%
-  );
-  background-size: 200% 100%;
-}
-
-/* Animation */
+/* Shimmer animation */
 .skeleton-item--animated .skeleton-icon,
 .skeleton-item--animated .skeleton-title,
-.skeleton-item--animated .skeleton-subtitle,
-.skeleton-item--animated .skeleton-badge {
-  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+.skeleton-item--animated .skeleton-subtitle {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(128, 128, 128, 0.06) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
 }
+
+.skeleton-item:nth-child(1) * { animation-delay: 0s; }
+.skeleton-item:nth-child(2) * { animation-delay: 0.15s; }
+.skeleton-item:nth-child(3) * { animation-delay: 0.3s; }
 
 @keyframes skeleton-shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* Staggered animation for each item */
-.skeleton-item:nth-child(1) .skeleton-icon,
-.skeleton-item:nth-child(1) .skeleton-title,
-.skeleton-item:nth-child(1) .skeleton-subtitle,
-.skeleton-item:nth-child(1) .skeleton-badge {
-  animation-delay: 0s;
-}
-
-.skeleton-item:nth-child(2) .skeleton-icon,
-.skeleton-item:nth-child(2) .skeleton-title,
-.skeleton-item:nth-child(2) .skeleton-subtitle,
-.skeleton-item:nth-child(2) .skeleton-badge {
-  animation-delay: 0.15s;
-}
-
-.skeleton-item:nth-child(3) .skeleton-icon,
-.skeleton-item:nth-child(3) .skeleton-title,
-.skeleton-item:nth-child(3) .skeleton-subtitle,
-.skeleton-item:nth-child(3) .skeleton-badge {
-  animation-delay: 0.3s;
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 </style>
