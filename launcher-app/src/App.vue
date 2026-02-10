@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from '@tauri-apps/api/event';
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
+import { currentMonitor } from "@tauri-apps/api/window";
 import { Toaster } from 'vue-sonner';
 import SearchCombobox from "./components/SearchCombobox.vue";
 import SettingsPanel from "./components/settings/SettingsPanel.vue";
@@ -144,26 +145,8 @@ async function loadSettings() {
     // Update shortcut manager with new settings
     if (settings.value) {
       shortcutManager.value = new ShortcutManager(settings.value.hotkey);
-      // Initial resize: use search bar height (Spotlight-style, not full window_height)
-      const { window_width, input_height } = settings.value.theme;
-      const initialHeight = input_height + SEARCH_BAR_PADDING;
-      await appWindow.setSize(new LogicalSize(window_width, initialHeight));
-
-      // Position window at 2/5 of screen height (not centered)
-      const monitor = await appWindow.currentMonitor();
-      if (monitor) {
-        const screenScaleFactor = monitor.scaleFactor;
-        const screenHeight = monitor.size.height / screenScaleFactor;
-        const screenWidth = monitor.size.width / screenScaleFactor;
-        const windowWidth = window_width;
-
-        // Calculate y position: 2/5 from top (40% of screen height)
-        const y = (screenHeight * 0.4) - (initialHeight / 2);
-        // Center horizontally
-        const x = (screenWidth - windowWidth) / 2;
-
-        await appWindow.setPosition(new LogicalPosition(x, y));
-      }
+      // Position window using unified repositioning logic
+      await repositionWindow();
     }
   } catch (err) {
     console.error("Failed to load settings:", err);
@@ -339,6 +322,13 @@ onMounted(async () => {
           });
       }
   });
+
+  // Listen for window shown event to reposition window
+  // This ensures the window appears in the same position every time it's shown,
+  // whether on first launch or when triggered by the global shortcut.
+  await listen('tauri://window-shown', () => {
+      repositionWindow();
+  });
 });
 
 onUnmounted(() => {
@@ -349,6 +339,39 @@ onUnmounted(() => {
 function handleSettingsClose() {
     showSettings.value = false;
     loadSettings();
+}
+
+// ── Window Positioning ──
+
+/**
+ * Reposition the window to the correct location (40% of screen height).
+ * This ensures the window appears in the same position every time it's shown,
+ * whether on first launch or when triggered by the global shortcut.
+ */
+async function repositionWindow() {
+  if (!settings.value) return;
+
+  const { window_width, input_height } = settings.value.theme;
+  const initialHeight = input_height + SEARCH_BAR_PADDING;
+
+  // Set window size
+  await appWindow.setSize(new LogicalSize(window_width, initialHeight));
+
+  // Position window at 2/5 of screen height (not centered)
+  const monitor = await currentMonitor();
+  if (monitor) {
+    const screenScaleFactor = monitor.scaleFactor;
+    const screenHeight = monitor.size.height / screenScaleFactor;
+    const screenWidth = monitor.size.width / screenScaleFactor;
+    const windowWidth = window_width;
+
+    // Calculate y position: 2/5 from top (40% of screen height)
+    const y = (screenHeight * 0.4) - (initialHeight / 2);
+    // Center horizontally
+    const x = (screenWidth - windowWidth) / 2;
+
+    await appWindow.setPosition(new LogicalPosition(x, y));
+  }
 }
 </script>
 
