@@ -1,0 +1,18 @@
+[plugin]
+name = "hello-world"
+title = "Hello World"
+description = "A minimal example plugin that returns a greeting."
+version = "1.0.0"
+author = "Launcher Team"
+api_version = "0.1"
+icon = "👋"
+
+[[commands]]
+name = "greet"
+title = "Say Hello"
+description = "Returns a friendly greeting"
+keyword = "hello"
+mode = "search"
+script = "index.js"
+runtime = "node"
+timeout = 5

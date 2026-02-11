@@ -1,0 +1,18 @@
+[plugin]
+name = "quick-calc"
+title = "Quick Calculator"
+description = "A simple calculator that evaluates math expressions."
+version = "1.0.0"
+author = "Launcher Team"
+api_version = "0.1"
+icon = "🧮"
+
+[[commands]]
+name = "calc"
+title = "Calculate"
+description = "Evaluate a math expression"
+keyword = "calc"
+mode = "search"
+script = "calc.sh"
+runtime = "bash"
+timeout = 5

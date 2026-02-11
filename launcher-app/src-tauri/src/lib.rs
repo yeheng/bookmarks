@@ -2,11 +2,14 @@ mod commands;
 mod db;
 mod error;
 mod models;
+mod plugins;
 mod search;
 mod services;
 
 use commands::bookmarks::AppState;
 use db::Database;
+use plugins::executor::PluginExecutor;
+use plugins::registry::PluginRegistry;
 use search::TantivySearchEngine;
 use services::data_service::DataService;
 use std::sync::Arc;
@@ -72,6 +75,18 @@ pub fn run() {
             commands::settings::import_data,
             commands::settings::reset_settings,
             commands::settings::get_data_stats,
+            // Plugin System Commands
+            commands::plugins::execute_plugin_command,
+            commands::plugins::list_plugins,
+            commands::plugins::install_plugin,
+            commands::plugins::uninstall_plugin,
+            commands::plugins::enable_plugin,
+            commands::plugins::disable_plugin,
+            commands::plugins::get_plugin_preferences,
+            commands::plugins::set_plugin_preference,
+            commands::plugins::get_plugin_log,
+            commands::plugins::get_plugin_keywords,
+            commands::plugins::get_plugin_manifest_preferences,
         ])
         .setup(|app| {
             let app_dir = app.path().app_data_dir()
@@ -107,6 +122,39 @@ pub fn run() {
                 }
             });
 
+            // Initialize Plugin System
+            let plugins_dir = app_dir.join("plugins");
+            let (plugin_registry, plugin_executor) = match PluginRegistry::new(plugins_dir) {
+                Ok(registry) => {
+                    // Discover plugins on startup
+                    let registry = Arc::new(registry);
+                    let executor = Arc::new(PluginExecutor::new());
+
+                    let reg_clone = registry.clone();
+                    let ds_clone = data_service.clone();
+                    std::thread::spawn(move || {
+                        match ds_clone.with_db(|conn| {
+                            reg_clone.discover(conn).map_err(|e| crate::error::AppError::Generic(e.to_string()))
+                        }) {
+                            Ok(discovered) => {
+                                if !discovered.is_empty() {
+                                    println!("[Startup] Discovered {} new plugin(s): {:?}", discovered.len(), discovered);
+                                } else {
+                                    println!("[Startup] Plugin system ready (no new plugins)");
+                                }
+                            }
+                            Err(e) => eprintln!("[Startup] Plugin discovery failed: {}", e),
+                        }
+                    });
+
+                    (Some(registry), Some(executor))
+                }
+                Err(e) => {
+                    eprintln!("[Startup] Plugin system initialization failed: {}", e);
+                    (None, None)
+                }
+            };
+
             // AppState now uses DataService for all DB access (no duplicate connections)
             let http_client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
@@ -116,10 +164,12 @@ pub fn run() {
             app.manage(AppState {
                 data_service: data_service.clone(),
                 http_client,
+                plugin_registry,
+                plugin_executor,
             });
-            
+
             let handle = app.handle().clone();
-            
+
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(move |_app, _shortcut, event| {
@@ -136,14 +186,14 @@ pub fn run() {
                     })
                     .build(),
             )?;
-            
+
             #[cfg(target_os = "macos")]
             let shortcut = "Cmd+F1";
             #[cfg(not(target_os = "macos"))]
             let shortcut = "Ctrl+F1";
-            
+
             app.global_shortcut().register(shortcut)?;
-            
+
             if let Some(window) = app.get_webview_window("main") {
                 let window_clone = window.clone();
 
@@ -181,4 +231,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

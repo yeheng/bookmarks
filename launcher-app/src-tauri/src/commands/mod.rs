@@ -6,3 +6,4 @@ pub mod file_search;
 pub mod directories;
 pub mod opener;
 pub mod settings;
+pub mod plugins;

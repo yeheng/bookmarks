@@ -12,6 +12,7 @@ import { useAppSettings, tabs, type TabId } from "../../composables/useAppSettin
 import SettingsTabGeneral from "./SettingsTabGeneral.vue";
 import SettingsTabAppearance from "./SettingsTabAppearance.vue";
 import SettingsTabShortcuts from "./SettingsTabShortcuts.vue";
+import SettingsTabPlugins from "./SettingsTabPlugins.vue";
 import SettingsTabData from "./SettingsTabData.vue";
 
 // Events
@@ -45,6 +46,7 @@ const filteredSettings = computed(() => {
     { tab: 'general', section: 'General', items: ['launch at startup', 'hide dock icon', 'check for updates', 'max results', 'fuzzy matching'] },
     { tab: 'appearance', section: 'Appearance', items: ['theme mode', 'font size', 'border radius', 'window width', 'max window height', 'accent color'] },
     { tab: 'shortcuts', section: 'Shortcuts', items: ['global hotkey', 'close window', 'next result', 'previous result', 'open result'] },
+    { tab: 'plugins', section: 'Plugins', items: ['installed plugins', 'enable plugin', 'disable plugin', 'plugin preferences', 'uninstall plugin'] },
     { tab: 'data', section: 'Data', items: ['import bookmarks', 'export settings', 'statistics', 'reset settings'] },
   ];
 
@@ -130,6 +132,9 @@ onMounted(() => {
         </div>
         <div v-else-if="activeTab === 'shortcuts'" key="shortcuts" id="panel-shortcuts" role="tabpanel" aria-labelledby="tab-shortcuts">
           <SettingsTabShortcuts :settings="settings" @shortcut-update="handleShortcutUpdate" />
+        </div>
+        <div v-else-if="activeTab === 'plugins'" key="plugins" id="panel-plugins" role="tabpanel" aria-labelledby="tab-plugins">
+          <SettingsTabPlugins />
         </div>
         <div v-else-if="activeTab === 'data'" key="data" id="panel-data" role="tabpanel" aria-labelledby="tab-data">
           <SettingsTabData :stats="stats" :import-status="importStatus" @import-bookmarks="importBookmarks" @export-settings="exportSettings" @import-settings="importSettingsFromFile" @reset-settings="resetSettings" />

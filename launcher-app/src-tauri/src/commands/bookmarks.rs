@@ -1,4 +1,6 @@
 use crate::models::bookmark::ImportResult;
+use crate::plugins::executor::PluginExecutor;
+use crate::plugins::registry::PluginRegistry;
 use crate::services::{
     chrome_importer::ChromeImporter, firefox_importer::FirefoxImporter,
     safari_importer::SafariImporter, data_service::DataService,
@@ -10,6 +12,8 @@ use tauri::State;
 pub struct AppState {
     pub data_service: Arc<DataService>,
     pub http_client: reqwest::Client,
+    pub plugin_registry: Option<Arc<PluginRegistry>>,
+    pub plugin_executor: Option<Arc<PluginExecutor>>,
 }
 
 /// Incrementally index only newly imported bookmarks.

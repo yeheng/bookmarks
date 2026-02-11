@@ -18,6 +18,7 @@ import type {
   FileSearchResult,
   OpenResult,
 } from "./types/search";
+import type { PluginResponse } from "./types/plugin";
 import type { AppSettings } from "./types/settings";
 
 const appWindow = getCurrentWebviewWindow();
@@ -29,6 +30,53 @@ const showSettings = ref(false);
 const settings = ref<AppSettings | null>(null);
 const shortcutManager = ref<ShortcutManager>(new ShortcutManager());
 const { error } = useToast();
+
+// ── Plugin keyword cache ──
+const pluginKeywords = ref<string[]>([]);
+
+async function loadPluginKeywords() {
+  try {
+    pluginKeywords.value = await invoke<string[]>("get_plugin_keywords");
+  } catch {
+    pluginKeywords.value = [];
+  }
+}
+
+/**
+ * Detect if query matches a plugin keyword pattern: "keyword query"
+ * Returns { keyword, query } if matched, null otherwise.
+ */
+function detectPluginKeyword(rawQuery: string): { keyword: string; query: string } | null {
+  const trimmed = rawQuery.trim();
+  if (!trimmed || pluginKeywords.value.length === 0) return null;
+
+  // Match "keyword query" or just "keyword"
+  const spaceIndex = trimmed.indexOf(' ');
+  const potentialKeyword = spaceIndex > 0 ? trimmed.substring(0, spaceIndex) : trimmed;
+  const restQuery = spaceIndex > 0 ? trimmed.substring(spaceIndex + 1) : '';
+
+  if (pluginKeywords.value.includes(potentialKeyword)) {
+    return { keyword: potentialKeyword, query: restQuery };
+  }
+
+  return null;
+}
+
+function mapPluginResultToSearchResult(
+  item: import('./types/plugin').PluginResultItem,
+  keyword: string,
+): SearchResult {
+  return {
+    id: `plugin-${keyword}-${item.uid}`,
+    type: 'plugin',
+    title: item.title,
+    subtitle: item.subtitle ?? '',
+    icon: item.icon?.emoji ?? item.icon?.url ?? undefined,
+    pluginActions: item.actions,
+    pluginBadge: item.badge ?? undefined,
+    pluginKeyword: keyword,
+  };
+}
 
 // ── ESC handler: registered synchronously at script parse time ──
 // Must use document + capture + stopImmediatePropagation so no other
@@ -238,6 +286,20 @@ const handleSearch = async (query: string) => {
        return;
     }
 
+    // ── Plugin keyword detection ──
+    const pluginMatch = detectPluginKeyword(query);
+    if (pluginMatch) {
+      const response = await invoke<PluginResponse>("execute_plugin_command", {
+        keyword: pluginMatch.keyword,
+        query: pluginMatch.query,
+      });
+      searchResults.value = response.items.map(item =>
+        mapPluginResultToSearchResult(item, pluginMatch.keyword)
+      );
+      isLoading.value = false;
+      return;
+    }
+
     const [bookmarks, files] = await Promise.all([
       invoke<BookmarkSearchResult[]>("search_bookmarks", { query, limit: 5 }),
       invoke<FileSearchResult[]>("search_files", { query, limit: 5 }),
@@ -264,6 +326,47 @@ const handleSelect = async (result: SearchResult) => {
   if (result.id === "internal-settings") {
       showSettings.value = true;
       return;
+  }
+
+  // ── Plugin result actions ──
+  if (result.type === 'plugin' && result.pluginActions && result.pluginActions.length > 0) {
+    const action = result.pluginActions[0]; // Execute primary action
+    try {
+      switch (action.type) {
+        case 'open-url':
+          await invoke("open_url", { url: action.url });
+          break;
+        case 'copy':
+          await navigator.clipboard.writeText(action.text);
+          break;
+        case 'paste':
+          await navigator.clipboard.writeText(action.text);
+          break;
+        case 'open-file':
+          await invoke("open_file_by_path", { filePath: action.path });
+          break;
+        case 'run-command':
+          // Re-trigger as a new plugin command
+          if (action.arg) {
+            const response = await invoke<PluginResponse>("execute_plugin_command", {
+              keyword: result.pluginKeyword,
+              query: action.arg,
+            });
+            searchResults.value = response.items.map(item =>
+              mapPluginResultToSearchResult(item, result.pluginKeyword!)
+            );
+            return; // Don't hide window — show new results
+          }
+          break;
+      }
+    } catch (err) {
+      console.error("Plugin action failed:", err);
+      error('Plugin action failed', err instanceof Error ? err.message : 'Unknown error');
+      return;
+    }
+    searchResults.value = [];
+    appWindow.hide();
+    return;
   }
 
   try {
@@ -303,6 +406,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 onMounted(async () => {
   loadSettings();
+  loadPluginKeywords();
   window.addEventListener("keydown", handleKeydown);
 
   // Focus input when window gets focus

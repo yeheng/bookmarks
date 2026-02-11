@@ -1,0 +1,18 @@
+[plugin]
+name = "system-info"
+title = "System Info"
+description = "Displays system information like OS, hostname, memory, and CPU."
+version = "1.0.0"
+author = "Launcher Team"
+api_version = "0.1"
+icon = "💻"
+
+[[commands]]
+name = "info"
+title = "System Information"
+description = "Show system details"
+keyword = "sys"
+mode = "search"
+script = "main.py"
+runtime = "python"
+timeout = 5

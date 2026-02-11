@@ -22,6 +22,28 @@ const hasFavicon = computed(() => {
   return props.result.type === 'bookmark' && props.result.icon && !faviconError.value;
 });
 
+const isPlugin = computed(() => props.result.type === 'plugin');
+
+/** Plugin icon: prefer emoji, then url, then fallback to puzzle piece */
+const pluginIconEmoji = computed(() => {
+  if (!isPlugin.value) return null;
+  const icon = props.result.icon;
+  // If icon looks like an emoji (1-4 chars, non-ASCII), render as emoji
+  if (icon && icon.length <= 4 && /[^\x00-\x7F]/.test(icon)) {
+    return icon;
+  }
+  return null;
+});
+
+const pluginIconUrl = computed(() => {
+  if (!isPlugin.value || pluginIconEmoji.value) return null;
+  const icon = props.result.icon;
+  if (icon && (icon.startsWith('http') || icon.startsWith('/'))) {
+    return icon;
+  }
+  return null;
+});
+
 const faviconFallbackLetter = computed(() => {
   if (props.result.metadata?.domain) {
     return props.result.metadata.domain.charAt(0).toUpperCase();
@@ -67,12 +89,29 @@ const adaptiveMetadata = computed(() => {
     :class="{ 'result-item--selected': isSelected }"
     role="option"
     :aria-selected="isSelected"
-    :aria-label="`${result.title}, ${result.type === 'bookmark' ? 'Bookmark' : 'File'}, ${result.subtitle}`"
+    :aria-label="`${result.title}, ${result.type === 'bookmark' ? 'Bookmark' : result.type === 'file' ? 'File' : 'Plugin Result'}, ${result.subtitle}`"
   >
     <!-- Icon -->
     <div class="result-icon" aria-hidden="true">
+      <!-- Plugin icons -->
+      <div v-if="isPlugin && pluginIconEmoji" class="icon-plugin-emoji">
+        {{ pluginIconEmoji }}
+      </div>
       <img
-        v-if="hasFavicon"
+        v-else-if="isPlugin && pluginIconUrl"
+        :src="pluginIconUrl"
+        class="favicon-img"
+        alt=""
+        loading="lazy"
+      />
+      <div v-else-if="isPlugin" class="icon-plugin" :class="{ 'icon-plugin--selected': isSelected }">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9.5 1a1.5 1.5 0 0 1 1.5 1.5V4h1a2 2 0 0 1 2 2v1.5h-1.5a1.5 1.5 0 0 0 0 3H14V12a2 2 0 0 1-2 2H6v-1.5a1.5 1.5 0 0 0-3 0V14H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1.5V2.5a1.5 1.5 0 0 1 3 0V4H9.5V2.5A1.5 1.5 0 0 1 9.5 1Z" fill="currentColor" opacity="0.7"/>
+        </svg>
+      </div>
+      <!-- Bookmark icons -->
+      <img
+        v-else-if="hasFavicon"
         :src="result.icon"
         class="favicon-img"
         alt=""
@@ -86,6 +125,7 @@ const adaptiveMetadata = computed(() => {
       >
         <span class="icon-letter">{{ faviconFallbackLetter }}</span>
       </div>
+      <!-- File icons -->
       <div v-else class="icon-file" :class="{ 'icon-file--selected': isSelected }">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M4 1.5h5.172a2 2 0 0 1 1.414.586l2.828 2.828A2 2 0 0 1 14 6.328V12.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" fill="currentColor" opacity="0.7"/>
@@ -99,6 +139,11 @@ const adaptiveMetadata = computed(() => {
       <div v-if="adaptiveMetadata" class="result-meta">{{ adaptiveMetadata }}</div>
       <div v-else class="result-subtitle"><template v-for="(part, i) in subtitleParts" :key="i"><mark v-if="part.highlight" class="search-highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></div>
     </div>
+
+    <!-- Plugin badge -->
+    <span v-if="result.pluginBadge" class="plugin-badge" :class="{ 'plugin-badge--selected': isSelected }">
+      {{ result.pluginBadge }}
+    </span>
 
     <!-- Action hint -->
     <div v-if="isSelected" class="action-hint" aria-hidden="true">
@@ -256,6 +301,48 @@ const adaptiveMetadata = computed(() => {
   color: rgba(255, 255, 255, 0.5);
   display: flex;
   align-items: center;
+}
+
+/* ===== Plugin icons ===== */
+.icon-plugin-emoji {
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-plugin {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(128, 128, 128, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+}
+
+.icon-plugin--selected {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* ===== Plugin badge ===== */
+.plugin-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.12);
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}
+
+.plugin-badge--selected {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* Reduced motion */

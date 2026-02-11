@@ -14,7 +14,7 @@ export interface DataStats {
   settings_count: number;
 }
 
-export type TabId = 'general' | 'appearance' | 'shortcuts' | 'data';
+export type TabId = 'general' | 'appearance' | 'shortcuts' | 'data' | 'plugins';
 
 export interface Tab {
   id: TabId;
@@ -27,6 +27,7 @@ export const tabs: Tab[] = [
   { id: 'general', label: 'General', icon: '⚙️' },
   { id: 'appearance', label: 'Appearance', icon: '🎨' },
   { id: 'shortcuts', label: 'Shortcuts', icon: '⌨️' },
+  { id: 'plugins', label: 'Plugins', icon: '🧩' },
   { id: 'data', label: 'Data', icon: '📁' },
 ];
 

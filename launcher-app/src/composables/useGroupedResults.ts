@@ -2,7 +2,7 @@ import { computed, type Ref } from 'vue';
 import type { SearchResult } from '../types/search';
 
 export interface ResultGroup {
-  type: 'bookmark' | 'file';
+  type: 'bookmark' | 'file' | 'plugin';
   label: string;
   icon: string;
   results: SearchResult[];
@@ -21,7 +21,7 @@ export interface GroupedResults {
  * @returns Computed grouped results with metadata
  */
 export function useGroupedResults(results: Ref<SearchResult[]>) {
-  const groupConfig = {
+  const groupConfig: Record<string, { label: string; icon: string; order: number }> = {
     bookmark: {
       label: 'Bookmarks',
       icon: '🔖',
@@ -31,6 +31,11 @@ export function useGroupedResults(results: Ref<SearchResult[]>) {
       label: 'Files',
       icon: '📄',
       order: 2,
+    },
+    plugin: {
+      label: 'Plugins',
+      icon: '🧩',
+      order: 3,
     },
   };
 
@@ -49,9 +54,9 @@ export function useGroupedResults(results: Ref<SearchResult[]>) {
     // Convert to array and sort by config order
     const groupArray: ResultGroup[] = Array.from(groups.entries())
       .map(([type, items]) => ({
-        type: type as 'bookmark' | 'file',
-        label: groupConfig[type as keyof typeof groupConfig]?.label ?? type,
-        icon: groupConfig[type as keyof typeof groupConfig]?.icon ?? '📁',
+        type: type as 'bookmark' | 'file' | 'plugin',
+        label: groupConfig[type]?.label ?? type,
+        icon: groupConfig[type]?.icon ?? '📁',
         results: items,
         collapsed: false,
       }))
@@ -81,7 +86,7 @@ export function useGroupedResults(results: Ref<SearchResult[]>) {
 export interface FlattenedItem {
   type: 'header' | 'result';
   data: ResultGroup | SearchResult;
-  groupType?: 'bookmark' | 'file';
+  groupType?: 'bookmark' | 'file' | 'plugin';
 }
 
 export function useFlattenedGroups(groupedResults: Ref<GroupedResults>) {

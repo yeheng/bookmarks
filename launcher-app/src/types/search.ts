@@ -1,6 +1,6 @@
 export interface SearchResult {
   id: string;
-  type: 'bookmark' | 'file';
+  type: 'bookmark' | 'file' | 'plugin';
   title: string;
   subtitle: string;
   icon?: string;
@@ -13,6 +13,12 @@ export interface SearchResult {
     modified?: string;
     domain?: string;
   };
+  /** Plugin-specific: attached actions for the result item */
+  pluginActions?: import('./plugin').PluginAction[];
+  /** Plugin-specific: badge text (e.g., "v1.0") */
+  pluginBadge?: string;
+  /** Plugin-specific: the keyword that triggered this result */
+  pluginKeyword?: string;
 }
 
 export interface SearchState {

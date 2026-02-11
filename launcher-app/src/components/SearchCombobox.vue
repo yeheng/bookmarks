@@ -131,7 +131,8 @@ const navigationAnnouncement = ref('');
 // Update announcement when selection changes
 watch(selectedResult, (newResult) => {
   if (newResult) {
-    navigationAnnouncement.value = `Selected: ${newResult.title}, ${newResult.type === 'bookmark' ? 'Bookmark' : 'File'}`;
+    const typeLabel = newResult.type === 'bookmark' ? 'Bookmark' : newResult.type === 'file' ? 'File' : 'Plugin Result';
+    navigationAnnouncement.value = `Selected: ${newResult.title}, ${typeLabel}`;
   }
 });
 
