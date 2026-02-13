@@ -6,6 +6,7 @@ use crate::services::{
     chrome_importer::ChromeImporter, data_service::DataService, firefox_importer::FirefoxImporter,
     safari_importer::SafariImporter,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
@@ -16,6 +17,48 @@ pub struct AppState {
     pub plugin_registry: Option<Arc<PluginRegistry>>,
     pub plugin_executor: Option<Arc<PluginExecutor>>,
     pub search_aggregator: Arc<SearchAggregator>,
+    /// Cached search settings for performance optimization.
+    /// Key: setting key, Value: setting value
+    pub settings_cache: std::sync::RwLock<HashMap<String, String>>,
+}
+
+/// Validate URL format.
+/// Returns Ok(()) if valid, Err(message) if invalid.
+fn validate_url(url: &str) -> Result<(), String> {
+    if url.is_empty() {
+        return Err("URL cannot be empty".to_string());
+    }
+    if url.len() > 4096 {
+        return Err("URL is too long (max 4096 characters)".to_string());
+    }
+    // Basic URL scheme validation
+    if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("file://") {
+        return Err("URL must start with http://, https://, or file://".to_string());
+    }
+    Ok(())
+}
+
+/// Validate bookmark title.
+/// Returns Ok(()) if valid, Err(message) if invalid.
+fn validate_title(title: &str) -> Result<(), String> {
+    if title.trim().is_empty() {
+        return Err("Title cannot be empty or whitespace only".to_string());
+    }
+    if title.len() > 512 {
+        return Err("Title is too long (max 512 characters)".to_string());
+    }
+    Ok(())
+}
+
+/// Validate limit parameter.
+/// Returns Ok(limit) if valid, Err(message) if invalid.
+pub fn validate_limit(limit: Option<usize>, max_limit: usize) -> Result<usize, String> {
+    match limit {
+        Some(l) if l == 0 => Err("Limit cannot be zero".to_string()),
+        Some(l) if l > max_limit => Err(format!("Limit cannot exceed {}", max_limit)),
+        Some(l) => Ok(l),
+        None => Ok(10), // Default limit
+    }
 }
 
 /// Incrementally index only newly imported bookmarks.
@@ -71,6 +114,10 @@ pub fn add_bookmark(
     description: Option<String>,
     tags: Option<String>,
 ) -> Result<i64, String> {
+    // Input validation
+    validate_title(&title)?;
+    validate_url(&url)?;
+
     // Use DataService for atomic DB + Index operations
     state
         .data_service
@@ -87,6 +134,13 @@ pub fn update_bookmark(
     description: Option<String>,
     tags: Option<String>,
 ) -> Result<(), String> {
+    // Input validation
+    if id <= 0 {
+        return Err("Invalid bookmark ID".to_string());
+    }
+    validate_title(&title)?;
+    validate_url(&url)?;
+
     // Use DataService for atomic DB + Index operations
     state
         .data_service
@@ -96,6 +150,11 @@ pub fn update_bookmark(
 
 #[tauri::command]
 pub fn delete_bookmark(state: State<AppState>, id: i64) -> Result<(), String> {
+    // Input validation
+    if id <= 0 {
+        return Err("Invalid bookmark ID".to_string());
+    }
+
     // Use DataService for atomic DB + Index operations
     state
         .data_service

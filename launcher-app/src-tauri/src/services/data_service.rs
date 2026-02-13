@@ -21,6 +21,29 @@ use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Type alias for bookmark data tuple returned from database
+pub type BookmarkData = (
+    i64,              // id
+    String,           // title
+    String,           // url
+    Option<String>,   // description
+    Option<String>,   // tags
+    Option<i64>,      // last_accessed
+    i64,              // created_at
+    i64,              // updated_at
+);
+
+/// Type alias for file data tuple returned from database
+pub type FileData = (
+    i64,              // id
+    String,           // path
+    String,           // name
+    Option<String>,   // extension
+    i64,              // size
+    i64,              // modified_at
+    i64,              // directory_id
+);
+
 pub struct DataService {
     db: Mutex<Database>,
     search_engine: Arc<TantivySearchEngine>,
@@ -49,6 +72,53 @@ impl DataService {
     /// Get access to the search engine
     pub fn search_engine(&self) -> &Arc<TantivySearchEngine> {
         &self.search_engine
+    }
+
+    /// Get all bookmarks and files from database.
+    /// Returns (bookmarks, files) tuples for use in index rebuilding.
+    pub fn get_all_index_data(&self) -> AppResult<(Vec<BookmarkData>, Vec<FileData>)> {
+        self.with_db(|conn| {
+            // Fetch all bookmarks
+            let mut stmt = conn.prepare(
+                "SELECT id, title, url, description, tags, last_accessed, created_at, updated_at
+                 FROM bookmarks"
+            )?;
+            let bookmarks: Vec<BookmarkData> = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<i64>>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Fetch all files
+            let mut stmt = conn.prepare(
+                "SELECT id, path, name, extension, size, modified_at, directory_id
+                 FROM indexed_files"
+            )?;
+            let files: Vec<FileData> = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok((bookmarks, files))
+        })
     }
 
     /// Add a bookmark with atomic DB + Index update

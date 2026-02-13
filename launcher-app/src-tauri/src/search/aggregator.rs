@@ -7,6 +7,15 @@
 use super::engine::SearchError;
 use super::provider::{ProviderResult, SearchContext, SearchProvider};
 
+/// Weight for normalized relevance score in global ranking.
+/// Higher values prioritize text match relevance over user behavior.
+const SCORE_WEIGHT: f64 = 0.7;
+
+/// Weight for frecency (user behavior) in global ranking.
+/// Higher values prioritize frequently accessed items.
+const FRECENCY_WEIGHT: f64 = 0.3;
+use std::collections::HashSet;
+
 /// Orchestrates multi-source unified search.
 pub struct SearchAggregator {
     providers: Vec<Box<dyn SearchProvider>>,
@@ -30,10 +39,15 @@ impl SearchAggregator {
     /// Steps:
     /// 1. Filter providers by `ctx.sources` if specified.
     /// 2. Query all enabled providers in parallel.
-    /// 3. Apply min-max score normalization per provider.
-    /// 4. Compute `global_score = normalized_score * 0.7 + normalized_frecency * 0.3`.
+    /// 3. Apply min-max score normalization per source.
+    /// 4. Compute `global_score = normalized_score * SCORE_WEIGHT + normalized_frecency * FRECENCY_WEIGHT`.
     /// 5. Sort by global_score descending, truncate to `ctx.limit`.
     pub async fn search(&self, ctx: &SearchContext) -> Result<Vec<ProviderResult>, SearchError> {
+        // Handle empty query - return early
+        if ctx.query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
         // 1. Filter providers
         let active_providers: Vec<&Box<dyn SearchProvider>> = self
             .providers
@@ -102,7 +116,7 @@ impl SearchAggregator {
                 };
 
                 // Store the global score back in `score` field
-                r.score = norm_score * 0.7 + norm_frec * 0.3;
+                r.score = norm_score * SCORE_WEIGHT + norm_frec * FRECENCY_WEIGHT;
             }
 
             all_results.extend(results);
@@ -114,6 +128,18 @@ impl SearchAggregator {
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+
+        // 4.5 Deduplicate: keep highest-scoring result for each (source_id, id) pair
+        let mut seen = HashSet::new();
+        let mut deduplicated: Vec<ProviderResult> = Vec::new();
+        for result in all_results {
+            let key = format!("{}:{}", result.source_id, result.id);
+            if !seen.contains(&key) {
+                seen.insert(key);
+                deduplicated.push(result);
+            }
+        }
+        all_results = deduplicated;
 
         // 5. Truncate to limit
         all_results.truncate(ctx.limit);
@@ -232,13 +258,13 @@ mod tests {
         let results = agg.search(&make_ctx("test")).await.unwrap();
         assert_eq!(results.len(), 3);
 
-        // Highest score should be first (score=10 → normalized=1.0 → global=0.7)
+        // Highest score should be first (score=10 → normalized=1.0 → global=SCORE_WEIGHT)
         assert_eq!(results[0].id, "1");
-        assert!((results[0].score - 0.7).abs() < 0.001);
+        assert!((results[0].score - SCORE_WEIGHT).abs() < 0.001);
 
         // Middle (score=5 → normalized=0.5 → global=0.35)
         assert_eq!(results[1].id, "2");
-        assert!((results[1].score - 0.35).abs() < 0.001);
+        assert!((results[1].score - SCORE_WEIGHT * 0.5).abs() < 0.001);
 
         // Lowest (score=0 → normalized=0.0 → global=0.0)
         assert_eq!(results[2].id, "3");
@@ -264,9 +290,9 @@ mod tests {
         let results = agg.search(&make_ctx("test")).await.unwrap();
         assert_eq!(results.len(), 2);
 
-        // Both single results normalize to 1.0, so both get global score 0.7
-        assert!((results[0].score - 0.7).abs() < 0.001);
-        assert!((results[1].score - 0.7).abs() < 0.001);
+        // Both single results normalize to 1.0, so both get global score SCORE_WEIGHT
+        assert!((results[0].score - SCORE_WEIGHT).abs() < 0.001);
+        assert!((results[1].score - SCORE_WEIGHT).abs() < 0.001);
     }
 
     #[tokio::test]
@@ -343,13 +369,13 @@ mod tests {
         let results = agg.search(&make_ctx("test")).await.unwrap();
         assert_eq!(results.len(), 2);
 
-        // high_score_low_frec: norm_score=1.0, norm_frec=0.0 → 0.7
-        // low_score_high_frec: norm_score=0.0, norm_frec=1.0 → 0.3
+        // high_score_low_frec: norm_score=1.0, norm_frec=0.0 → SCORE_WEIGHT
+        // low_score_high_frec: norm_score=0.0, norm_frec=1.0 → FRECENCY_WEIGHT
         assert_eq!(results[0].id, "high_score_low_frec");
-        assert!((results[0].score - 0.7).abs() < 0.001);
+        assert!((results[0].score - SCORE_WEIGHT).abs() < 0.001);
 
         assert_eq!(results[1].id, "low_score_high_frec");
-        assert!((results[1].score - 0.3).abs() < 0.001);
+        assert!((results[1].score - FRECENCY_WEIGHT).abs() < 0.001);
     }
 
     /// Integration test: Real BookmarkSearchProvider + FileSearchProvider → SearchAggregator

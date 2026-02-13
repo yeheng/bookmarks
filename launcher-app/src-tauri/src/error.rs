@@ -84,6 +84,52 @@ pub enum AppError {
     Generic(String),
 }
 
+/// Error codes for programmatic error handling in frontend
+impl AppError {
+    /// Get a numeric error code for this error type
+    pub fn code(&self) -> u32 {
+        match self {
+            AppError::Database(_) => 1001,
+            AppError::DatabaseLock => 1002,
+            AppError::BookmarkNotFound => 2001,
+            AppError::DuplicateBookmark(_) => 2002,
+            AppError::FileNotFound(_) => 3001,
+            AppError::Search(_) => 4001,
+            AppError::IndexingFailed(_, _) => 4002,
+            AppError::RebuildFailed(_) => 4003,
+            AppError::Io(_) => 5001,
+            AppError::DirectoryRead(_) => 5002,
+            AppError::SystemTime(_) => 6001,
+            AppError::AppDataDir(_) => 6002,
+            AppError::ChromeImport(_) => 7001,
+            AppError::FirefoxImport(_) => 7002,
+            AppError::SafariImport(_) => 7003,
+            AppError::InvalidUrl(_) => 8001,
+            AppError::Network(_) => 8002,
+            AppError::Json(_) => 9001,
+            AppError::SettingNotFound(_) => 10001,
+            AppError::InvalidSettingValue(_, _) => 10002,
+            AppError::Generic(_) => 11001,
+        }
+    }
+}
+
+/// Structured error response for API responses
+#[derive(Debug, serde::Serialize)]
+pub struct ErrorResponse {
+    pub code: u32,
+    pub message: String,
+}
+
+impl From<AppError> for ErrorResponse {
+    fn from(err: AppError) -> Self {
+        ErrorResponse {
+            code: err.code(),
+            message: err.to_string(),
+        }
+    }
+}
+
 /// Result type alias for application code
 pub type AppResult<T> = Result<T, AppError>;
 

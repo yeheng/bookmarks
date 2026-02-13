@@ -16,6 +16,7 @@ use search::plugin_provider::PluginSearchProvider;
 use search::SearchAggregator;
 use search::TantivySearchEngine;
 use services::data_service::DataService;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -39,6 +40,7 @@ pub fn run() {
             commands::search::record_bookmark_access,
             commands::search::rebuild_search_index,
             commands::search::get_search_stats,
+            commands::search::refresh_settings_cache,
             commands::favicon::fetch_favicon,
             // Phase 5: File Search Commands
             commands::file_search::search_files,
@@ -197,6 +199,7 @@ pub fn run() {
                 plugin_registry,
                 plugin_executor,
                 search_aggregator,
+                settings_cache: std::sync::RwLock::new(HashMap::new()),
             });
 
             let handle = app.handle().clone();

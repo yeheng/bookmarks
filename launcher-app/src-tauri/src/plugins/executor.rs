@@ -13,6 +13,10 @@ use std::time::{Duration, Instant};
 /// Default execution timeout in seconds.
 const DEFAULT_TIMEOUT_SECS: u64 = 10;
 
+/// Maximum number of cached plugin results.
+/// Prevents unbounded memory growth from plugin caching.
+const MAX_CACHE_SIZE: usize = 1000;
+
 /// Request sent to plugin via stdin.
 #[derive(Debug, Serialize)]
 pub struct PluginRequest {
@@ -189,14 +193,23 @@ impl PluginExecutor {
 
     fn store_cache(&self, key: String, response: &PluginResponse, ttl_secs: u64) {
         if let Ok(mut cache) = self.cache.lock() {
+            // Evict expired entries first
+            let now = Instant::now();
+            cache.retain(|_, v| v.expires_at > now);
+
+            // If cache is full, evict oldest 10% of entries
+            if cache.len() >= MAX_CACHE_SIZE {
+                let evict_count = MAX_CACHE_SIZE / 10;
+                let keys_to_remove: Vec<_> = cache.keys().take(evict_count).cloned().collect();
+                for k in keys_to_remove {
+                    cache.remove(&k);
+                }
+            }
+
             cache.insert(key, CacheEntry {
                 response: response.clone(),
                 expires_at: Instant::now() + Duration::from_secs(ttl_secs),
             });
-
-            // Evict expired entries (simple housekeeping)
-            let now = Instant::now();
-            cache.retain(|_, v| v.expires_at > now);
         }
     }
 

@@ -439,7 +439,18 @@ pub fn save_search_settings(state: State<AppState>, search: SearchSettings) -> R
         }
 
         Ok(())
-    }).map_err(|e| e.to_string())
+    }).map_err(|e| e.to_string())?;
+
+    // Refresh settings cache after saving
+    // Update cache directly with the new values
+    if let Ok(mut cache) = state.settings_cache.write() {
+        cache.insert("search.max_results".to_string(), search.max_results.to_string());
+        cache.insert("search.show_bookmarks".to_string(), search.show_bookmarks.to_string());
+        cache.insert("search.show_files".to_string(), search.show_files.to_string());
+        cache.insert("search.fuzzy_matching".to_string(), search.fuzzy_matching.to_string());
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
