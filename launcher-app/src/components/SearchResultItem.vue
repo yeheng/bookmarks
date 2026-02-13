@@ -151,6 +151,13 @@ const adaptiveMetadata = computed(() => {
         <path d="M2.5 6.5h5m0 0L5 9m2.5-2.5L5 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" transform="rotate(-45 6 6)"/>
       </svg>
     </div>
+
+    <!-- Keyboard shortcuts hint -->
+    <Transition name="hint-fade">
+      <div v-if="isSelected" class="keyboard-hints" aria-hidden="true">
+        <span class="hint-key">↵</span>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -175,6 +182,22 @@ const adaptiveMetadata = computed(() => {
 .result-item--selected {
   background: var(--accent-color, #007AFF);
   color: #ffffff;
+  animation: select-pulse 0.2s ease-out;
+}
+
+@keyframes select-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: none;
+  }
+  50% {
+    transform: scale(1.005);
+    box-shadow: 0 2px 8px rgba(var(--color-accent-rgb, 0, 122, 255), 0.3);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: none;
+  }
 }
 
 .result-item--selected .result-title {
@@ -199,6 +222,11 @@ const adaptiveMetadata = computed(() => {
   align-items: center;
   justify-content: center;
   align-self: center;
+  transition: transform 0.15s ease;
+}
+
+.result-item:hover .result-icon {
+  transform: scale(1.05);
 }
 
 .favicon-img {
@@ -303,6 +331,44 @@ const adaptiveMetadata = computed(() => {
   align-items: center;
 }
 
+/* ===== Keyboard hints ===== */
+.keyboard-hints {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.hint-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  line-height: 1;
+}
+
+/* Hint fade transition */
+.hint-fade-enter-active {
+  transition: opacity 0.15s ease-out;
+}
+
+.hint-fade-leave-active {
+  transition: opacity 0.1s ease-in;
+}
+
+.hint-fade-enter-from,
+.hint-fade-leave-to {
+  opacity: 0;
+}
+
 /* ===== Plugin icons ===== */
 .icon-plugin-emoji {
   font-size: 18px;
@@ -349,6 +415,19 @@ const adaptiveMetadata = computed(() => {
 @media (prefers-reduced-motion: reduce) {
   .result-item {
     transition: none;
+  }
+  .result-item--selected {
+    animation: none;
+  }
+  .hint-fade-enter-active,
+  .hint-fade-leave-active {
+    transition: none;
+  }
+  .result-icon {
+    transition: none;
+  }
+  .result-item:hover .result-icon {
+    transform: none;
   }
 }
 </style>

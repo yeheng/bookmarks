@@ -10,10 +10,14 @@ use commands::bookmarks::AppState;
 use db::Database;
 use plugins::executor::PluginExecutor;
 use plugins::registry::PluginRegistry;
+use search::bookmark_provider::BookmarkSearchProvider;
+use search::file_provider::FileSearchProvider;
+use search::plugin_provider::PluginSearchProvider;
+use search::SearchAggregator;
 use search::TantivySearchEngine;
 use services::data_service::DataService;
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -31,6 +35,7 @@ pub fn run() {
             commands::bookmarks::import_firefox_bookmarks,
             commands::bookmarks::import_safari_bookmarks,
             commands::search::search_bookmarks,
+            commands::search::unified_search,
             commands::search::record_bookmark_access,
             commands::search::rebuild_search_index,
             commands::search::get_search_stats,
@@ -89,15 +94,17 @@ pub fn run() {
             commands::plugins::get_plugin_manifest_preferences,
         ])
         .setup(|app| {
-            let app_dir = app.path().app_data_dir()
+            let app_dir = app
+                .path()
+                .app_data_dir()
                 .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
             std::fs::create_dir_all(&app_dir)
                 .map_err(|e| format!("Failed to create app data dir: {}", e))?;
 
             let db_path = app_dir.join("bookmarks.db");
-            let db = Database::new(db_path)
-                .map_err(|e| format!("Failed to create database: {}", e))?;
+            let db =
+                Database::new(db_path).map_err(|e| format!("Failed to create database: {}", e))?;
 
             db.initialize()
                 .map_err(|e| format!("Failed to initialize database: {}", e))?;
@@ -114,12 +121,10 @@ pub fn run() {
 
             // Check index integrity and rebuild if needed (simple, Linus-style)
             let data_service_clone = data_service.clone();
-            std::thread::spawn(move || {
-                match data_service_clone.rebuild_index_if_needed() {
-                    Ok(true) => println!("[Startup] Index rebuilt successfully"),
-                    Ok(false) => println!("[Startup] Index integrity check passed"),
-                    Err(e) => eprintln!("[Startup] Index check failed: {}", e),
-                }
+            std::thread::spawn(move || match data_service_clone.rebuild_index_if_needed() {
+                Ok(true) => println!("[Startup] Index rebuilt successfully"),
+                Ok(false) => println!("[Startup] Index integrity check passed"),
+                Err(e) => eprintln!("[Startup] Index check failed: {}", e),
             });
 
             // Initialize Plugin System
@@ -134,11 +139,17 @@ pub fn run() {
                     let ds_clone = data_service.clone();
                     std::thread::spawn(move || {
                         match ds_clone.with_db(|conn| {
-                            reg_clone.discover(conn).map_err(|e| crate::error::AppError::Generic(e.to_string()))
+                            reg_clone
+                                .discover(conn)
+                                .map_err(|e| crate::error::AppError::Generic(e.to_string()))
                         }) {
                             Ok(discovered) => {
                                 if !discovered.is_empty() {
-                                    println!("[Startup] Discovered {} new plugin(s): {:?}", discovered.len(), discovered);
+                                    println!(
+                                        "[Startup] Discovered {} new plugin(s): {:?}",
+                                        discovered.len(),
+                                        discovered
+                                    );
                                 } else {
                                     println!("[Startup] Plugin system ready (no new plugins)");
                                 }
@@ -161,11 +172,31 @@ pub fn run() {
                 .build()
                 .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
+            // Initialize SearchAggregator with built-in providers
+            let search_engine_arc = data_service.search_engine().clone();
+            let mut aggregator = SearchAggregator::new();
+            aggregator.register(Box::new(BookmarkSearchProvider::new(
+                search_engine_arc.clone(),
+            )));
+            aggregator.register(Box::new(FileSearchProvider::new(search_engine_arc)));
+
+            // Register plugin provider if plugin system initialized successfully
+            if let (Some(ref reg), Some(ref exec)) = (&plugin_registry, &plugin_executor) {
+                aggregator.register(Box::new(PluginSearchProvider::new(
+                    reg.clone(),
+                    exec.clone(),
+                    data_service.clone(),
+                )));
+            }
+
+            let search_aggregator = Arc::new(aggregator);
+
             app.manage(AppState {
                 data_service: data_service.clone(),
                 http_client,
                 plugin_registry,
                 plugin_executor,
+                search_aggregator,
             });
 
             let handle = app.handle().clone();
@@ -176,10 +207,12 @@ pub fn run() {
                         if event.state == ShortcutState::Pressed {
                             if let Some(window) = handle.get_webview_window("main") {
                                 if window.is_visible().unwrap_or(false) {
+                                    let _ = window.emit("tauri://window-hidden", ());
                                     let _ = window.hide();
                                 } else {
                                     let _ = window.show();
                                     let _ = window.set_focus();
+                                    let _ = window.emit("tauri://window-shown", ());
                                 }
                             }
                         }
@@ -198,10 +231,11 @@ pub fn run() {
                 let window_clone = window.clone();
 
                 #[cfg(target_os = "macos")]
-            {
-                // Read dock icon setting using data_service
-                let hide_dock = data_service.with_db(|conn| {
-                    let hide: bool = conn
+                {
+                    // Read dock icon setting using data_service
+                    let hide_dock = data_service
+                        .with_db(|conn| {
+                            let hide: bool = conn
                         .query_row(
                             "SELECT value FROM settings WHERE key = 'general.hide_dock_icon'",
                             [],
@@ -209,21 +243,24 @@ pub fn run() {
                         )
                         .map(|v| v == "true")
                         .unwrap_or(true);
-                    Ok(hide)
-                }).unwrap_or(true);
+                            Ok(hide)
+                        })
+                        .unwrap_or(true);
 
-                if hide_dock {
-                    app.handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
-                } else {
-                    app.handle().set_activation_policy(tauri::ActivationPolicy::Regular);
+                    if hide_dock {
+                        app.handle()
+                            .set_activation_policy(tauri::ActivationPolicy::Accessory);
+                    } else {
+                        app.handle()
+                            .set_activation_policy(tauri::ActivationPolicy::Regular);
+                    }
                 }
-            }
 
-            window.on_window_event(move |event| {
-                if let tauri::WindowEvent::Focused(false) = event {
-                    let _ = window_clone.hide();
-                }
-            });
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Focused(false) = event {
+                        let _ = window_clone.hide();
+                    }
+                });
             }
 
             Ok(())

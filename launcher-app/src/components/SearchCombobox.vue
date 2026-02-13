@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, reactive } from 'vue';
+import { ref, computed, watch, reactive, nextTick } from 'vue';
 import {
   Combobox,
   ComboboxInput,
@@ -19,6 +19,14 @@ interface Props {
   error?: string | null;
 }
 
+const props = withDefaults(defineProps<Props>(), {
+  loading: false,
+  error: null,
+});
+
+// Ensure props.loading is accessible for computed
+const isLoading = computed(() => props.loading);
+
 interface Emits {
   (e: 'search', query: string): void;
   (e: 'select', result: SearchResult): void;
@@ -26,7 +34,6 @@ interface Emits {
   (e: 'escape'): void;
 }
 
-const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
 const query = ref('');
@@ -79,8 +86,8 @@ watch(query, () => {
 
 const hasResults = computed(() => displayResults.value.length > 0);
 const hasMultipleGroups = computed(() => groupedResults.value.hasMultipleGroups);
-const showEmpty = computed(() => !props.loading && !props.error && !hasResults.value && query.value.length > 0);
-const showError = computed(() => !props.loading && props.error && query.value.length > 0);
+const showEmpty = computed(() => !isLoading.value && !props.error && !hasResults.value && query.value.length > 0);
+const showError = computed(() => !isLoading.value && props.error && query.value.length > 0);
 
 // Spotlight-style: results panel only visible when there's a query
 const showResultsPanel = computed(() => query.value.length > 0);
@@ -88,7 +95,7 @@ const showResultsPanel = computed(() => query.value.length > 0);
 // Content height hint for dynamic window sizing (approximate content item count)
 const contentItemCount = computed(() => {
   if (!showResultsPanel.value) return 0;
-  if (props.loading) return 3; // skeleton loader shows 3 items
+  if (isLoading.value) return 3; // skeleton loader shows 3 items
   if (showEmpty.value) return 3; // empty state takes ~3 item heights
   if (showError.value) return 3; // error state takes ~3 item heights
   return displayResults.value.length;
@@ -133,6 +140,12 @@ watch(selectedResult, (newResult) => {
   if (newResult) {
     const typeLabel = newResult.type === 'bookmark' ? 'Bookmark' : newResult.type === 'file' ? 'File' : 'Plugin Result';
     navigationAnnouncement.value = `Selected: ${newResult.title}, ${typeLabel}`;
+
+    // Scroll selected item into view
+    nextTick(() => {
+      const element = document.querySelector(`[data-result-id="${newResult.id}"]`);
+      element?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
   }
 });
 
@@ -158,7 +171,7 @@ defineExpose({
 
       <!-- Spotlight-style search bar -->
       <div class="search-bar" :class="{ 'has-panel': showResultsPanel }">
-        <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <svg class="search-icon" :class="{ 'search-icon--loading': isLoading }" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path d="M8.5 3a5.5 5.5 0 0 1 4.383 8.823l4.147 4.147a.75.75 0 0 1-1.06 1.06l-4.147-4.147A5.5 5.5 0 1 1 8.5 3Zm0 1.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" fill="currentColor"/>
         </svg>
         <ComboboxInput
@@ -222,11 +235,11 @@ defineExpose({
                 <TransitionRoot
                   :show="!isGroupCollapsed(group.type)"
                   enter="transition-all duration-200 ease-out"
-                  enter-from="opacity-0 max-h-0"
-                  enter-to="opacity-100 max-h-96"
+                  enter-from="opacity-0 transform: translateY(-4px)"
+                  enter-to="opacity-100 transform: translateY(0)"
                   leave="transition-all duration-150 ease-in"
-                  leave-from="opacity-100 max-h-96"
-                  leave-to="opacity-0 max-h-0"
+                  leave-from="opacity-100"
+                  leave-to="opacity-0"
                 >
                   <div class="group-items">
                     <ComboboxOption
@@ -235,6 +248,7 @@ defineExpose({
                       :value="result"
                       v-slot="{ active }"
                       class="result-option"
+                      :data-result-id="result.id"
                     >
                       <SearchResultItem :result="result" :is-selected="active" :highlight-query="query" :index="rIndex" />
                     </ComboboxOption>
@@ -251,6 +265,7 @@ defineExpose({
                 :value="result"
                 v-slot="{ active }"
                 class="result-option"
+                :data-result-id="result.id"
               >
                 <SearchResultItem :result="result" :is-selected="active" :highlight-query="query" :index="rIndex" />
               </ComboboxOption>
@@ -310,6 +325,22 @@ defineExpose({
   flex-shrink: 0;
   color: var(--color-text-tertiary);
   opacity: 0.6;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.search-icon--loading {
+  animation: search-pulse 1s ease-in-out infinite;
+}
+
+@keyframes search-pulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.95);
+  }
 }
 
 .search-input {
@@ -340,6 +371,18 @@ defineExpose({
   /* Reset <ul> default styles from HeadlessUI ComboboxOptions */
   list-style: none;
   margin: 0;
+  animation: results-slide-in 0.15s ease-out;
+}
+
+@keyframes results-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Custom scrollbar - thin and minimal */
@@ -472,6 +515,18 @@ defineExpose({
   padding: 6px 14px;
   flex-shrink: 0;
   border-top: 0.5px solid var(--color-border-subtle, rgba(128, 128, 128, 0.15));
+  animation: bottom-bar-fade-in 0.2s ease-out;
+}
+
+@keyframes bottom-bar-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .bottom-bar-left {
@@ -531,5 +586,19 @@ defineExpose({
   z-index: 10;
   -webkit-app-region: drag;
   pointer-events: none;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .search-icon--loading {
+    animation: none;
+    opacity: 0.4;
+  }
+  .results-container {
+    animation: none;
+  }
+  .bottom-bar {
+    animation: none;
+  }
 }
 </style>

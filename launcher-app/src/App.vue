@@ -14,9 +14,8 @@ import { useToast } from "./composables/useToast";
 import { semanticColors } from "./design-system/tokens";
 import type {
   SearchResult,
-  BookmarkSearchResult,
-  FileSearchResult,
   OpenResult,
+  UnifiedSearchResult,
 } from "./types/search";
 import type { PluginResponse } from "./types/plugin";
 import type { AppSettings } from "./types/settings";
@@ -31,7 +30,10 @@ const settings = ref<AppSettings | null>(null);
 const shortcutManager = ref<ShortcutManager>(new ShortcutManager());
 const { error } = useToast();
 
-// ── Plugin keyword cache ──
+// Window animation state
+const windowVisible = ref(false);
+
+// ── Plugin keyword cache (kept for handleSelect backward compat) ──
 const pluginKeywords = ref<string[]>([]);
 
 async function loadPluginKeywords() {
@@ -43,23 +45,29 @@ async function loadPluginKeywords() {
 }
 
 /**
- * Detect if query matches a plugin keyword pattern: "keyword query"
- * Returns { keyword, query } if matched, null otherwise.
+ * Map a UnifiedSearchResult from the backend to our frontend SearchResult type.
  */
-function detectPluginKeyword(rawQuery: string): { keyword: string; query: string } | null {
-  const trimmed = rawQuery.trim();
-  if (!trimmed || pluginKeywords.value.length === 0) return null;
-
-  // Match "keyword query" or just "keyword"
-  const spaceIndex = trimmed.indexOf(' ');
-  const potentialKeyword = spaceIndex > 0 ? trimmed.substring(0, spaceIndex) : trimmed;
-  const restQuery = spaceIndex > 0 ? trimmed.substring(spaceIndex + 1) : '';
-
-  if (pluginKeywords.value.includes(potentialKeyword)) {
-    return { keyword: potentialKeyword, query: restQuery };
-  }
-
-  return null;
+function mapUnifiedToSearchResult(r: UnifiedSearchResult): SearchResult {
+  return {
+    id: r.source_type === 'bookmark' ? r.id : r.source_type === 'file' ? r.id : `${r.source_id}-${r.id}`,
+    type: r.source_type,
+    title: r.title,
+    subtitle: r.subtitle,
+    icon: r.icon ?? undefined,
+    url: r.url ?? undefined,
+    path: r.path ?? undefined,
+    frecency_score: r.frecency_score,
+    match_score: r.score,
+    metadata: r.source_type === 'file' && r.size != null ? {
+      size: formatFileSize(r.size),
+      modified: r.modified_at != null ? formatDate(r.modified_at) : undefined,
+    } : r.source_type === 'bookmark' && r.url ? {
+      domain: (() => { try { return new URL(r.url).hostname; } catch { return undefined; } })(),
+    } : undefined,
+    pluginActions: r.plugin_actions ?? undefined,
+    pluginBadge: r.plugin_badge ?? undefined,
+    pluginKeyword: r.plugin_keyword ?? undefined,
+  };
 }
 
 function mapPluginResultToSearchResult(
@@ -201,26 +209,6 @@ async function loadSettings() {
   }
 }
 
-function mapBookmarkToSearchResult(b: BookmarkSearchResult): SearchResult {
-  const metadata: { domain?: string } = {};
-  try {
-    const url = new URL(b.url);
-    metadata.domain = url.hostname;
-  } catch {}
-
-  return {
-    id: `bookmark-${b.id}`,
-    type: "bookmark",
-    title: b.title,
-    subtitle: b.url,
-    icon: b.favicon_url ?? undefined,
-    url: b.url,
-    frecency_score: b.frecency_score,
-    match_score: b.score,
-    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-  };
-}
-
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -243,22 +231,6 @@ function formatDate(timestamp: number): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-function mapFileToSearchResult(f: FileSearchResult): SearchResult {
-  return {
-    id: `file-${f.id}`,
-    type: "file",
-    title: f.name,
-    subtitle: f.path,
-    path: f.path,
-    frecency_score: f.frecency_score,
-    match_score: f.score,
-    metadata: {
-      size: formatFileSize(f.size),
-      modified: formatDate(f.modified_at),
-    },
-  };
 }
 
 const handleSearch = async (query: string) => {
@@ -286,29 +258,12 @@ const handleSearch = async (query: string) => {
        return;
     }
 
-    // ── Plugin keyword detection ──
-    const pluginMatch = detectPluginKeyword(query);
-    if (pluginMatch) {
-      const response = await invoke<PluginResponse>("execute_plugin_command", {
-        keyword: pluginMatch.keyword,
-        query: pluginMatch.query,
-      });
-      searchResults.value = response.items.map(item =>
-        mapPluginResultToSearchResult(item, pluginMatch.keyword)
-      );
-      isLoading.value = false;
-      return;
-    }
+    // ── Unified search: single backend call for all sources ──
+    const results = await invoke<UnifiedSearchResult[]>("unified_search", {
+      query,
+    });
 
-    const [bookmarks, files] = await Promise.all([
-      invoke<BookmarkSearchResult[]>("search_bookmarks", { query, limit: 5 }),
-      invoke<FileSearchResult[]>("search_files", { query, limit: 5 }),
-    ]);
-
-    const bookmarkResults = bookmarks.map(mapBookmarkToSearchResult);
-    const fileResults = files.map(mapFileToSearchResult);
-
-    searchResults.value = [...bookmarkResults, ...fileResults];
+    searchResults.value = results.map(mapUnifiedToSearchResult);
   } catch (err) {
     console.error("Search failed:", err);
     searchResults.value = [];
@@ -432,6 +387,13 @@ onMounted(async () => {
   // whether on first launch or when triggered by the global shortcut.
   await listen('tauri://window-shown', () => {
       repositionWindow();
+      // Trigger entrance animation
+      windowVisible.value = true;
+  });
+
+  // Listen for window hidden event
+  await listen('tauri://window-hidden', () => {
+      windowVisible.value = false;
   });
 });
 
@@ -484,7 +446,7 @@ async function repositionWindow() {
     fallback-title="App Error"
     fallback-description="The application encountered an unexpected error."
   >
-    <div class="app-root" :style="themeStyle">
+    <div class="app-root" :class="{ 'app-root--visible': windowVisible }" :style="themeStyle">
       <!-- Toast Notifications -->
       <Toaster
         position="top-center"
@@ -533,6 +495,15 @@ async function repositionWindow() {
   /* Force WebKit to clip all children to border-radius (fixes macOS corner artifacts) */
   -webkit-mask-image: -webkit-radial-gradient(white, black);
   isolation: isolate;
+  /* Initial state for animation */
+  opacity: 0;
+  transform: scale(0.98) translateY(-8px);
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.app-root--visible {
+  opacity: 1;
+  transform: scale(1) translateY(0);
 }
 
 .launcher-container {
@@ -573,6 +544,11 @@ async function repositionWindow() {
 @media (prefers-reduced-motion: reduce) {
   .panel-fade-enter-active,
   .panel-fade-leave-active {
+    transition: none;
+  }
+  .app-root {
+    opacity: 1;
+    transform: none;
     transition: none;
   }
 }

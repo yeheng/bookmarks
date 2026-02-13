@@ -99,12 +99,19 @@ const ariaLabel = computed(() => {
 .group-chevron {
   color: var(--color-text-tertiary);
   opacity: 0.4;
-  transition: transform 0.15s ease;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
 }
 
 .group-chevron--collapsed {
   transform: rotate(-90deg);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .group-chevron {
+    transition: none;
+  }
 }
 </style>

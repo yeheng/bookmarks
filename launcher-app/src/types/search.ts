@@ -56,3 +56,25 @@ export interface OpenResult {
   resource_id: number;
   error: string | null;
 }
+
+// Unified search result from the backend (matching Rust UnifiedSearchResult)
+export interface UnifiedSearchResult {
+  id: string;
+  title: string;
+  subtitle: string;
+  source_type: 'bookmark' | 'file' | 'plugin';
+  source_id: string;
+  score: number;
+  frecency_score: number;
+  icon: string | null;
+  url: string | null;
+  path: string | null;
+  favicon_url: string | null;
+  description: string | null;
+  extension: string | null;
+  size: number | null;
+  modified_at: number | null;
+  plugin_actions: any[] | null;
+  plugin_badge: string | null;
+  plugin_keyword: string | null;
+}

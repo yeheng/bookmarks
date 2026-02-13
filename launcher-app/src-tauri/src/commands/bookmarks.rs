@@ -1,9 +1,10 @@
 use crate::models::bookmark::ImportResult;
 use crate::plugins::executor::PluginExecutor;
 use crate::plugins::registry::PluginRegistry;
+use crate::search::SearchAggregator;
 use crate::services::{
-    chrome_importer::ChromeImporter, firefox_importer::FirefoxImporter,
-    safari_importer::SafariImporter, data_service::DataService,
+    chrome_importer::ChromeImporter, data_service::DataService, firefox_importer::FirefoxImporter,
+    safari_importer::SafariImporter,
 };
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,6 +15,7 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub plugin_registry: Option<Arc<PluginRegistry>>,
     pub plugin_executor: Option<Arc<PluginExecutor>>,
+    pub search_aggregator: Arc<SearchAggregator>,
 }
 
 /// Incrementally index only newly imported bookmarks.
@@ -52,7 +54,9 @@ fn index_newly_imported_bookmarks(
         bookmarks.map_err(|e| crate::error::AppError::Generic(format!("Failed to collect bookmarks: {}", e)))
     }).map_err(|e| e.to_string())?;
 
-    state.data_service.search_engine()
+    state
+        .data_service
+        .search_engine()
         .batch_index_bookmarks(bookmarks)
         .map_err(|e| format!("Failed to index bookmarks: {}", e))?;
 
@@ -68,7 +72,9 @@ pub fn add_bookmark(
     tags: Option<String>,
 ) -> Result<i64, String> {
     // Use DataService for atomic DB + Index operations
-    state.data_service.add_bookmark(title, url, description, tags)
+    state
+        .data_service
+        .add_bookmark(title, url, description, tags)
         .map_err(|e| e.to_string())
 }
 
@@ -82,14 +88,18 @@ pub fn update_bookmark(
     tags: Option<String>,
 ) -> Result<(), String> {
     // Use DataService for atomic DB + Index operations
-    state.data_service.update_bookmark(id, title, url, description, tags)
+    state
+        .data_service
+        .update_bookmark(id, title, url, description, tags)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn delete_bookmark(state: State<AppState>, id: i64) -> Result<(), String> {
     // Use DataService for atomic DB + Index operations
-    state.data_service.delete_bookmark(id)
+    state
+        .data_service
+        .delete_bookmark(id)
         .map_err(|e| e.to_string())
 }
 
@@ -100,10 +110,12 @@ pub fn import_chrome_bookmarks(state: State<AppState>) -> Result<ImportResult, S
         .unwrap_or_default()
         .as_secs() as i64;
 
-    let result = state.data_service.with_db(|conn| {
-        ChromeImporter::import(conn)
-            .map_err(|e| crate::error::AppError::ChromeImport(e))
-    }).map_err(|e| e.to_string())?;
+    let result = state
+        .data_service
+        .with_db(|conn| {
+            ChromeImporter::import(conn).map_err(|e| crate::error::AppError::ChromeImport(e))
+        })
+        .map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
         if let Err(e) = index_newly_imported_bookmarks(&state, "chrome", import_start_time) {
@@ -124,10 +136,12 @@ pub fn import_firefox_bookmarks(state: State<AppState>) -> Result<ImportResult, 
         .unwrap_or_default()
         .as_secs() as i64;
 
-    let result = state.data_service.with_db(|conn| {
-        FirefoxImporter::import(conn)
-            .map_err(|e| crate::error::AppError::FirefoxImport(e))
-    }).map_err(|e| e.to_string())?;
+    let result = state
+        .data_service
+        .with_db(|conn| {
+            FirefoxImporter::import(conn).map_err(|e| crate::error::AppError::FirefoxImport(e))
+        })
+        .map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
         if let Err(e) = index_newly_imported_bookmarks(&state, "firefox", import_start_time) {
@@ -148,10 +162,12 @@ pub fn import_safari_bookmarks(state: State<AppState>) -> Result<ImportResult, S
         .unwrap_or_default()
         .as_secs() as i64;
 
-    let result = state.data_service.with_db(|conn| {
-        SafariImporter::import(conn)
-            .map_err(|e| crate::error::AppError::SafariImport(e))
-    }).map_err(|e| e.to_string())?;
+    let result = state
+        .data_service
+        .with_db(|conn| {
+            SafariImporter::import(conn).map_err(|e| crate::error::AppError::SafariImport(e))
+        })
+        .map_err(|e| e.to_string())?;
 
     if result.imported > 0 {
         if let Err(e) = index_newly_imported_bookmarks(&state, "safari", import_start_time) {

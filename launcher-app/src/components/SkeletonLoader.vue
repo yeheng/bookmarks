@@ -80,15 +80,25 @@ withDefaults(defineProps<Props>(), {
     transparent 100%
   );
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
 }
 
 .skeleton-item:nth-child(1) * { animation-delay: 0s; }
-.skeleton-item:nth-child(2) * { animation-delay: 0.15s; }
-.skeleton-item:nth-child(3) * { animation-delay: 0.3s; }
+.skeleton-item:nth-child(2) * { animation-delay: 0.1s; }
+.skeleton-item:nth-child(3) * { animation-delay: 0.2s; }
 
 @keyframes skeleton-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-item--animated .skeleton-icon,
+  .skeleton-item--animated .skeleton-title,
+  .skeleton-item--animated .skeleton-subtitle {
+    animation: none;
+    background-image: none;
+  }
 }
 </style>

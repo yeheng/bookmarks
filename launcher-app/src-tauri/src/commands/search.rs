@@ -1,8 +1,128 @@
 use crate::commands::bookmarks::AppState;
 use crate::models::bookmark::BookmarkSearchResult;
-use crate::search::IndexStats;
+use crate::search::provider::SourceType;
+use crate::search::{IndexStats, SearchContext};
 use crate::error::AppError;
+use serde::Serialize;
 use tauri::State;
+
+/// Unified search result returned to the frontend.
+///
+/// Contains all fields needed to render any result type (bookmark, file, plugin).
+/// The frontend maps this to its existing `SearchResult` type.
+#[derive(Debug, Clone, Serialize)]
+pub struct UnifiedSearchResult {
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub source_type: SourceType,
+    pub source_id: String,
+    pub score: f64,
+    pub frecency_score: f64,
+    pub icon: Option<String>,
+    pub url: Option<String>,
+    pub path: Option<String>,
+    pub favicon_url: Option<String>,
+    pub description: Option<String>,
+    pub extension: Option<String>,
+    pub size: Option<i64>,
+    pub modified_at: Option<i64>,
+    pub plugin_actions: Option<Vec<serde_json::Value>>,
+    pub plugin_badge: Option<String>,
+    pub plugin_keyword: Option<String>,
+}
+
+/// Unified search across all registered providers.
+///
+/// Reads `SearchSettings` from DB to determine enabled sources and limits,
+/// then delegates to `SearchAggregator` for parallel multi-source search.
+#[tauri::command]
+pub async fn unified_search(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<usize>,
+    sources: Option<Vec<String>>,
+) -> Result<Vec<UnifiedSearchResult>, String> {
+    // Read search settings from DB
+    let search_settings = state.data_service.with_db(|conn| {
+        let max_results: usize = conn
+            .query_row("SELECT value FROM settings WHERE key = 'search.max_results'", [], |row| row.get::<_, String>(0))
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
+        let show_bookmarks: bool = conn
+            .query_row("SELECT value FROM settings WHERE key = 'search.show_bookmarks'", [], |row| row.get::<_, String>(0))
+            .ok()
+            .map(|s| s == "true")
+            .unwrap_or(true);
+        let show_files: bool = conn
+            .query_row("SELECT value FROM settings WHERE key = 'search.show_files'", [], |row| row.get::<_, String>(0))
+            .ok()
+            .map(|s| s == "true")
+            .unwrap_or(true);
+        let fuzzy_matching: bool = conn
+            .query_row("SELECT value FROM settings WHERE key = 'search.fuzzy_matching'", [], |row| row.get::<_, String>(0))
+            .ok()
+            .map(|s| s == "true")
+            .unwrap_or(true);
+
+        Ok((max_results, show_bookmarks, show_files, fuzzy_matching))
+    }).map_err(|e: AppError| e.to_string())?;
+
+    let (max_results, show_bookmarks, show_files, fuzzy_matching) = search_settings;
+    let effective_limit = limit.unwrap_or(max_results);
+
+    // Build source filter from settings + explicit sources argument
+    let effective_sources = if let Some(explicit) = sources {
+        Some(explicit)
+    } else {
+        let mut enabled = Vec::new();
+        if show_bookmarks { enabled.push("bookmarks".to_string()); }
+        if show_files { enabled.push("files".to_string()); }
+        // Always include plugin sources when available
+        enabled.push("plugins".to_string());
+        Some(enabled)
+    };
+
+    let ctx = SearchContext {
+        query,
+        limit: effective_limit,
+        fuzzy: fuzzy_matching,
+        sources: effective_sources,
+    };
+
+    let results = state.search_aggregator.search(&ctx).await
+        .map_err(|e| format!("Unified search failed: {}", e))?;
+
+    Ok(results
+        .into_iter()
+        .map(|r| UnifiedSearchResult {
+            id: r.id,
+            title: r.title,
+            subtitle: r.subtitle,
+            source_type: r.source_type,
+            source_id: r.source_id,
+            score: r.score,
+            frecency_score: r.frecency_score,
+            icon: r.icon,
+            url: r.url,
+            path: r.path,
+            favicon_url: r.favicon_url,
+            description: r.description,
+            extension: r.extension,
+            size: r.size,
+            modified_at: r.modified_at,
+            plugin_actions: r.plugin_actions,
+            plugin_badge: r.plugin_badge,
+            plugin_keyword: r.plugin_keyword,
+        })
+        .collect())
+}
+
+/// Search bookmarks with query string.
+///
+/// **DEPRECATED**: Use `unified_search` instead. This command is kept for
+/// backward compatibility and will be removed in a future version.
 
 #[tauri::command]
 pub fn search_bookmarks(
