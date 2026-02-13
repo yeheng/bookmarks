@@ -351,4 +351,102 @@ mod tests {
         assert_eq!(results[1].id, "low_score_high_frec");
         assert!((results[1].score - 0.3).abs() < 0.001);
     }
+
+    /// Integration test: Real BookmarkSearchProvider + FileSearchProvider → SearchAggregator
+    #[tokio::test]
+    async fn test_integration_mixed_results() {
+        use super::super::bookmark_provider::BookmarkSearchProvider;
+        use super::super::file_provider::FileSearchProvider;
+        use super::super::TantivySearchEngine;
+        use std::sync::Arc;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let engine = Arc::new(TantivySearchEngine::new(tmp.path().to_path_buf()).unwrap());
+
+        // Index a bookmark and a file that both match "rust"
+        engine
+            .index_bookmark(
+                1, "Rust Language", "https://rust-lang.org",
+                Some("Official Rust website"), Some("rust"),
+                None, 1000, 1000,
+            )
+            .unwrap();
+
+        engine
+            .index_file(1, "/docs/rust_guide.pdf", "rust_guide.pdf", Some("pdf"), 2048, 1700000000, 1)
+            .unwrap();
+
+        let mut agg = SearchAggregator::new();
+        agg.register(Box::new(BookmarkSearchProvider::new(engine.clone())));
+        agg.register(Box::new(FileSearchProvider::new(engine)));
+
+        let ctx = SearchContext {
+            query: "rust".to_string(),
+            limit: 10,
+            fuzzy: true,
+            sources: None,
+        };
+
+        let results = agg.search(&ctx).await.unwrap();
+
+        // Both providers should return results
+        assert!(results.len() >= 2);
+
+        // Verify we have results from both sources
+        let has_bookmark = results.iter().any(|r| r.source_id == "bookmarks");
+        let has_file = results.iter().any(|r| r.source_id == "files");
+        assert!(has_bookmark, "Should have bookmark results");
+        assert!(has_file, "Should have file results");
+
+        // Verify results are sorted by score descending
+        for w in results.windows(2) {
+            assert!(w[0].score >= w[1].score, "Results should be sorted by score desc");
+        }
+    }
+
+    /// Integration test: Settings-based source filtering
+    #[tokio::test]
+    async fn test_integration_settings_filtering() {
+        use super::super::bookmark_provider::BookmarkSearchProvider;
+        use super::super::file_provider::FileSearchProvider;
+        use super::super::TantivySearchEngine;
+        use std::sync::Arc;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let engine = Arc::new(TantivySearchEngine::new(tmp.path().to_path_buf()).unwrap());
+
+        engine
+            .index_bookmark(1, "Rust", "https://rust-lang.org", None, None, None, 1000, 1000)
+            .unwrap();
+        engine
+            .index_file(1, "/docs/rust.pdf", "rust.pdf", Some("pdf"), 1024, 1700000000, 1)
+            .unwrap();
+
+        let mut agg = SearchAggregator::new();
+        agg.register(Box::new(BookmarkSearchProvider::new(engine.clone())));
+        agg.register(Box::new(FileSearchProvider::new(engine)));
+
+        // Only bookmarks enabled (simulating show_files = false)
+        let ctx = SearchContext {
+            query: "rust".to_string(),
+            limit: 10,
+            fuzzy: true,
+            sources: Some(vec!["bookmarks".to_string()]),
+        };
+
+        let results = agg.search(&ctx).await.unwrap();
+        assert!(results.iter().all(|r| r.source_id == "bookmarks"));
+
+        // Only files enabled (simulating show_bookmarks = false)
+        let ctx = SearchContext {
+            query: "rust".to_string(),
+            limit: 10,
+            fuzzy: true,
+            sources: Some(vec!["files".to_string()]),
+        };
+
+        let results = agg.search(&ctx).await.unwrap();
+        assert!(results.iter().all(|r| r.source_id == "files"));
+    }
 }
+

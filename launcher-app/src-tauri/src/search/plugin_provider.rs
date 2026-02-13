@@ -161,3 +161,101 @@ impl SearchProvider for PluginSearchProvider {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Helper to create a minimal plugin registry without any plugins installed.
+    fn create_empty_registry() -> (TempDir, Arc<PluginRegistry>) {
+        let tmp = TempDir::new().unwrap();
+        let registry = PluginRegistry::new(tmp.path().to_path_buf()).unwrap();
+        (tmp, Arc::new(registry))
+    }
+
+    fn create_executor() -> Arc<PluginExecutor> {
+        Arc::new(PluginExecutor::new())
+    }
+
+    fn create_data_service() -> Arc<DataService> {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let index_path = tmp.path().join("index");
+        let db = crate::db::Database::new(db_path).unwrap();
+        let engine = Arc::new(super::super::TantivySearchEngine::new(index_path).unwrap());
+        // Leak the TempDir to keep it alive for the test
+        let _ = Box::leak(Box::new(tmp));
+        Arc::new(DataService::new(db, engine))
+    }
+
+    #[tokio::test]
+    async fn test_source_id() {
+        let (_tmp, registry) = create_empty_registry();
+        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
+        assert_eq!(provider.source_id(), "plugins");
+    }
+
+    #[tokio::test]
+    async fn test_source_label() {
+        let (_tmp, registry) = create_empty_registry();
+        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
+        assert_eq!(provider.source_label(), "Plugins");
+    }
+
+    #[tokio::test]
+    async fn test_source_type() {
+        let (_tmp, registry) = create_empty_registry();
+        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
+        assert_eq!(provider.source_type(), SourceType::Plugin);
+    }
+
+    #[tokio::test]
+    async fn test_detect_keyword_empty_query() {
+        let (_tmp, registry) = create_empty_registry();
+        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
+        assert!(provider.detect_keyword("").is_none());
+        assert!(provider.detect_keyword("   ").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_detect_keyword_no_plugins() {
+        let (_tmp, registry) = create_empty_registry();
+        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
+        // No plugins installed, so no keywords to match
+        assert!(provider.detect_keyword("gh search rust").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_search_no_keyword_match_returns_empty() {
+        let (_tmp, registry) = create_empty_registry();
+        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
+
+        let ctx = SearchContext {
+            query: "some random query".to_string(),
+            limit: 10,
+            fuzzy: true,
+            sources: None,
+        };
+
+        let results = provider.search(&ctx).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_empty_query_returns_empty() {
+        let (_tmp, registry) = create_empty_registry();
+        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
+
+        let ctx = SearchContext {
+            query: "".to_string(),
+            limit: 10,
+            fuzzy: true,
+            sources: None,
+        };
+
+        let results = provider.search(&ctx).await.unwrap();
+        assert!(results.is_empty());
+    }
+}
+

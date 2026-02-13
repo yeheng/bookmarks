@@ -3,6 +3,10 @@ use crate::error::AppError;
 use crate::models::file::FileSearchResult;
 use tauri::State;
 
+/// Search files with query string.
+///
+/// **DEPRECATED**: Use `unified_search` instead. This command is kept for
+/// backward compatibility and will be removed in a future version.
 #[tauri::command]
 pub fn search_files(
     state: State<AppState>,
@@ -27,10 +31,12 @@ pub fn search_files_by_extension(
     let limit = limit.unwrap_or(10);
     let ext = extension.trim_start_matches('.');
 
-    state.data_service.with_db(|conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT f.id, f.path, f.name, f.extension, f.size, f.modified_at,
+    state
+        .data_service
+        .with_db(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT f.id, f.path, f.name, f.extension, f.size, f.modified_at,
                         COALESCE(
                             (SELECT COUNT(*) * 0.3 +
                              (julianday('now') - julianday(MAX(accessed_at), 'unixepoch')) * -0.1
@@ -41,29 +47,30 @@ pub fn search_files_by_extension(
                  WHERE f.extension = ?1
                  ORDER BY frecency_score DESC, f.modified_at DESC
                  LIMIT ?2",
-            )
-            .map_err(|e| AppError::Generic(format!("Failed to prepare query: {}", e)))?;
+                )
+                .map_err(|e| AppError::Generic(format!("Failed to prepare query: {}", e)))?;
 
-        let results = stmt
-            .query_map(rusqlite::params![ext, limit as i64], |row| {
-                let frecency: f64 = row.get(6)?;
-                Ok(FileSearchResult {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    name: row.get(2)?,
-                    extension: row.get(3)?,
-                    size: row.get(4)?,
-                    modified_at: row.get(5)?,
-                    score: frecency,
-                    frecency_score: frecency,
+            let results = stmt
+                .query_map(rusqlite::params![ext, limit as i64], |row| {
+                    let frecency: f64 = row.get(6)?;
+                    Ok(FileSearchResult {
+                        id: row.get(0)?,
+                        path: row.get(1)?,
+                        name: row.get(2)?,
+                        extension: row.get(3)?,
+                        size: row.get(4)?,
+                        modified_at: row.get(5)?,
+                        score: frecency,
+                        frecency_score: frecency,
+                    })
                 })
-            })
-            .map_err(|e| AppError::Generic(format!("Failed to execute query: {}", e)))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| AppError::Generic(format!("Failed to collect results: {}", e)))?;
+                .map_err(|e| AppError::Generic(format!("Failed to execute query: {}", e)))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| AppError::Generic(format!("Failed to collect results: {}", e)))?;
 
-        Ok(results)
-    }).map_err(|e| e.to_string())
+            Ok(results)
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -74,26 +81,34 @@ pub fn record_file_access(state: State<AppState>, file_id: i64) -> Result<(), St
         .as_secs() as i64;
 
     // Update SQLite and get the new access count
-    let access_count = state.data_service.with_db(|conn| {
-        conn.execute(
-            "INSERT INTO file_usage_history (file_id, accessed_at) VALUES (?1, ?2)",
-            rusqlite::params![file_id, now],
-        )
-        .map_err(|e| AppError::Generic(format!("Failed to insert file usage history: {}", e)))?;
-
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM file_usage_history WHERE file_id = ?1",
-                [file_id],
-                |row| row.get(0),
+    let access_count = state
+        .data_service
+        .with_db(|conn| {
+            conn.execute(
+                "INSERT INTO file_usage_history (file_id, accessed_at) VALUES (?1, ?2)",
+                rusqlite::params![file_id, now],
             )
-            .unwrap_or(1);
+            .map_err(|e| {
+                AppError::Generic(format!("Failed to insert file usage history: {}", e))
+            })?;
 
-        Ok(count)
-    }).map_err(|e| e.to_string())?;
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM file_usage_history WHERE file_id = ?1",
+                    [file_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(1);
+
+            Ok(count)
+        })
+        .map_err(|e| e.to_string())?;
 
     // Update Tantivy index with new frecency data (fire and forget)
-    let _ = state.data_service.search_engine().update_file_frecency(file_id, access_count, now);
+    let _ = state
+        .data_service
+        .search_engine()
+        .update_file_frecency(file_id, access_count, now);
 
     Ok(())
 }
@@ -103,27 +118,30 @@ pub fn get_file_by_id(
     state: State<AppState>,
     file_id: i64,
 ) -> Result<Option<FileSearchResult>, String> {
-    state.data_service.with_db(|conn| {
-        let result = conn
-            .query_row(
-                "SELECT id, path, name, extension, size, modified_at
+    state
+        .data_service
+        .with_db(|conn| {
+            let result = conn
+                .query_row(
+                    "SELECT id, path, name, extension, size, modified_at
                  FROM indexed_files WHERE id = ?1",
-                [file_id],
-                |row| {
-                    Ok(FileSearchResult {
-                        id: row.get(0)?,
-                        path: row.get(1)?,
-                        name: row.get(2)?,
-                        extension: row.get(3)?,
-                        size: row.get(4)?,
-                        modified_at: row.get(5)?,
-                        score: 0.0,
-                        frecency_score: 0.0,
-                    })
-                },
-            )
-            .ok();
+                    [file_id],
+                    |row| {
+                        Ok(FileSearchResult {
+                            id: row.get(0)?,
+                            path: row.get(1)?,
+                            name: row.get(2)?,
+                            extension: row.get(3)?,
+                            size: row.get(4)?,
+                            modified_at: row.get(5)?,
+                            score: 0.0,
+                            frecency_score: 0.0,
+                        })
+                    },
+                )
+                .ok();
 
-        Ok(result)
-    }).map_err(|e| e.to_string())
+            Ok(result)
+        })
+        .map_err(|e| e.to_string())
 }

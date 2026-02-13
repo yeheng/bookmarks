@@ -60,3 +60,106 @@ impl SearchProvider for FileSearchProvider {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::provider::SearchContext;
+    use tempfile::TempDir;
+
+    fn create_test_engine() -> (TempDir, Arc<TantivySearchEngine>) {
+        let tmp = TempDir::new().unwrap();
+        let engine = TantivySearchEngine::new(tmp.path().to_path_buf()).unwrap();
+        let engine_arc = Arc::new(engine);
+        (tmp, engine_arc)
+    }
+
+    #[tokio::test]
+    async fn test_source_id() {
+        let (_tmp, engine) = create_test_engine();
+        let provider = FileSearchProvider::new(engine);
+        assert_eq!(provider.source_id(), "files");
+    }
+
+    #[tokio::test]
+    async fn test_source_label() {
+        let (_tmp, engine) = create_test_engine();
+        let provider = FileSearchProvider::new(engine);
+        assert_eq!(provider.source_label(), "Files");
+    }
+
+    #[tokio::test]
+    async fn test_source_type() {
+        let (_tmp, engine) = create_test_engine();
+        let provider = FileSearchProvider::new(engine);
+        assert_eq!(provider.source_type(), SourceType::File);
+    }
+
+    #[tokio::test]
+    async fn test_search_returns_mapped_results() {
+        let (_tmp, engine) = create_test_engine();
+
+        // Index a test file
+        engine
+            .index_file(1, "/home/user/document.pdf", "document.pdf", Some("pdf"), 1024, 1700000000, 1)
+            .unwrap();
+
+        let provider = FileSearchProvider::new(engine);
+        let ctx = SearchContext {
+            query: "document".to_string(),
+            limit: 10,
+            fuzzy: true,
+            sources: None,
+        };
+
+        let results = provider.search(&ctx).await.unwrap();
+        assert!(!results.is_empty());
+
+        let first = &results[0];
+        assert_eq!(first.id, "1");
+        assert_eq!(first.title, "document.pdf");
+        assert_eq!(first.path, Some("/home/user/document.pdf".to_string()));
+        assert_eq!(first.source_type, SourceType::File);
+        assert_eq!(first.source_id, "files");
+        assert!(first.score > 0.0);
+        assert_eq!(first.size, Some(1024));
+        assert!(first.url.is_none());
+        assert!(first.plugin_actions.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_search_empty_query() {
+        let (_tmp, engine) = create_test_engine();
+        let provider = FileSearchProvider::new(engine);
+        let ctx = SearchContext {
+            query: "".to_string(),
+            limit: 10,
+            fuzzy: true,
+            sources: None,
+        };
+
+        let results = provider.search(&ctx).await;
+        assert!(results.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_search_no_matches() {
+        let (_tmp, engine) = create_test_engine();
+
+        engine
+            .index_file(1, "/home/user/readme.txt", "readme.txt", Some("txt"), 512, 1700000000, 1)
+            .unwrap();
+
+        let provider = FileSearchProvider::new(engine);
+        let ctx = SearchContext {
+            query: "zzzznonexistent".to_string(),
+            limit: 10,
+            fuzzy: true,
+            sources: None,
+        };
+
+        let results = provider.search(&ctx).await.unwrap();
+        assert!(results.is_empty());
+    }
+}
+
