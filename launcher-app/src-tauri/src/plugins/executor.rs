@@ -530,7 +530,7 @@ echo '{"items":[]}'
         };
 
         let executor = PluginExecutor::new();
-        let result = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), "0.1");
+        let result = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), HashMap::new(), "0.1");
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("timed out"));
@@ -562,7 +562,7 @@ echo 'not valid json'
         };
 
         let executor = PluginExecutor::new();
-        let result = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), "0.1");
+        let result = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), HashMap::new(), "0.1");
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid JSON"));

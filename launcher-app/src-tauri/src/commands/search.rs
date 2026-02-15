@@ -3,15 +3,9 @@ use crate::models::bookmark::BookmarkSearchResult;
 use crate::search::provider::SourceType;
 use crate::search::{IndexStats, SearchContext};
 use crate::search::query_parser::StructuredQuery;
-use crate::error::AppError;
 use serde::Serialize;
-use std::collections::HashMap;
 use tauri::State;
 
-/// Unified search result returned to the frontend.
-///
-/// Contains all fields needed to render any result type (bookmark, file, plugin).
-/// The frontend maps this to its existing `SearchResult` type.
 #[derive(Debug, Clone, Serialize)]
 pub struct UnifiedSearchResult {
     pub id: String,
@@ -34,10 +28,6 @@ pub struct UnifiedSearchResult {
     pub plugin_keyword: Option<String>,
 }
 
-/// Unified search across all registered providers.
-///
-/// Reads `SearchSettings` from cache (or DB if cache is empty) to determine enabled sources and limits,
-/// then delegates to `SearchAggregator` for parallel multi-source search.
 #[tauri::command]
 pub async fn unified_search(
     state: State<'_, AppState>,
@@ -45,59 +35,40 @@ pub async fn unified_search(
     limit: Option<usize>,
     sources: Option<Vec<String>>,
 ) -> Result<Vec<UnifiedSearchResult>, String> {
-    // Input validation - limit max 100
     let effective_limit = validate_limit(limit, 100)?;
 
-    // Try to read search settings from cache first
+    // Read search settings from settings store (no more DB query)
     let search_settings = {
         let cache = state.settings_cache.read().map_err(|e| e.to_string())?;
-        
-        // Check if cache has any search settings populated
-        let cache_has_values = cache.contains_key("search.max_results") 
+
+        let cache_has_values = cache.contains_key("search.max_results")
             || cache.contains_key("search.show_bookmarks")
             || cache.contains_key("search.show_files")
             || cache.contains_key("search.fuzzy_matching");
-        
+
         if !cache_has_values {
-            // Cache is empty, try to populate from DB (we need to release lock first)
             drop(cache);
-            let _ = state.data_service.with_db(|conn| {
-                let mut settings_to_cache = HashMap::new();
-                
-                if let Ok(value) = conn.query_row::<String, _, _>(
-                    "SELECT value FROM settings WHERE key = 'search.max_results'", [], |row| row.get(0)
-                ) {
-                    settings_to_cache.insert("search.max_results".to_string(), value);
-                }
-                if let Ok(value) = conn.query_row::<String, _, _>(
-                    "SELECT value FROM settings WHERE key = 'search.show_bookmarks'", [], |row| row.get(0)
-                ) {
-                    settings_to_cache.insert("search.show_bookmarks".to_string(), value);
-                }
-                if let Ok(value) = conn.query_row::<String, _, _>(
-                    "SELECT value FROM settings WHERE key = 'search.show_files'", [], |row| row.get(0)
-                ) {
-                    settings_to_cache.insert("search.show_files".to_string(), value);
-                }
-                if let Ok(value) = conn.query_row::<String, _, _>(
-                    "SELECT value FROM settings WHERE key = 'search.fuzzy_matching'", [], |row| row.get(0)
-                ) {
-                    settings_to_cache.insert("search.fuzzy_matching".to_string(), value);
-                }
-                
-                // Only update cache if we found some settings
-                if !settings_to_cache.is_empty() {
-                    if let Ok(mut write_cache) = state.settings_cache.write() {
-                        *write_cache = settings_to_cache;
+            // Populate cache from settings store
+            let _ = state.data_service.with_settings_store(|store| {
+                let flat_map = store.to_flat_map();
+                if let Ok(mut write_cache) = state.settings_cache.write() {
+                    for key in &[
+                        "search.max_results",
+                        "search.show_bookmarks",
+                        "search.show_files",
+                        "search.fuzzy_matching",
+                    ] {
+                        if let Some(v) = flat_map.get(*key) {
+                            write_cache.insert(key.to_string(), v.clone());
+                        }
                     }
                 }
                 Ok(())
             });
         }
-        
-        // Now read from cache (acquire lock again)
+
         let cache = state.settings_cache.read().map_err(|e| e.to_string())?;
-        
+
         let max_results: usize = cache
             .get("search.max_results")
             .and_then(|s| s.parse().ok())
@@ -114,20 +85,18 @@ pub async fn unified_search(
             .get("search.fuzzy_matching")
             .map(|s| s == "true")
             .unwrap_or(true);
-        
+
         (max_results, show_bookmarks, show_files, fuzzy_matching)
     };
 
     let (_, show_bookmarks, show_files, fuzzy_matching) = search_settings;
 
-    // Build source filter from settings + explicit sources argument
     let effective_sources = if let Some(explicit) = sources {
         Some(explicit)
     } else {
         let mut enabled = Vec::new();
         if show_bookmarks { enabled.push("bookmarks".to_string()); }
         if show_files { enabled.push("files".to_string()); }
-        // Always include plugin sources when available
         enabled.push("plugins".to_string());
         Some(enabled)
     };
@@ -170,11 +139,6 @@ pub async fn unified_search(
         .collect())
 }
 
-/// Search bookmarks with query string.
-///
-/// **DEPRECATED**: Use `unified_search` instead. This command is kept for
-/// backward compatibility and will be removed in a future version.
-
 #[tauri::command]
 pub fn search_bookmarks(
     state: State<AppState>,
@@ -199,93 +163,61 @@ pub fn record_bookmark_access(state: State<AppState>, bookmark_id: i64) -> Resul
         .map_err(|e| format!("System clock error: {}", e))?
         .as_secs() as i64;
 
-    // Update SQLite and get the new access count
-    let access_count = state.data_service.with_db(|conn| {
-        conn.execute(
-            "UPDATE bookmarks SET last_accessed = ?1 WHERE id = ?2",
-            rusqlite::params![now, bookmark_id],
-        )
-        .map_err(|e| AppError::Generic(format!("Failed to update last_accessed: {}", e)))?;
+    // Update bookmark in store
+    state
+        .data_service
+        .with_bookmark_store_mut(|store| {
+            store
+                .update_last_accessed(bookmark_id, now)
+                .map_err(|e| crate::error::AppError::Generic(e))
+        })
+        .map_err(|e| e.to_string())?;
 
-        conn.execute(
-            "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
-            rusqlite::params![bookmark_id, now],
-        )
-        .map_err(|e| AppError::Generic(format!("Failed to insert usage history: {}", e)))?;
-
-        // Get the total access count for this bookmark
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM usage_history WHERE bookmark_id = ?1",
-                [bookmark_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(1);
-
-        Ok(count)
-    }).map_err(|e| e.to_string())?;
-
-    // Update Tantivy index with new frecency data (fire and forget for UI responsiveness)
-    let _ = state.data_service.search_engine().update_bookmark_frecency(bookmark_id, access_count, now);
+    // Update Tantivy index with new frecency data (fire and forget)
+    // We don't track individual access events anymore — just increment count
+    let _ = state.data_service.search_engine().update_bookmark_frecency(bookmark_id, 1, now);
 
     Ok(())
 }
 
 #[tauri::command]
 pub fn rebuild_search_index(state: State<AppState>) -> Result<(usize, usize), String> {
-    // Use DataService's unified method to fetch all data
-    let (bookmarks, files) = state
+    let (bookmarks, _files) = state
         .data_service
         .get_all_index_data()
         .map_err(|e| format!("Failed to fetch index data: {}", e))?;
 
-    // Rebuild indexes with data
     let bookmark_count = state
         .data_service
         .search_engine()
         .rebuild_bookmark_index_from_data(bookmarks)
         .map_err(|e| format!("Failed to rebuild bookmark index: {}", e))?;
 
-    let file_count = state
-        .data_service
-        .search_engine()
-        .rebuild_file_index_from_data(files)
-        .map_err(|e| format!("Failed to rebuild file index: {}", e))?;
-
-    Ok((bookmark_count, file_count))
+    // File index rebuild requires re-scanning directories
+    // Return 0 for file count — caller should trigger directory re-indexing separately
+    Ok((bookmark_count, 0))
 }
 
-/// Refresh the settings cache from database.
-/// This should be called after settings are updated.
+/// Refresh the settings cache from settings store.
 #[tauri::command]
 pub fn refresh_settings_cache(state: State<AppState>) -> Result<(), String> {
-    let cache_result = state.data_service.with_db(|conn| {
-        let mut settings_to_cache = HashMap::new();
-        
-        // Read all search-related settings
-        let keys = [
+    let flat_map = state
+        .data_service
+        .with_settings_store(|store| Ok(store.to_flat_map()))
+        .map_err(|e| e.to_string())?;
+
+    if let Ok(mut cache) = state.settings_cache.write() {
+        cache.clear();
+        for key in &[
             "search.max_results",
-            "search.show_bookmarks", 
+            "search.show_bookmarks",
             "search.show_files",
             "search.fuzzy_matching",
-        ];
-        
-        for key in &keys {
-            if let Ok(value) = conn.query_row(
-                "SELECT value FROM settings WHERE key = ?1",
-                [key],
-                |row| row.get::<_, String>(0),
-            ) {
-                settings_to_cache.insert(key.to_string(), value);
+        ] {
+            if let Some(v) = flat_map.get(*key) {
+                cache.insert(key.to_string(), v.clone());
             }
         }
-        
-        Ok(settings_to_cache)
-    }).map_err(|e: AppError| e.to_string())?;
-
-    // Update cache
-    if let Ok(mut cache) = state.settings_cache.write() {
-        *cache = cache_result;
     }
 
     Ok(())

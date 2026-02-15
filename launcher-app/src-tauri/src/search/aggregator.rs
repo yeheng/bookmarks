@@ -207,9 +207,9 @@ mod tests {
     use super::*;
     use super::super::provider::SourceType;
     use super::super::query_parser::StructuredQuery;
-    use crate::db::Database;
     use crate::services::data_service::DataService;
     use crate::search::TantivySearchEngine;
+    use crate::store::{BookmarkStore, DirectoryStore, SettingsStore, PluginStore};
     use async_trait::async_trait;
 
     /// A mock provider for testing.
@@ -286,11 +286,14 @@ mod tests {
     }
 
     fn setup_tracker() -> Arc<FrecencyTracker> {
-        let db = Database::new_in_memory().unwrap();
-        db.initialize().unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
-        let engine = Arc::new(TantivySearchEngine::new(temp_dir.path().to_path_buf()).unwrap());
-        let ds = Arc::new(DataService::new(db, engine));
+        let dir = temp_dir.path();
+        let bookmark_store = BookmarkStore::new(dir.join("bookmarks.json"));
+        let directory_store = DirectoryStore::new(dir.join("directories.json"));
+        let settings_store = SettingsStore::new(dir.join("settings.json"));
+        let plugin_store = PluginStore::new(dir.join("plugins.json"));
+        let engine = Arc::new(TantivySearchEngine::new(dir.join("tantivy")).unwrap());
+        let ds = Arc::new(DataService::new(bookmark_store, directory_store, settings_store, plugin_store, engine));
         Arc::new(FrecencyTracker::new(ds))
     }
 

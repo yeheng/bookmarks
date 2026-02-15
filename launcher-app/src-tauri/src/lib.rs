@@ -1,13 +1,13 @@
 mod commands;
-mod db;
 mod error;
+mod migration;
 mod models;
 mod plugins;
 mod search;
 mod services;
+mod store;
 
 use commands::bookmarks::AppState;
-use db::Database;
 use plugins::executor::PluginExecutor;
 use plugins::registry::PluginRegistry;
 use search::bookmark_provider::BookmarkSearchProvider;
@@ -16,6 +16,7 @@ use search::FrecencyTracker;
 use search::SearchAggregator;
 use search::TantivySearchEngine;
 use services::data_service::DataService;
+use store::{BookmarkStore, DirectoryStore, PluginStore, SettingsStore};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
@@ -42,7 +43,7 @@ pub fn run() {
             commands::search::get_search_stats,
             commands::search::refresh_settings_cache,
             commands::favicon::fetch_favicon,
-            // Phase 5: File Search Commands
+            // File Search Commands
             commands::file_search::search_files,
             commands::file_search::search_files_by_extension,
             commands::file_search::record_file_access,
@@ -56,7 +57,7 @@ pub fn run() {
             commands::directories::refresh_directory_index,
             commands::directories::get_default_search_directories,
             commands::directories::get_indexing_stats,
-            // Phase 6: Resource Opening Commands
+            // Resource Opening Commands
             commands::opener::open_bookmark,
             commands::opener::open_file,
             commands::opener::open_file_by_path,
@@ -65,7 +66,7 @@ pub fn run() {
             commands::opener::open_resource,
             commands::opener::check_bookmark_url,
             commands::opener::check_file_exists,
-            // Phase 7: Settings Commands
+            // Settings Commands
             commands::settings::get_setting,
             commands::settings::set_setting,
             commands::settings::delete_setting,
@@ -105,25 +106,33 @@ pub fn run() {
             std::fs::create_dir_all(&app_dir)
                 .map_err(|e| format!("Failed to create app data dir: {}", e))?;
 
-            let db_path = app_dir.join("bookmarks.db");
-            let db =
-                Database::new(db_path).map_err(|e| format!("Failed to create database: {}", e))?;
+            // Run one-time migration from SQLite to JSON (if needed)
+            migration::migrate_if_needed(&app_dir);
 
-            db.initialize()
-                .map_err(|e| format!("Failed to initialize database: {}", e))?;
+            // Initialize JSON-based stores
+            let bookmark_store = BookmarkStore::new(app_dir.join("bookmarks.json"));
+            let directory_store = DirectoryStore::new(app_dir.join("directories.json"));
+            let settings_store = SettingsStore::new(app_dir.join("settings.json"));
+            let plugin_store = PluginStore::new(app_dir.join("plugins.json"));
 
-            // Initialize Tantivy search engine (decoupled from database)
+            // Initialize Tantivy search engine
             let index_dir = app_dir.join("tantivy_indexes");
             let search_engine = TantivySearchEngine::new(index_dir)
                 .map_err(|e| format!("Failed to create search engine: {}", e))?;
 
             let search_engine = Arc::new(search_engine);
 
-            // Initialize DataService for atomic DB + Index operations
-            let data_service = Arc::new(DataService::new(db, search_engine));
+            // Initialize DataService with stores + search engine
+            let data_service = Arc::new(DataService::new(
+                bookmark_store,
+                directory_store,
+                settings_store,
+                plugin_store,
+                search_engine,
+            ));
             let frecency_tracker = Arc::new(FrecencyTracker::new(data_service.clone()));
 
-            // Check index integrity and rebuild if needed (simple, Linus-style)
+            // Check index integrity and rebuild if needed
             let data_service_clone = data_service.clone();
             std::thread::spawn(move || match data_service_clone.rebuild_index_if_needed() {
                 Ok(true) => println!("[Startup] Index rebuilt successfully"),
@@ -159,10 +168,7 @@ pub fn run() {
                 Ok(registry) => {
                     let registry = Arc::new(registry);
                     // Discover plugins from disk
-                    if let Err(e) = data_service.with_db(|conn| {
-                        registry.discover(conn)?;
-                        Ok(())
-                    }) {
+                    if let Err(e) = registry.discover() {
                         eprintln!("[Startup] Plugin discovery failed: {}", e);
                     }
                     Some(registry)
@@ -172,6 +178,24 @@ pub fn run() {
                     None
                 }
             };
+
+            // Read settings for shortcut and dock configuration
+            let global_shortcut = data_service
+                .with_settings_store(|store| {
+                    Ok(store.settings().hotkey.global_shortcut.clone())
+                })
+                .unwrap_or_else(|_| {
+                    #[cfg(target_os = "macos")]
+                    return "Cmd+F1".to_string();
+                    #[cfg(not(target_os = "macos"))]
+                    return "Ctrl+F1".to_string();
+                });
+
+            let hide_dock = data_service
+                .with_settings_store(|store| {
+                    Ok(store.settings().general.hide_dock_icon)
+                })
+                .unwrap_or(true);
 
             app.manage(AppState {
                 data_service: data_service.clone(),
@@ -203,31 +227,17 @@ pub fn run() {
                     .build(),
             )?;
 
-            // Try to read shortcut from settings, fallback to default
             #[cfg(target_os = "macos")]
             let default_shortcut = "Cmd+F1";
             #[cfg(not(target_os = "macos"))]
             let default_shortcut = "Ctrl+F1";
 
-            let shortcut = data_service
-                .with_db(|conn| {
-                    Ok(conn
-                        .query_row(
-                            "SELECT value FROM settings WHERE key = 'hotkey.toggle'",
-                            [],
-                            |row| row.get::<_, String>(0),
-                        )
-                        .ok())
-                })
-                .unwrap_or_else(|_: crate::error::AppError| None)
-                .unwrap_or_else(|| default_shortcut.to_string());
+            println!("[Startup] Registering global shortcut: {}", global_shortcut);
 
-            println!("[Startup] Registering global shortcut: {}", shortcut);
-
-            let shortcut_parsed: Shortcut = match shortcut.parse() {
+            let shortcut_parsed: Shortcut = match global_shortcut.parse() {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("[Startup] Failed to parse shortcut '{}': {}", shortcut, e);
+                    eprintln!("[Startup] Failed to parse shortcut '{}': {}", global_shortcut, e);
                     eprintln!("[Startup] Using default shortcut: {}", default_shortcut);
                     default_shortcut.parse().unwrap()
                 }
@@ -247,26 +257,11 @@ pub fn run() {
 
                 #[cfg(target_os = "macos")]
                 {
-                    // Read dock icon setting using data_service
-                    let hide_dock = data_service
-                        .with_db(|conn| {
-                            let hide: bool = conn
-                        .query_row(
-                            "SELECT value FROM settings WHERE key = 'general.hide_dock_icon'",
-                            [],
-                            |row| row.get::<_, String>(0),
-                        )
-                        .map(|v| v == "true")
-                        .unwrap_or(true);
-                            Ok(hide)
-                        })
-                        .unwrap_or(true);
-
                     if hide_dock {
-                        app.handle()
+                        let _ = app.handle()
                             .set_activation_policy(tauri::ActivationPolicy::Accessory);
                     } else {
-                        app.handle()
+                        let _ = app.handle()
                             .set_activation_policy(tauri::ActivationPolicy::Regular);
                     }
                 }

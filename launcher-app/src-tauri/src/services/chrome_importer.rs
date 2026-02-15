@@ -1,14 +1,13 @@
 use crate::models::bookmark::ImportResult;
-use rusqlite::Connection;
+use crate::store::BookmarkStore;
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct ChromeImporter;
 
 impl ChromeImporter {
-    pub fn import(conn: &Connection) -> Result<ImportResult, String> {
+    pub fn import(store: &mut BookmarkStore) -> Result<ImportResult, String> {
         let bookmarks_path = Self::get_chrome_bookmarks_path()?;
         let content = fs::read_to_string(&bookmarks_path)
             .map_err(|e| format!("Failed to read Chrome bookmarks: {}", e))?;
@@ -24,21 +23,24 @@ impl ChromeImporter {
 
         if let Some(roots) = json.get("roots").and_then(|r| r.as_object()) {
             for (_, root_value) in roots.iter() {
-                Self::process_bookmark_node(conn, root_value, &mut result);
+                Self::process_bookmark_node(store, root_value, &mut result);
             }
         }
+
+        // Batch save after all imports
+        store.save().map_err(|e| format!("Failed to save bookmarks: {}", e))?;
 
         Ok(result)
     }
 
-    fn process_bookmark_node(conn: &Connection, node: &Value, result: &mut ImportResult) {
+    fn process_bookmark_node(store: &mut BookmarkStore, node: &Value, result: &mut ImportResult) {
         if let Some(node_type) = node.get("type").and_then(|t| t.as_str()) {
             if node_type == "url" {
                 if let (Some(title), Some(url)) = (
                     node.get("name").and_then(|n| n.as_str()),
                     node.get("url").and_then(|u| u.as_str()),
                 ) {
-                    match Self::insert_bookmark(conn, title, url) {
+                    match store.import_bookmark(title, url, "chrome") {
                         Ok(true) => result.imported += 1,
                         Ok(false) => result.skipped += 1,
                         Err(e) => result.errors.push(e),
@@ -47,35 +49,11 @@ impl ChromeImporter {
             } else if node_type == "folder" {
                 if let Some(children) = node.get("children").and_then(|c| c.as_array()) {
                     for child in children {
-                        Self::process_bookmark_node(conn, child, result);
+                        Self::process_bookmark_node(store, child, result);
                     }
                 }
             }
         }
-    }
-
-    fn insert_bookmark(conn: &Connection, title: &str, url: &str) -> Result<bool, String> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
-        let existing: Result<i64, _> =
-            conn.query_row("SELECT id FROM bookmarks WHERE url = ?1", [url], |row| {
-                row.get(0)
-            });
-
-        if existing.is_ok() {
-            return Ok(false);
-        }
-
-        conn.execute(
-            "INSERT INTO bookmarks (title, url, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![title, url, "chrome", now, now],
-        )
-        .map_err(|e| format!("Failed to insert bookmark: {}", e))?;
-
-        Ok(true)
     }
 
     fn get_chrome_bookmarks_path() -> Result<PathBuf, String> {

@@ -1,6 +1,6 @@
 //! Plugin registry — discovery, registration, and lifecycle management.
 //!
-//! Stores plugin metadata in SQLite and maintains an in-memory keyword index
+//! Stores plugin metadata in JSON files and maintains an in-memory keyword index
 //! for fast lookup during search.
 
 use crate::error::AppError;
@@ -9,13 +9,12 @@ use crate::plugins::manifest::PluginManifest;
 use crate::search::plugin_provider::PluginSearchProvider;
 use crate::search::SearchAggregator;
 use crate::services::data_service::DataService;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// Registered plugin info — stored in SQLite + returned to frontend.
+/// Registered plugin info — stored in JSON + returned to frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInfo {
     pub id: String,
@@ -52,7 +51,7 @@ pub struct PluginRegistry {
     manifests: Mutex<HashMap<String, PluginManifest>>,
     /// Search Aggregator for dynamic provider registration.
     aggregator: Arc<SearchAggregator>,
-    /// Data Service for plugin preferences.
+    /// Data Service for plugin store access.
     data_service: Arc<DataService>,
     /// Plugin Executor for running commands.
     executor: Arc<PluginExecutor>,
@@ -84,11 +83,9 @@ impl PluginRegistry {
 
     // ── Discovery ──────────────────────────────────────────────────
 
-    /// Scan plugins directory and sync with database.
+    /// Scan plugins directory and sync with plugin store.
     /// Returns list of newly discovered plugin IDs.
-    pub fn discover(&self, conn: &Connection) -> Result<Vec<String>, AppError> {
-        Self::ensure_tables(conn)?;
-
+    pub fn discover(&self) -> Result<Vec<String>, AppError> {
         let mut discovered = Vec::new();
         let entries = std::fs::read_dir(&self.plugins_dir)?;
 
@@ -110,26 +107,22 @@ impl PluginRegistry {
                     disk_plugins.insert(plugin_id.clone(), path.clone());
 
                     // Check if already registered
-                    let existing: Option<String> = conn
-                        .query_row(
-                            "SELECT version FROM plugins WHERE id = ?1",
-                            [&plugin_id],
-                            |row| row.get(0),
-                        )
-                        .ok();
+                    let existing_version = self.data_service.with_plugin_store(|store| {
+                        Ok(store.find_by_id(&plugin_id).map(|p| p.version.clone()))
+                    }).unwrap_or(None);
 
-                    match existing {
+                    match existing_version {
                         None => {
                             // New plugin — register it
-                            self.register_plugin(conn, &manifest, &path)?;
+                            self.register_plugin(&manifest, &path)?;
                             discovered.push(plugin_id.clone());
                         }
                         Some(old_version) if old_version != manifest.plugin.version => {
                             // Version changed — update registry
-                            self.update_plugin(conn, &manifest, &path)?;
+                            self.update_plugin(&manifest, &path)?;
                         }
                         _ => {
-                            // Already registered, same version — just load manifest
+                            // Already registered, same version
                         }
                     }
 
@@ -149,15 +142,16 @@ impl PluginRegistry {
         }
 
         // Remove plugins whose directories no longer exist
-        let registered_ids: Vec<String> = conn
-            .prepare("SELECT id FROM plugins")?
-            .query_map([], |row| row.get(0))?
-            .filter_map(|r| r.ok())
-            .collect();
+        let registered_ids: Vec<String> = self
+            .data_service
+            .with_plugin_store(|store| {
+                Ok(store.plugins().iter().map(|p| p.id.clone()).collect())
+            })
+            .unwrap_or_default();
 
         for id in registered_ids {
             if !disk_plugins.contains_key(&id) {
-                self.remove_plugin_from_db(conn, &id)?;
+                self.remove_plugin(&id)?;
             }
         }
 
@@ -200,53 +194,57 @@ impl PluginRegistry {
 
     fn register_plugin(
         &self,
-        conn: &Connection,
         manifest: &PluginManifest,
         plugin_dir: &Path,
     ) -> Result<(), AppError> {
         let now = now_iso();
-        conn.execute(
-            "INSERT INTO plugins (id, title, description, version, author, enabled, install_path, installed_at, icon)
-             VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8)",
-            rusqlite::params![
-                manifest.plugin.name,
-                manifest.plugin.title,
-                manifest.plugin.description,
-                manifest.plugin.version,
-                manifest.plugin.author,
-                plugin_dir.to_string_lossy().to_string(),
-                now,
-                manifest.plugin.icon,
-            ],
-        )?;
-        Ok(())
+        let info = PluginInfo {
+            id: manifest.plugin.name.clone(),
+            title: manifest.plugin.title.clone(),
+            description: manifest.plugin.description.clone(),
+            version: manifest.plugin.version.clone(),
+            author: manifest.plugin.author.clone(),
+            enabled: true,
+            install_path: plugin_dir.to_string_lossy().to_string(),
+            installed_at: now,
+            updated_at: None,
+            icon: manifest.plugin.icon.clone(),
+            keywords: manifest.commands.iter().map(|c| c.keyword.clone()).collect(),
+            command_count: manifest.commands.len(),
+        };
+
+        self.data_service.with_plugin_store_mut(|store| {
+            store.register(info).map_err(|e| AppError::Generic(e))
+        })
     }
 
     fn update_plugin(
         &self,
-        conn: &Connection,
         manifest: &PluginManifest,
         plugin_dir: &Path,
     ) -> Result<(), AppError> {
         let now = now_iso();
-        conn.execute(
-            "UPDATE plugins SET title=?1, description=?2, version=?3, author=?4, install_path=?5, updated_at=?6, icon=?7
-             WHERE id=?8",
-            rusqlite::params![
-                manifest.plugin.title,
-                manifest.plugin.description,
-                manifest.plugin.version,
-                manifest.plugin.author,
-                plugin_dir.to_string_lossy().to_string(),
-                now,
-                manifest.plugin.icon,
-                manifest.plugin.name,
-            ],
-        )?;
-        Ok(())
+        let info = PluginInfo {
+            id: manifest.plugin.name.clone(),
+            title: manifest.plugin.title.clone(),
+            description: manifest.plugin.description.clone(),
+            version: manifest.plugin.version.clone(),
+            author: manifest.plugin.author.clone(),
+            enabled: true,
+            install_path: plugin_dir.to_string_lossy().to_string(),
+            installed_at: String::new(), // keep existing
+            updated_at: Some(now),
+            icon: manifest.plugin.icon.clone(),
+            keywords: manifest.commands.iter().map(|c| c.keyword.clone()).collect(),
+            command_count: manifest.commands.len(),
+        };
+
+        self.data_service.with_plugin_store_mut(|store| {
+            store.update(info).map_err(|e| AppError::Generic(e))
+        })
     }
 
-    fn remove_plugin_from_db(&self, conn: &Connection, id: &str) -> Result<(), AppError> {
+    fn remove_plugin(&self, id: &str) -> Result<(), AppError> {
         // Remove keywords from memory
         if let Ok(mut keywords) = self.keywords.lock() {
             keywords.retain(|_, v| v.plugin_id != id);
@@ -255,17 +253,13 @@ impl PluginRegistry {
             manifests.remove(id);
         }
 
-        conn.execute("DELETE FROM plugin_preferences WHERE plugin_id = ?1", [id])?;
-        conn.execute("DELETE FROM plugins WHERE id = ?1", [id])?;
-        Ok(())
+        self.data_service.with_plugin_store_mut(|store| {
+            store.remove(id).map_err(|e| AppError::Generic(e))
+        })
     }
 
     /// Install a plugin from a directory path (copy into plugins dir).
-    pub fn install_from_dir(
-        &self,
-        conn: &Connection,
-        source_dir: &Path,
-    ) -> Result<String, AppError> {
+    pub fn install_from_dir(&self, source_dir: &Path) -> Result<String, AppError> {
         let manifest_path = source_dir.join("plugin.toml");
         if !manifest_path.exists() {
             return Err(AppError::Generic(
@@ -290,8 +284,8 @@ impl PluginRegistry {
             copy_dir_recursive(source_dir, &dest_dir)?;
         }
 
-        // Register in DB
-        self.register_plugin(conn, &manifest, &dest_dir)?;
+        // Register
+        self.register_plugin(&manifest, &dest_dir)?;
         self.load_manifest_keywords(&manifest, &dest_dir)?;
         self.register_manifest_providers(&manifest, &dest_dir);
 
@@ -299,32 +293,34 @@ impl PluginRegistry {
     }
 
     /// Uninstall a plugin by ID.
-    pub fn uninstall(&self, conn: &Connection, plugin_id: &str) -> Result<(), AppError> {
+    pub fn uninstall(&self, plugin_id: &str) -> Result<(), AppError> {
         // Unregister providers first
         if let Some(manifest) = self.get_manifest(plugin_id) {
             self.unregister_manifest_providers(&manifest);
         }
 
-        let install_path: String = conn
-            .query_row(
-                "SELECT install_path FROM plugins WHERE id = ?1",
-                [plugin_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| AppError::Generic(format!("Plugin '{}' not found", plugin_id)))?;
+        let install_path = self
+            .data_service
+            .with_plugin_store(|store| {
+                store
+                    .find_by_id(plugin_id)
+                    .map(|p| p.install_path.clone())
+                    .ok_or_else(|| AppError::Generic(format!("Plugin '{}' not found", plugin_id)))
+            })?;
 
         let dir = PathBuf::from(&install_path);
         if dir.exists() {
             std::fs::remove_dir_all(&dir)?;
         }
 
-        self.remove_plugin_from_db(conn, plugin_id)?;
-        Ok(())
+        self.remove_plugin(plugin_id)
     }
 
     /// Enable a plugin.
-    pub fn enable(&self, conn: &Connection, plugin_id: &str) -> Result<(), AppError> {
-        conn.execute("UPDATE plugins SET enabled = 1 WHERE id = ?1", [plugin_id])?;
+    pub fn enable(&self, plugin_id: &str) -> Result<(), AppError> {
+        self.data_service.with_plugin_store_mut(|store| {
+            store.enable(plugin_id).map_err(|e| AppError::Generic(e))
+        })?;
 
         // Re-register keywords from the manifest
         let manifests = self
@@ -332,11 +328,17 @@ impl PluginRegistry {
             .lock()
             .map_err(|_| AppError::Generic("lock".to_string()))?;
         if let Some(manifest) = manifests.get(plugin_id) {
+            let install_path = self.data_service.with_plugin_store(|store| {
+                store
+                    .find_by_id(plugin_id)
+                    .map(|p| p.install_path.clone())
+                    .ok_or_else(|| AppError::Generic(format!("Plugin '{}' not found", plugin_id)))
+            })?;
+
             let mut keywords = self
                 .keywords
                 .lock()
                 .map_err(|_| AppError::Generic("lock".to_string()))?;
-            let install_path = self.get_install_path(conn, plugin_id)?;
             for cmd in &manifest.commands {
                 keywords.insert(
                     cmd.keyword.clone(),
@@ -355,8 +357,10 @@ impl PluginRegistry {
     }
 
     /// Disable a plugin.
-    pub fn disable(&self, conn: &Connection, plugin_id: &str) -> Result<(), AppError> {
-        conn.execute("UPDATE plugins SET enabled = 0 WHERE id = ?1", [plugin_id])?;
+    pub fn disable(&self, plugin_id: &str) -> Result<(), AppError> {
+        self.data_service.with_plugin_store_mut(|store| {
+            store.disable(plugin_id).map_err(|e| AppError::Generic(e))
+        })?;
 
         // Unregister search providers
         if let Some(manifest) = self.get_manifest(plugin_id) {
@@ -376,31 +380,10 @@ impl PluginRegistry {
     // ── Query ──────────────────────────────────────────────────────
 
     /// List all plugins.
-    pub fn list(&self, conn: &Connection) -> Result<Vec<PluginInfo>, AppError> {
-        let mut stmt = conn.prepare(
-            "SELECT id, title, description, version, author, enabled, install_path, installed_at, updated_at, icon
-             FROM plugins ORDER BY title"
-        )?;
-
-        let plugins = stmt
-            .query_map([], |row| {
-                Ok(PluginInfo {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    description: row.get(2)?,
-                    version: row.get(3)?,
-                    author: row.get(4)?,
-                    enabled: row.get::<_, i32>(5)? == 1,
-                    install_path: row.get(6)?,
-                    installed_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                    icon: row.get(9)?,
-                    keywords: Vec::new(), // filled below
-                    command_count: 0,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect::<Vec<_>>();
+    pub fn list(&self) -> Result<Vec<PluginInfo>, AppError> {
+        let plugins = self
+            .data_service
+            .with_plugin_store(|store| Ok(store.list()))?;
 
         // Enrich with keyword + command data from cached manifests
         let manifests = self
@@ -422,8 +405,8 @@ impl PluginRegistry {
     }
 
     /// Get a single plugin's info.
-    pub fn get(&self, conn: &Connection, plugin_id: &str) -> Result<PluginInfo, AppError> {
-        let all = self.list(conn)?;
+    pub fn get(&self, plugin_id: &str) -> Result<PluginInfo, AppError> {
+        let all = self.list()?;
         all.into_iter()
             .find(|p| p.id == plugin_id)
             .ok_or_else(|| AppError::Generic(format!("Plugin '{}' not found", plugin_id)))
@@ -450,37 +433,24 @@ impl PluginRegistry {
     // ── Preferences ────────────────────────────────────────────────
 
     /// Get all preferences for a plugin.
-    pub fn get_preferences(
-        &self,
-        conn: &Connection,
-        plugin_id: &str,
-    ) -> Result<HashMap<String, String>, AppError> {
-        let mut stmt =
-            conn.prepare("SELECT key, value FROM plugin_preferences WHERE plugin_id = ?1")?;
-
-        let prefs: HashMap<String, String> = stmt
-            .query_map([plugin_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        Ok(prefs)
+    pub fn get_preferences(&self, plugin_id: &str) -> Result<HashMap<String, String>, AppError> {
+        self.data_service.with_plugin_store(|store| {
+            Ok(store.get_preferences(plugin_id))
+        })
     }
 
     /// Set a preference value.
     pub fn set_preference(
         &self,
-        conn: &Connection,
         plugin_id: &str,
         key: &str,
         value: &str,
     ) -> Result<(), AppError> {
-        conn.execute(
-            "INSERT OR REPLACE INTO plugin_preferences (plugin_id, key, value) VALUES (?1, ?2, ?3)",
-            rusqlite::params![plugin_id, key, value],
-        )?;
-        Ok(())
+        self.data_service.with_plugin_store_mut(|store| {
+            store
+                .set_preference(plugin_id, key, value)
+                .map_err(|e| AppError::Generic(e))
+        })
     }
 
     // ── Helpers ────────────────────────────────────────────────────
@@ -500,44 +470,6 @@ impl PluginRegistry {
                 }
             }
         }
-        Ok(())
-    }
-
-    fn get_install_path(&self, conn: &Connection, plugin_id: &str) -> Result<String, AppError> {
-        conn.query_row(
-            "SELECT install_path FROM plugins WHERE id = ?1",
-            [plugin_id],
-            |row| row.get(0),
-        )
-        .map_err(|_| AppError::Generic(format!("Plugin '{}' not found", plugin_id)))
-    }
-
-    /// Ensure plugin tables exist in the database.
-    pub fn ensure_tables(conn: &Connection) -> Result<(), AppError> {
-        conn.execute_batch(
-            r#"
-            CREATE TABLE IF NOT EXISTS plugins (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT,
-                version TEXT NOT NULL,
-                author TEXT,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                install_path TEXT NOT NULL,
-                installed_at TEXT NOT NULL,
-                updated_at TEXT,
-                icon TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS plugin_preferences (
-                plugin_id TEXT NOT NULL,
-                key TEXT NOT NULL,
-                value TEXT,
-                PRIMARY KEY (plugin_id, key),
-                FOREIGN KEY (plugin_id) REFERENCES plugins(id) ON DELETE CASCADE
-            );
-            "#,
-        )?;
         Ok(())
     }
 

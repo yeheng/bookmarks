@@ -1,7 +1,6 @@
-use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 const SKIP_DIRECTORIES: &[&str] = &[
     "node_modules",
@@ -33,10 +32,7 @@ const SKIP_EXTENSIONS: &[&str] = &[
     "exe", "bin", "lock", "log",
 ];
 
-/// Maximum number of files to sample when estimating directory size
 const MAX_SAMPLE_FILES: usize = 1000;
-
-/// Multiplier to estimate total file count when sampling reaches limit
 const FILE_COUNT_ESTIMATE_MULTIPLIER: usize = 100;
 
 pub struct FileScanner {
@@ -49,11 +45,12 @@ pub struct ScanResult {
     pub errors: Vec<String>,
 }
 
+/// File data tuple for Tantivy indexing: (id, path, name, extension, size, modified_at, directory_id)
+pub type FileDataTuple = (i64, String, String, Option<String>, i64, i64, i64);
+
 impl FileScanner {
     pub fn new(include_hidden: bool) -> Self {
-        FileScanner {
-            include_hidden,
-        }
+        FileScanner { include_hidden }
     }
 
     pub fn estimate_file_count(&self, path: &Path) -> Result<usize, String> {
@@ -101,41 +98,34 @@ impl FileScanner {
         Ok(())
     }
 
-    pub fn scan_directory(
+    /// Scan a directory and return file data tuples for Tantivy indexing.
+    /// No longer writes to SQLite — returns data directly.
+    pub fn scan_directory_for_tantivy(
         &self,
-        conn: &Connection,
         directory_id: i64,
         path: &Path,
-    ) -> Result<ScanResult, String> {
+    ) -> Result<(ScanResult, Vec<FileDataTuple>), String> {
         let mut result = ScanResult {
             files_scanned: 0,
             files_indexed: 0,
             errors: Vec::new(),
         };
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let mut files = Vec::new();
+        let mut next_file_id: i64 = 1;
 
-        self.scan_recursive(conn, directory_id, path, now, &mut result)?;
+        self.scan_recursive_tantivy(directory_id, path, &mut result, &mut files, &mut next_file_id)?;
 
-        conn.execute(
-            "UPDATE search_directories SET last_indexed_at = ?1, file_count = ?2 WHERE id = ?3",
-            rusqlite::params![now, result.files_indexed as i64, directory_id],
-        )
-        .map_err(|e| format!("Failed to update directory stats: {}", e))?;
-
-        Ok(result)
+        Ok((result, files))
     }
 
-    fn scan_recursive(
+    fn scan_recursive_tantivy(
         &self,
-        conn: &Connection,
         directory_id: i64,
         path: &Path,
-        indexed_at: i64,
         result: &mut ScanResult,
+        files: &mut Vec<FileDataTuple>,
+        next_id: &mut i64,
     ) -> Result<(), String> {
         let entries = match fs::read_dir(path) {
             Ok(entries) => entries,
@@ -167,17 +157,49 @@ impl FileScanner {
                 if self.should_skip_directory(&file_name) {
                     continue;
                 }
-                self.scan_recursive(conn, directory_id, &entry_path, indexed_at, result)?;
+                self.scan_recursive_tantivy(directory_id, &entry_path, result, files, next_id)?;
             } else if entry_path.is_file() {
-                if let Err(e) = self.index_file(conn, directory_id, &entry_path, indexed_at) {
-                    result.errors.push(e);
-                } else {
+                if let Some(file_data) = self.collect_file_data(*next_id, directory_id, &entry_path) {
+                    files.push(file_data);
                     result.files_indexed += 1;
+                    *next_id += 1;
                 }
             }
         }
 
         Ok(())
+    }
+
+    fn collect_file_data(
+        &self,
+        file_id: i64,
+        directory_id: i64,
+        path: &Path,
+    ) -> Option<FileDataTuple> {
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if self.should_skip_file(&file_name) {
+            return None;
+        }
+
+        let extension = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_string());
+
+        let metadata = fs::metadata(path).ok()?;
+        let size = metadata.len() as i64;
+
+        let modified_at = metadata
+            .modified()
+            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+            .unwrap_or(0);
+
+        let path_str = path.to_string_lossy().to_string();
+
+        Some((file_id, path_str, file_name, extension, size, modified_at, directory_id))
     }
 
     fn should_skip_directory(&self, name: &str) -> bool {
@@ -191,134 +213,6 @@ impl FileScanner {
         } else {
             false
         }
-    }
-
-    fn index_file(
-        &self,
-        conn: &Connection,
-        directory_id: i64,
-        path: &Path,
-        indexed_at: i64,
-    ) -> Result<(), String> {
-        let file_name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        if self.should_skip_file(&file_name) {
-            return Ok(());
-        }
-
-        let extension = path
-            .extension()
-            .map(|e| e.to_string_lossy().to_string());
-
-        let metadata = fs::metadata(path)
-            .map_err(|e| format!("Failed to get metadata for {:?}: {}", path, e))?;
-
-        let size = metadata.len() as i64;
-
-        let modified_at = metadata
-            .modified()
-            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
-            .unwrap_or(indexed_at);
-
-        let created_at = metadata
-            .created()
-            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
-            .unwrap_or(indexed_at);
-
-        let path_str = path.to_string_lossy().to_string();
-
-        conn.execute(
-            "INSERT OR REPLACE INTO indexed_files
-             (path, name, extension, size, modified_at, created_at, indexed_at, directory_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            rusqlite::params![
-                path_str,
-                file_name,
-                extension,
-                size,
-                modified_at,
-                created_at,
-                indexed_at,
-                directory_id
-            ],
-        )
-        .map_err(|e| format!("Failed to insert file {:?}: {}", path, e))?;
-
-        Ok(())
-    }
-
-    pub fn remove_directory_files(conn: &Connection, directory_id: i64) -> Result<usize, String> {
-        let deleted = conn
-            .execute(
-                "DELETE FROM indexed_files WHERE directory_id = ?1",
-                [directory_id],
-            )
-            .map_err(|e| format!("Failed to delete files: {}", e))?;
-
-        Ok(deleted)
-    }
-
-    pub fn refresh_stale_files(
-        conn: &Connection,
-        directory_id: i64,
-        _directory_path: &Path,
-    ) -> Result<(usize, usize), String> {
-        let mut updated = 0;
-        let mut removed = 0;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, path, modified_at FROM indexed_files WHERE directory_id = ?1",
-            )
-            .map_err(|e| format!("Failed to prepare query: {}", e))?;
-
-        let files: Vec<(i64, String, i64)> = stmt
-            .query_map([directory_id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })
-            .map_err(|e| format!("Failed to query files: {}", e))?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        drop(stmt);
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
-        for (file_id, file_path, indexed_modified_at) in files {
-            let path = PathBuf::from(&file_path);
-
-            if !path.exists() {
-                conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
-                    .map_err(|e| format!("Failed to delete missing file: {}", e))?;
-                removed += 1;
-                continue;
-            }
-
-            if let Ok(metadata) = fs::metadata(&path) {
-                let current_modified = metadata
-                    .modified()
-                    .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
-                    .unwrap_or(0);
-
-                if current_modified > indexed_modified_at {
-                    let size = metadata.len() as i64;
-                    conn.execute(
-                        "UPDATE indexed_files SET size = ?1, modified_at = ?2, indexed_at = ?3 WHERE id = ?4",
-                        rusqlite::params![size, current_modified, now, file_id],
-                    )
-                    .map_err(|e| format!("Failed to update file: {}", e))?;
-                    updated += 1;
-                }
-            }
-        }
-
-        Ok((updated, removed))
     }
 
     pub fn get_default_directories() -> Vec<PathBuf> {

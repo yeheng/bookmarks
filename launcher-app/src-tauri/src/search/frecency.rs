@@ -1,7 +1,7 @@
 use crate::error::AppResult;
 use crate::services::data_service::DataService;
-use rusqlite::params;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Decay factor for frecency score.
@@ -10,13 +10,23 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const DECAY_FACTOR: f64 = 0.9;
 const INITIAL_SCORE: f64 = 100.0;
 
+/// In-memory usage log entry.
+struct UsageEvent {
+    accessed_at: i64,
+}
+
 pub struct FrecencyTracker {
     data_service: Arc<DataService>,
+    /// In-memory usage log: (source_id, item_id) -> events
+    usage_log: Mutex<HashMap<(String, String), Vec<UsageEvent>>>,
 }
 
 impl FrecencyTracker {
     pub fn new(data_service: Arc<DataService>) -> Self {
-        Self { data_service }
+        Self {
+            data_service,
+            usage_log: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Record a usage event (e.g. user clicked a result)
@@ -26,47 +36,42 @@ impl FrecencyTracker {
             .unwrap_or_default()
             .as_secs() as i64;
 
-        self.data_service.with_db(|conn| {
-            conn.execute(
-                "INSERT INTO usage_log (source_id, item_id, accessed_at) VALUES (?1, ?2, ?3)",
-                params![source_id, item_id, now],
-            )?;
-            Ok(())
-        })
+        if let Ok(mut log) = self.usage_log.lock() {
+            let key = (source_id.to_string(), item_id.to_string());
+            log.entry(key)
+                .or_default()
+                .push(UsageEvent { accessed_at: now });
+        }
+
+        Ok(())
     }
 
     /// Calculate the frecency score for an item.
-    /// Fetches all usage events, applies decay, and sums them up.
+    /// Uses in-memory usage events and applies decay.
     pub fn get_score(&self, source_id: &str, item_id: &str) -> AppResult<f64> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
 
-        // One day in seconds
         const DAY_SECS: i64 = 86400;
 
-        self.data_service.with_db(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT accessed_at FROM usage_log WHERE source_id = ?1 AND item_id = ?2",
-            )?;
+        let log = self.usage_log.lock().map_err(|_| crate::error::AppError::StoreLock)?;
+        let key = (source_id.to_string(), item_id.to_string());
 
-            let timestamps =
-                stmt.query_map(params![source_id, item_id], |row| row.get::<_, i64>(0))?;
-
-            let mut total_score = 0.0;
-
-            for ts in timestamps {
-                let ts = ts?;
-                let age_secs = (now - ts).max(0);
-                let age_days = age_secs as f64 / DAY_SECS as f64;
-
-                // Score = 100 * 0.9 ^ days
-                let score = INITIAL_SCORE * DECAY_FACTOR.powf(age_days);
-                total_score += score;
+        let total_score = match log.get(&key) {
+            Some(events) => {
+                let mut score = 0.0;
+                for event in events {
+                    let age_secs = (now - event.accessed_at).max(0);
+                    let age_days = age_secs as f64 / DAY_SECS as f64;
+                    score += INITIAL_SCORE * DECAY_FACTOR.powf(age_days);
+                }
+                score
             }
+            None => 0.0,
+        };
 
-            Ok(total_score)
-        })
+        Ok(total_score)
     }
 }

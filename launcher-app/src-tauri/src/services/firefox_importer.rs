@@ -1,20 +1,20 @@
 use crate::models::bookmark::ImportResult;
-use rusqlite::Connection;
+use crate::store::BookmarkStore;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct FirefoxImporter;
 
 impl FirefoxImporter {
-    pub fn import(conn: &Connection) -> Result<ImportResult, String> {
+    pub fn import(store: &mut BookmarkStore) -> Result<ImportResult, String> {
         let places_path = Self::get_firefox_places_path()?;
 
         let temp_copy = std::env::temp_dir().join("firefox_places_copy.sqlite");
         fs::copy(&places_path, &temp_copy)
             .map_err(|e| format!("Failed to copy Firefox database: {}", e))?;
 
-        let firefox_conn = Connection::open(&temp_copy)
+        // Use rusqlite to read the Firefox places.sqlite (read-only, temporary copy)
+        let firefox_conn = rusqlite::Connection::open(&temp_copy)
             .map_err(|e| format!("Failed to open Firefox database: {}", e))?;
 
         let mut result = ImportResult {
@@ -25,9 +25,9 @@ impl FirefoxImporter {
 
         let mut stmt = firefox_conn
             .prepare(
-                "SELECT mp.url, mb.title 
-                 FROM moz_bookmarks mb 
-                 JOIN moz_places mp ON mb.fk = mp.id 
+                "SELECT mp.url, mb.title
+                 FROM moz_bookmarks mb
+                 JOIN moz_places mp ON mb.fk = mp.id
                  WHERE mb.type = 1 AND mp.url IS NOT NULL",
             )
             .map_err(|e| format!("Failed to prepare Firefox query: {}", e))?;
@@ -42,7 +42,7 @@ impl FirefoxImporter {
             match bookmark {
                 Ok((url, title)) => {
                     let title = title.unwrap_or_else(|| url.clone());
-                    match Self::insert_bookmark(conn, &title, &url) {
+                    match store.import_bookmark(&title, &url, "firefox") {
                         Ok(true) => result.imported += 1,
                         Ok(false) => result.skipped += 1,
                         Err(e) => result.errors.push(e),
@@ -56,31 +56,10 @@ impl FirefoxImporter {
 
         let _ = fs::remove_file(temp_copy);
 
+        // Batch save after all imports
+        store.save().map_err(|e| format!("Failed to save bookmarks: {}", e))?;
+
         Ok(result)
-    }
-
-    fn insert_bookmark(conn: &Connection, title: &str, url: &str) -> Result<bool, String> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
-        let existing: Result<i64, _> =
-            conn.query_row("SELECT id FROM bookmarks WHERE url = ?1", [url], |row| {
-                row.get(0)
-            });
-
-        if existing.is_ok() {
-            return Ok(false);
-        }
-
-        conn.execute(
-            "INSERT INTO bookmarks (title, url, source, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![title, url, "firefox", now, now],
-        )
-        .map_err(|e| format!("Failed to insert bookmark: {}", e))?;
-
-        Ok(true)
     }
 
     fn get_firefox_places_path() -> Result<PathBuf, String> {

@@ -1,7 +1,5 @@
 use crate::commands::bookmarks::AppState;
-use crate::error::AppError;
 use tauri::State;
-use url;
 
 #[tauri::command]
 pub async fn fetch_favicon(
@@ -20,34 +18,21 @@ pub async fn fetch_favicon(
 
     let favicon_url = format!("{}/favicon.ico", base_url);
 
-    match state.http_client.get(&favicon_url).send().await {
-        Ok(response) if response.status().is_success() => {
-            state.data_service.with_db(|conn| {
-                conn.execute(
-                    "UPDATE bookmarks SET favicon_url = ?1 WHERE id = ?2",
-                    rusqlite::params![&favicon_url, bookmark_id],
-                )
-                .map_err(|e| AppError::Generic(format!("Failed to update favicon: {}", e)))?;
+    let final_url = match state.http_client.get(&favicon_url).send().await {
+        Ok(response) if response.status().is_success() => favicon_url,
+        _ => format!("https://www.google.com/s2/favicons?domain={}&sz=64", base_url),
+    };
 
-                Ok(())
-            }).map_err(|e| e.to_string())?;
+    // Update the bookmark's favicon_url in the store
+    state
+        .data_service
+        .with_bookmark_store_mut(|store| {
+            if let Some(bookmark) = store.bookmarks_mut().iter_mut().find(|b| b.id == Some(bookmark_id)) {
+                bookmark.favicon_url = Some(final_url.clone());
+            }
+            store.save().map_err(|e| crate::error::AppError::Generic(e))
+        })
+        .map_err(|e| e.to_string())?;
 
-            Ok(favicon_url)
-        }
-        _ => {
-            let google_favicon = format!("https://www.google.com/s2/favicons?domain={}&sz=64", base_url);
-
-            state.data_service.with_db(|conn| {
-                conn.execute(
-                    "UPDATE bookmarks SET favicon_url = ?1 WHERE id = ?2",
-                    rusqlite::params![&google_favicon, bookmark_id],
-                )
-                .map_err(|e| AppError::Generic(format!("Failed to update favicon: {}", e)))?;
-
-                Ok(())
-            }).map_err(|e| e.to_string())?;
-
-            Ok(google_favicon)
-        }
-    }
+    Ok(final_url)
 }

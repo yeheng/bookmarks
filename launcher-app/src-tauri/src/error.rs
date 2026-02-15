@@ -1,22 +1,13 @@
 //! Application-wide error types
-//!
-//! This module defines a unified error type for the entire application,
-//! replacing scattered String errors with proper, type-safe error handling.
 
 use thiserror::Error;
 
 /// Application-level error type
-///
-/// This enum covers all error cases across the application, providing
-/// better error handling than String-based errors.
 #[derive(Error, Debug)]
 pub enum AppError {
-    // Database errors
-    #[error("Database error: {0}")]
-    Database(#[from] rusqlite::Error),
-
-    #[error("Failed to acquire database lock")]
-    DatabaseLock,
+    // Store errors
+    #[error("Failed to acquire store lock")]
+    StoreLock,
 
     #[error("Bookmark not found")]
     BookmarkNotFound,
@@ -89,8 +80,7 @@ impl AppError {
     /// Get a numeric error code for this error type
     pub fn code(&self) -> u32 {
         match self {
-            AppError::Database(_) => 1001,
-            AppError::DatabaseLock => 1002,
+            AppError::StoreLock => 1002,
             AppError::BookmarkNotFound => 2001,
             AppError::DuplicateBookmark(_) => 2002,
             AppError::FileNotFound(_) => 3001,
@@ -146,7 +136,6 @@ impl From<&str> for AppError {
 }
 
 // Implement conversion to String for Tauri commands
-// Tauri commands require Result<T, String>, so we provide this conversion
 impl From<AppError> for String {
     fn from(err: AppError) -> String {
         err.to_string()

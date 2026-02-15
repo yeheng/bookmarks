@@ -15,16 +15,13 @@ pub struct OpenResult {
 
 #[tauri::command]
 pub fn open_bookmark(state: State<AppState>, bookmark_id: i64) -> Result<OpenResult, String> {
-    let url = state.data_service.with_db(|conn| {
-        let url: String = conn
-            .query_row(
-                "SELECT url FROM bookmarks WHERE id = ?1",
-                [bookmark_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| AppError::BookmarkNotFound)?;
-        Ok(url)
-    }).map_err(|e| e.to_string())?;
+    let url = state
+        .data_service
+        .with_bookmark_store(|store| {
+            let bookmark = store.find_by_id(bookmark_id).ok_or(AppError::BookmarkNotFound)?;
+            Ok(bookmark.url.clone())
+        })
+        .map_err(|e| e.to_string())?;
 
     if url.is_empty() {
         return Ok(OpenResult {
@@ -64,27 +61,29 @@ pub fn open_bookmark(state: State<AppState>, bookmark_id: i64) -> Result<OpenRes
 
 #[tauri::command]
 pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, String> {
-    let path = state.data_service.with_db(|conn| {
-        let path: String = conn
-            .query_row(
-                "SELECT path FROM indexed_files WHERE id = ?1",
-                [file_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| AppError::FileNotFound("File not found in index".to_string()))?;
-        Ok(path)
-    }).map_err(|e| e.to_string())?;
+    // Look up file path from Tantivy search engine
+    let file = state
+        .data_service
+        .search_engine()
+        .search_files("", 1, None)
+        .ok()
+        .and_then(|results| results.into_iter().find(|f| f.id == file_id));
+
+    let path = match file {
+        Some(f) => f.path,
+        None => {
+            return Ok(OpenResult {
+                success: false,
+                resource_type: "file".to_string(),
+                resource_id: file_id,
+                error: Some("File not found in index".to_string()),
+            });
+        }
+    };
 
     let file_path = Path::new(&path);
 
-    // Check file existence before attempting to open
     if !file_path.exists() {
-        // Clean up stale DB record
-        let _ = state.data_service.with_db(|conn| {
-            conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
-                .map_err(|e| AppError::Generic(e.to_string()))?;
-            Ok(())
-        });
         return Ok(OpenResult {
             success: false,
             resource_type: "file".to_string(),
@@ -95,10 +94,15 @@ pub fn open_file(state: State<AppState>, file_id: i64) -> Result<OpenResult, Str
 
     match open::that(&path) {
         Ok(_) => {
-            // Record access in database
-            let _ = state.data_service.with_db(|conn| {
-                record_resource_access(conn, "file", file_id)
-            });
+            // Record file access in Tantivy (best-effort)
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let _ = state
+                .data_service
+                .search_engine()
+                .update_file_frecency(file_id, 1, now);
 
             Ok(OpenResult {
                 success: true,
@@ -265,39 +269,6 @@ pub fn open_resource(
     }
 }
 
-fn record_resource_access(
-    conn: &rusqlite::Connection,
-    resource_type: &str,
-    resource_id: i64,
-) -> Result<(), AppError> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs() as i64;
-
-    match resource_type {
-        "bookmark" => {
-            conn.execute(
-                "UPDATE bookmarks SET last_accessed = ?1 WHERE id = ?2",
-                rusqlite::params![now, resource_id],
-            )?;
-
-            conn.execute(
-                "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
-                rusqlite::params![resource_id, now],
-            )?;
-        }
-        "file" => {
-            conn.execute(
-                "INSERT INTO file_usage_history (file_id, accessed_at) VALUES (?1, ?2)",
-                rusqlite::params![resource_id, now],
-            )?;
-        }
-        _ => {}
-    }
-
-    Ok(())
-}
-
 fn is_valid_url(url: &str) -> bool {
     url.starts_with("http://")
         || url.starts_with("https://")
@@ -308,16 +279,13 @@ fn is_valid_url(url: &str) -> bool {
 
 #[tauri::command]
 pub fn check_bookmark_url(state: State<AppState>, bookmark_id: i64) -> Result<UrlCheckResult, String> {
-    let url = state.data_service.with_db(|conn| {
-        let url: String = conn
-            .query_row(
-                "SELECT url FROM bookmarks WHERE id = ?1",
-                [bookmark_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| AppError::BookmarkNotFound)?;
-        Ok(url)
-    }).map_err(|e| e.to_string())?;
+    let url = state
+        .data_service
+        .with_bookmark_store(|store| {
+            let bookmark = store.find_by_id(bookmark_id).ok_or(AppError::BookmarkNotFound)?;
+            Ok(bookmark.url.clone())
+        })
+        .map_err(|e| e.to_string())?;
 
     let valid = is_valid_url(&url);
 
@@ -335,26 +303,26 @@ pub fn check_bookmark_url(state: State<AppState>, bookmark_id: i64) -> Result<Ur
 
 #[tauri::command]
 pub fn check_file_exists(state: State<AppState>, file_id: i64) -> Result<FileCheckResult, String> {
-    let path = state.data_service.with_db(|conn| {
-        let path: String = conn
-            .query_row(
-                "SELECT path FROM indexed_files WHERE id = ?1",
-                [file_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| AppError::FileNotFound("File not found in index".to_string()))?;
-        Ok(path)
-    }).map_err(|e| e.to_string())?;
+    // Look up file path from Tantivy
+    let file = state
+        .data_service
+        .search_engine()
+        .search_files("", 1, None)
+        .ok()
+        .and_then(|results| results.into_iter().find(|f| f.id == file_id));
+
+    let path = match file {
+        Some(f) => f.path,
+        None => {
+            return Ok(FileCheckResult {
+                file_id,
+                path: String::new(),
+                exists: false,
+            });
+        }
+    };
 
     let exists = Path::new(&path).exists();
-
-    if !exists {
-        let _ = state.data_service.with_db(|conn| {
-            conn.execute("DELETE FROM indexed_files WHERE id = ?1", [file_id])
-                .map_err(|e| AppError::Generic(e.to_string()))?;
-            Ok(())
-        });
-    }
 
     Ok(FileCheckResult {
         file_id,

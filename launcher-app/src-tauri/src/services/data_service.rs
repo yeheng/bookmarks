@@ -1,27 +1,21 @@
 /// Data Service Layer
 ///
 /// This service provides atomic operations that coordinate writes between
-/// SQLite (source of truth) and Tantivy (search index).
+/// JSON stores (source of truth) and Tantivy (search index).
 ///
-/// Design principles (Linus-style simplicity):
-/// 1. SQLite is the authoritative source of truth
-/// 2. Tantivy index is a cache - if it's corrupted, rebuild from SQLite
+/// Design principles:
+/// 1. JSON files are the authoritative source of truth for bookmarks/directories
+/// 2. Tantivy index is a cache - if it's corrupted, rebuild from JSON stores
 /// 3. No complex recovery mechanisms - just rebuild_if_needed on startup
 /// 4. Direct index updates, no batching needed for desktop app
-///
-/// Locking Strategy:
-/// - ALWAYS acquire DB lock first, then release BEFORE calling search_engine methods
-/// - This prevents deadlocks and ensures DB operations are not blocked by slow index updates
-/// - Pattern: acquire DB lock -> read/write DB -> release DB lock -> update index
 
-use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::search::TantivySearchEngine;
-use rusqlite::Connection;
-use std::sync::{Arc, Mutex};
+use crate::store::{BookmarkStore, DirectoryStore, SettingsStore, PluginStore};
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Type alias for bookmark data tuple returned from database
+/// Type alias for bookmark data tuple used for Tantivy indexing.
 pub type BookmarkData = (
     i64,              // id
     String,           // title
@@ -33,7 +27,7 @@ pub type BookmarkData = (
     i64,              // updated_at
 );
 
-/// Type alias for file data tuple returned from database
+/// Type alias for file data tuple used for Tantivy indexing.
 pub type FileData = (
     i64,              // id
     String,           // path
@@ -45,88 +39,54 @@ pub type FileData = (
 );
 
 pub struct DataService {
-    db: Mutex<Database>,
+    bookmark_store: RwLock<BookmarkStore>,
+    directory_store: RwLock<DirectoryStore>,
+    settings_store: RwLock<SettingsStore>,
+    plugin_store: RwLock<PluginStore>,
     search_engine: Arc<TantivySearchEngine>,
 }
 
 impl DataService {
-    pub fn new(db: Database, search_engine: Arc<TantivySearchEngine>) -> Self {
+    pub fn new(
+        bookmark_store: BookmarkStore,
+        directory_store: DirectoryStore,
+        settings_store: SettingsStore,
+        plugin_store: PluginStore,
+        search_engine: Arc<TantivySearchEngine>,
+    ) -> Self {
         Self {
-            db: Mutex::new(db),
+            bookmark_store: RwLock::new(bookmark_store),
+            directory_store: RwLock::new(directory_store),
+            settings_store: RwLock::new(settings_store),
+            plugin_store: RwLock::new(plugin_store),
             search_engine,
         }
     }
 
-    /// Execute a closure with database connection (read-only access pattern)
-    ///
-    /// This method provides safe access to the database connection for read operations.
-    /// The lock is released when the closure returns.
-    pub fn with_db<F, T>(&self, f: F) -> AppResult<T>
-    where
-        F: FnOnce(&Connection) -> AppResult<T>,
-    {
-        let db = self.db.lock().map_err(|_| AppError::DatabaseLock)?;
-        f(db.get_connection())
-    }
-
-    /// Get access to the search engine
+    /// Get access to the search engine.
     pub fn search_engine(&self) -> &Arc<TantivySearchEngine> {
         &self.search_engine
     }
 
-    /// Get all bookmarks and files from database.
-    /// Returns (bookmarks, files) tuples for use in index rebuilding.
-    pub fn get_all_index_data(&self) -> AppResult<(Vec<BookmarkData>, Vec<FileData>)> {
-        self.with_db(|conn| {
-            // Fetch all bookmarks
-            let mut stmt = conn.prepare(
-                "SELECT id, title, url, description, tags, last_accessed, created_at, updated_at
-                 FROM bookmarks"
-            )?;
-            let bookmarks: Vec<BookmarkData> = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<i64>>(5)?,
-                        row.get::<_, i64>(6)?,
-                        row.get::<_, i64>(7)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
+    // ── Bookmark operations ──────────────────────────────────────────
 
-            // Fetch all files
-            let mut stmt = conn.prepare(
-                "SELECT id, path, name, extension, size, modified_at, directory_id
-                 FROM indexed_files"
-            )?;
-            let files: Vec<FileData> = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, i64>(6)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-
-            Ok((bookmarks, files))
-        })
+    pub fn with_bookmark_store<F, T>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&BookmarkStore) -> AppResult<T>,
+    {
+        let store = self.bookmark_store.read().map_err(|_| AppError::StoreLock)?;
+        f(&store)
     }
 
-    /// Add a bookmark with atomic DB + Index update
-    ///
-    /// Strategy:
-    /// 1. Write to SQLite (source of truth)
-    /// 2. Update Tantivy index
-    /// If index update fails, it's logged but not rolled back - index can be rebuilt later.
+    pub fn with_bookmark_store_mut<F, T>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&mut BookmarkStore) -> AppResult<T>,
+    {
+        let mut store = self.bookmark_store.write().map_err(|_| AppError::StoreLock)?;
+        f(&mut store)
+    }
+
+    /// Add a bookmark with atomic store + index update.
     pub fn add_bookmark(
         &self,
         title: String,
@@ -134,37 +94,16 @@ impl DataService {
         description: Option<String>,
         tags: Option<String>,
     ) -> AppResult<i64> {
-        let db = self
-            .db
-            .lock()
-            .map_err(|_| AppError::DatabaseLock)?;
-        let conn = db.get_connection();
+        let id = {
+            let mut store = self.bookmark_store.write().map_err(|_| AppError::StoreLock)?;
+            store
+                .add(title.clone(), url.clone(), description.clone(), tags.clone(), "manual".to_string())
+                .map_err(|e| AppError::DuplicateBookmark(e))?
+        };
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)?
             .as_secs() as i64;
-
-        // Check for duplicates
-        let existing: Result<i64, _> =
-            conn.query_row("SELECT id FROM bookmarks WHERE url = ?1", [&url], |row| {
-                row.get(0)
-            });
-
-        if existing.is_ok() {
-            return Err(AppError::DuplicateBookmark(url));
-        }
-
-        // Write to SQLite (source of truth)
-        conn.execute(
-            "INSERT INTO bookmarks (title, url, description, tags, source, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![title, url, description, tags, "manual", now, now],
-        )?;
-
-        let id = conn.last_insert_rowid();
-
-        // Release DB lock before indexing (Tantivy operations are slow)
-        drop(db);
 
         // Update Tantivy index (best-effort)
         if let Err(e) = self.search_engine.index_bookmark(
@@ -181,13 +120,12 @@ impl DataService {
                 "[DataService] Warning: Failed to index bookmark {}: {}. Index may need rebuild.",
                 id, e
             );
-            // DO NOT rollback the database - SQLite is the source of truth
         }
 
         Ok(id)
     }
 
-    /// Update a bookmark atomically
+    /// Update a bookmark atomically.
     pub fn update_bookmark(
         &self,
         id: i64,
@@ -196,35 +134,21 @@ impl DataService {
         description: Option<String>,
         tags: Option<String>,
     ) -> AppResult<()> {
-        let db = self
-            .db
-            .lock()
-            .map_err(|_| AppError::DatabaseLock)?;
-        let conn = db.get_connection();
+        let (created_at, last_accessed) = {
+            let store = self.bookmark_store.read().map_err(|_| AppError::StoreLock)?;
+            let bookmark = store.find_by_id(id).ok_or(AppError::BookmarkNotFound)?;
+            (bookmark.created_at, bookmark.last_accessed)
+        };
+
+        {
+            let mut store = self.bookmark_store.write().map_err(|_| AppError::StoreLock)?;
+            store.update(id, title.clone(), url.clone(), description.clone(), tags.clone())
+                .map_err(|e| AppError::Generic(e))?;
+        }
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)?
             .as_secs() as i64;
-
-        // Get metadata for re-indexing
-        let (created_at, last_accessed): (i64, Option<i64>) = conn
-            .query_row(
-                "SELECT created_at, last_accessed FROM bookmarks WHERE id = ?1",
-                [id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|_| AppError::BookmarkNotFound)?;
-
-        let rows_affected = conn.execute(
-            "UPDATE bookmarks SET title = ?1, url = ?2, description = ?3, tags = ?4, updated_at = ?5 WHERE id = ?6",
-            rusqlite::params![title, url, description, tags, now, id],
-        )?;
-
-        if rows_affected == 0 {
-            return Err(AppError::BookmarkNotFound);
-        }
-
-        drop(db);
 
         // Re-index in Tantivy (best-effort)
         if let Err(e) = self.search_engine.index_bookmark(
@@ -246,21 +170,12 @@ impl DataService {
         Ok(())
     }
 
-    /// Delete a bookmark atomically
+    /// Delete a bookmark atomically.
     pub fn delete_bookmark(&self, id: i64) -> AppResult<()> {
-        let db = self
-            .db
-            .lock()
-            .map_err(|_| AppError::DatabaseLock)?;
-        let conn = db.get_connection();
-
-        let rows_affected = conn.execute("DELETE FROM bookmarks WHERE id = ?1", [id])?;
-
-        if rows_affected == 0 {
-            return Err(AppError::BookmarkNotFound);
+        {
+            let mut store = self.bookmark_store.write().map_err(|_| AppError::StoreLock)?;
+            store.delete(id).map_err(|e| AppError::Generic(e))?;
         }
-
-        drop(db);
 
         // Remove from Tantivy index (best-effort)
         if let Err(e) = self.search_engine.delete_bookmark(id) {
@@ -273,121 +188,113 @@ impl DataService {
         Ok(())
     }
 
+    // ── Directory operations ─────────────────────────────────────────
+
+    pub fn with_directory_store<F, T>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&DirectoryStore) -> AppResult<T>,
+    {
+        let store = self.directory_store.read().map_err(|_| AppError::StoreLock)?;
+        f(&store)
+    }
+
+    pub fn with_directory_store_mut<F, T>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&mut DirectoryStore) -> AppResult<T>,
+    {
+        let mut store = self.directory_store.write().map_err(|_| AppError::StoreLock)?;
+        f(&mut store)
+    }
+
+    // ── Settings operations ──────────────────────────────────────────
+
+    pub fn with_settings_store<F, T>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&SettingsStore) -> AppResult<T>,
+    {
+        let store = self.settings_store.read().map_err(|_| AppError::StoreLock)?;
+        f(&store)
+    }
+
+    pub fn with_settings_store_mut<F, T>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&mut SettingsStore) -> AppResult<T>,
+    {
+        let mut store = self.settings_store.write().map_err(|_| AppError::StoreLock)?;
+        f(&mut store)
+    }
+
+    // ── Plugin operations ────────────────────────────────────────────
+
+    pub fn with_plugin_store<F, T>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&PluginStore) -> AppResult<T>,
+    {
+        let store = self.plugin_store.read().map_err(|_| AppError::StoreLock)?;
+        f(&store)
+    }
+
+    pub fn with_plugin_store_mut<F, T>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&mut PluginStore) -> AppResult<T>,
+    {
+        let mut store = self.plugin_store.write().map_err(|_| AppError::StoreLock)?;
+        f(&mut store)
+    }
+
+    // ── Index operations ─────────────────────────────────────────────
+
+    /// Get all bookmark data for index rebuilding.
+    pub fn get_all_index_data(&self) -> AppResult<(Vec<BookmarkData>, Vec<FileData>)> {
+        let bookmarks = {
+            let store = self.bookmark_store.read().map_err(|_| AppError::StoreLock)?;
+            store.get_index_data()
+        };
+
+        // Files are stored in Tantivy only; for rebuild, we re-scan from filesystem.
+        // Return empty file list — caller should re-scan directories.
+        Ok((bookmarks, Vec::new()))
+    }
+
     /// Check index integrity and rebuild if needed.
-    ///
-    /// Simple strategy: compare document counts. If they differ significantly,
-    /// trigger a full rebuild.
     pub fn rebuild_index_if_needed(&self) -> AppResult<bool> {
-        let db = self
-            .db
-            .lock()
-            .map_err(|_| AppError::DatabaseLock)?;
-        let conn = db.get_connection();
+        let db_bookmark_count = {
+            let store = self.bookmark_store.read().map_err(|_| AppError::StoreLock)?;
+            store.count() as i64
+        };
 
-        // Get bookmark count from SQLite
-        let db_bookmark_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM bookmarks", [], |row| row.get(0))
-            .unwrap_or(0);
-
-        // Get file count from SQLite
-        let db_file_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM indexed_files", [], |row| row.get(0))
-            .unwrap_or(0);
-
-        drop(db);
-
-        // Get counts from Tantivy index
         let stats = self.search_engine.get_stats()
             .map_err(|e| AppError::Search(e.to_string()))?;
 
         let index_bookmark_count = stats.bookmark_count as i64;
-        let index_file_count = stats.file_count as i64;
-
-        // Check if counts differ significantly (allow some tolerance)
         let bookmark_diff = (db_bookmark_count - index_bookmark_count).abs();
-        let file_diff = (db_file_count - index_file_count).abs();
 
-        // If difference is more than 10% or absolute difference > 10, rebuild
         let needs_rebuild =
             (db_bookmark_count > 0 && bookmark_diff > db_bookmark_count / 10) ||
-            bookmark_diff > 10 ||
-            (db_file_count > 0 && file_diff > db_file_count / 10) ||
-            file_diff > 10;
+            bookmark_diff > 10;
 
         if needs_rebuild {
             println!(
-                "[DataService] Index mismatch detected. DB: {} bookmarks, {} files. Index: {} bookmarks, {} files. Rebuilding...",
-                db_bookmark_count, db_file_count, index_bookmark_count, index_file_count
+                "[DataService] Index mismatch detected. Store: {} bookmarks. Index: {} bookmarks. Rebuilding...",
+                db_bookmark_count, index_bookmark_count
             );
-            self.rebuild_all_indexes()?;
+            self.rebuild_bookmark_index()?;
             return Ok(true);
         }
 
         Ok(false)
     }
 
-    /// Rebuild all indexes from database
-    fn rebuild_all_indexes(&self) -> AppResult<()> {
-        // Fetch all data from database in a scoped block
-        let (bookmarks, files) = {
-            let db = self
-                .db
-                .lock()
-                .map_err(|_| AppError::DatabaseLock)?;
-            let conn = db.get_connection();
-
-            // Fetch all bookmarks
-            let mut stmt = conn.prepare(
-                "SELECT id, title, url, description, tags, last_accessed, created_at, updated_at
-                 FROM bookmarks"
-            )?;
-            let bookmarks: Vec<_> = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<i64>>(5)?,
-                        row.get::<_, i64>(6)?,
-                        row.get::<_, i64>(7)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-
-            // Fetch all files
-            let mut stmt = conn.prepare(
-                "SELECT id, path, name, extension, size, modified_at, directory_id
-                 FROM indexed_files"
-            )?;
-            let files: Vec<_> = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, i64>(6)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-
-            (bookmarks, files)
-            // db lock released here at end of scope
+    /// Rebuild bookmark index from JSON store.
+    fn rebuild_bookmark_index(&self) -> AppResult<()> {
+        let bookmarks = {
+            let store = self.bookmark_store.read().map_err(|_| AppError::StoreLock)?;
+            store.get_index_data()
         };
 
-        // Rebuild bookmark index (no DB lock held)
-        let bookmark_count = self.search_engine.rebuild_bookmark_index_from_data(bookmarks)
+        let count = self.search_engine.rebuild_bookmark_index_from_data(bookmarks)
             .map_err(|e| AppError::Search(e.to_string()))?;
-        println!("[DataService] Rebuilt bookmark index with {} entries", bookmark_count);
-
-        // Rebuild file index
-        let file_count = self.search_engine.rebuild_file_index_from_data(files)
-            .map_err(|e| AppError::Search(e.to_string()))?;
-        println!("[DataService] Rebuilt file index with {} entries", file_count);
+        println!("[DataService] Rebuilt bookmark index with {} entries", count);
 
         Ok(())
     }

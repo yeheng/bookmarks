@@ -44,11 +44,8 @@ pub fn execute_plugin_command(
         ))?;
 
     // Get plugin preferences
-    let preferences = state
-        .data_service
-        .with_db(|conn| {
-            registry.get_preferences(conn, &entry.plugin_id)
-        })
+    let preferences = registry
+        .get_preferences(&entry.plugin_id)
         .unwrap_or_default();
 
     // Execute the plugin command
@@ -72,10 +69,7 @@ pub fn list_plugins(state: State<AppState>) -> Result<Vec<PluginInfo>, String> {
         .as_ref()
         .ok_or("Plugin system not initialized")?;
 
-    state
-        .data_service
-        .with_db(|conn| registry.list(conn))
-        .map_err(|e| e.to_string())
+    registry.list().map_err(|e| e.to_string())
 }
 
 /// Install a plugin from a local directory path.
@@ -91,9 +85,8 @@ pub fn install_plugin(state: State<AppState>, source_path: String) -> Result<Str
         return Err(format!("Path does not exist: {}", source_path));
     }
 
-    state
-        .data_service
-        .with_db(|conn| registry.install_from_dir(conn, &path))
+    registry
+        .install_from_dir(&path)
         .map_err(|e| e.to_string())
 }
 
@@ -105,10 +98,7 @@ pub fn uninstall_plugin(state: State<AppState>, plugin_id: String) -> Result<(),
         .as_ref()
         .ok_or("Plugin system not initialized")?;
 
-    state
-        .data_service
-        .with_db(|conn| registry.uninstall(conn, &plugin_id))
-        .map_err(|e| e.to_string())
+    registry.uninstall(&plugin_id).map_err(|e| e.to_string())
 }
 
 /// Enable a plugin.
@@ -119,10 +109,7 @@ pub fn enable_plugin(state: State<AppState>, plugin_id: String) -> Result<(), St
         .as_ref()
         .ok_or("Plugin system not initialized")?;
 
-    state
-        .data_service
-        .with_db(|conn| registry.enable(conn, &plugin_id))
-        .map_err(|e| e.to_string())
+    registry.enable(&plugin_id).map_err(|e| e.to_string())
 }
 
 /// Disable a plugin.
@@ -133,10 +120,7 @@ pub fn disable_plugin(state: State<AppState>, plugin_id: String) -> Result<(), S
         .as_ref()
         .ok_or("Plugin system not initialized")?;
 
-    state
-        .data_service
-        .with_db(|conn| registry.disable(conn, &plugin_id))
-        .map_err(|e| e.to_string())
+    registry.disable(&plugin_id).map_err(|e| e.to_string())
 }
 
 /// Get plugin preferences.
@@ -150,9 +134,8 @@ pub fn get_plugin_preferences(
         .as_ref()
         .ok_or("Plugin system not initialized")?;
 
-    state
-        .data_service
-        .with_db(|conn| registry.get_preferences(conn, &plugin_id))
+    registry
+        .get_preferences(&plugin_id)
         .map_err(|e| e.to_string())
 }
 
@@ -169,9 +152,8 @@ pub fn set_plugin_preference(
         .as_ref()
         .ok_or("Plugin system not initialized")?;
 
-    state
-        .data_service
-        .with_db(|conn| registry.set_preference(conn, &plugin_id, &key, &value))
+    registry
+        .set_preference(&plugin_id, &key, &value)
         .map_err(|e| e.to_string())
 }
 
@@ -187,10 +169,7 @@ pub fn get_plugin_log(state: State<AppState>, plugin_id: String) -> Result<Strin
         .as_ref()
         .ok_or("Plugin executor not initialized")?;
 
-    let info = state
-        .data_service
-        .with_db(|conn| registry.get(conn, &plugin_id))
-        .map_err(|e| e.to_string())?;
+    let info = registry.get(&plugin_id).map_err(|e| e.to_string())?;
 
     let plugin_dir = std::path::PathBuf::from(&info.install_path);
     executor.get_log(&plugin_dir).map_err(|e| e.to_string())
@@ -207,7 +186,7 @@ pub fn get_plugin_keywords(state: State<AppState>) -> Result<Vec<String>, String
     Ok(registry.get_keywords())
 }
 
-/// Get the manifest preferences schema for a plugin (for auto-generating config UI).
+/// Get the manifest preferences schema for a plugin.
 #[tauri::command]
 pub fn get_plugin_manifest_preferences(
     state: State<AppState>,

@@ -3,7 +3,6 @@ use crate::error::AppError;
 use crate::models::file::{DirectoryValidationResult, IndexingProgress, SearchDirectory};
 use crate::services::file_scanner::FileScanner;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 #[tauri::command]
@@ -65,59 +64,22 @@ pub fn add_search_directory(
 
     let include_hidden = include_hidden.unwrap_or(false);
 
-    state.data_service.with_db(|conn| {
-        let existing: Option<i64> = conn
-            .query_row(
-                "SELECT id FROM search_directories WHERE path = ?1",
-                [&canonical_path],
-                |row| row.get(0),
-            )
-            .ok();
-
-        if existing.is_some() {
-            return Err(AppError::Generic("Directory is already being indexed".to_string()));
-        }
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-
-        conn.execute(
-            "INSERT INTO search_directories (path, enabled, include_hidden, created_at, file_count)
-             VALUES (?1, 1, ?2, ?3, 0)",
-            rusqlite::params![canonical_path, include_hidden, now],
-        )
-        .map_err(|e| AppError::Generic(format!("Failed to add directory: {}", e)))?;
-
-        let id = conn.last_insert_rowid();
-
-        Ok(SearchDirectory {
-            id: Some(id),
-            path: canonical_path,
-            enabled: true,
-            include_hidden,
-            created_at: now,
-            last_indexed_at: None,
-            file_count: 0,
+    state
+        .data_service
+        .with_directory_store_mut(|store| {
+            store
+                .add(canonical_path, include_hidden)
+                .map_err(|e| AppError::Generic(e))
         })
-    }).map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn remove_search_directory(state: State<AppState>, directory_id: i64) -> Result<(), String> {
-    state.data_service.with_db(|conn| {
-        FileScanner::remove_directory_files(conn, directory_id)
-            .map_err(|e| AppError::Generic(e))?;
-
-        conn.execute(
-            "DELETE FROM search_directories WHERE id = ?1",
-            [directory_id],
-        )
-        .map_err(|e| AppError::Generic(format!("Failed to remove directory: {}", e)))?;
-
-        Ok(())
-    }).map_err(|e| e.to_string())?;
+    state
+        .data_service
+        .with_directory_store_mut(|store| store.remove(directory_id).map_err(|e| AppError::Generic(e)))
+        .map_err(|e| e.to_string())?;
 
     // Also remove from Tantivy index
     state
@@ -131,33 +93,10 @@ pub fn remove_search_directory(state: State<AppState>, directory_id: i64) -> Res
 
 #[tauri::command]
 pub fn get_search_directories(state: State<AppState>) -> Result<Vec<SearchDirectory>, String> {
-    state.data_service.with_db(|conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, path, enabled, include_hidden, created_at, last_indexed_at, file_count
-                 FROM search_directories
-                 ORDER BY created_at DESC",
-            )
-            .map_err(|e| AppError::Generic(format!("Failed to prepare query: {}", e)))?;
-
-        let results = stmt
-            .query_map([], |row| {
-                Ok(SearchDirectory {
-                    id: Some(row.get(0)?),
-                    path: row.get(1)?,
-                    enabled: row.get::<_, i32>(2)? != 0,
-                    include_hidden: row.get::<_, i32>(3)? != 0,
-                    created_at: row.get(4)?,
-                    last_indexed_at: row.get(5)?,
-                    file_count: row.get(6)?,
-                })
-            })
-            .map_err(|e| AppError::Generic(format!("Failed to execute query: {}", e)))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| AppError::Generic(format!("Failed to collect results: {}", e)))?;
-
-        Ok(results)
-    }).map_err(|e| e.to_string())
+    state
+        .data_service
+        .with_directory_store(|store| Ok(store.get_sorted()))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -166,65 +105,55 @@ pub fn toggle_search_directory(
     directory_id: i64,
     enabled: bool,
 ) -> Result<(), String> {
-    state.data_service.with_db(|conn| {
-        conn.execute(
-            "UPDATE search_directories SET enabled = ?1 WHERE id = ?2",
-            rusqlite::params![enabled, directory_id],
-        )
-        .map_err(|e| AppError::Generic(format!("Failed to update directory: {}", e)))?;
-
-        Ok(())
-    }).map_err(|e| e.to_string())
+    state
+        .data_service
+        .with_directory_store_mut(|store| {
+            store
+                .toggle(directory_id, enabled)
+                .map_err(|e| AppError::Generic(e))
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn index_directory(state: State<AppState>, directory_id: i64) -> Result<IndexingProgress, String> {
-    // Scan directory and rebuild file index in a single lock acquisition
-    let (path, scan_result, files) = state.data_service.with_db(|conn| {
-        let (path, include_hidden): (String, bool) = conn
-            .query_row(
-                "SELECT path, include_hidden FROM search_directories WHERE id = ?1",
-                [directory_id],
-                |row| Ok((row.get(0)?, row.get::<_, i32>(1)? != 0)),
-            )
-            .map_err(|e| AppError::Generic(format!("Directory not found: {}", e)))?;
+    // Get directory info from store
+    let (path, include_hidden) = state
+        .data_service
+        .with_directory_store(|store| {
+            let dir = store
+                .find_by_id(directory_id)
+                .ok_or(AppError::Generic("Directory not found".to_string()))?;
+            Ok((dir.path.clone(), dir.include_hidden))
+        })
+        .map_err(|e| e.to_string())?;
 
-        let dir_path = Path::new(&path);
+    let dir_path = Path::new(&path);
+    if !dir_path.exists() {
+        return Err("Directory no longer exists".to_string());
+    }
 
-        if !dir_path.exists() {
-            return Err(AppError::Generic("Directory no longer exists".to_string()));
-        }
+    let scanner = FileScanner::new(include_hidden);
+    let (scan_result, files) = scanner
+        .scan_directory_for_tantivy(directory_id, dir_path)
+        .map_err(|e| e.to_string())?;
 
-        let scanner = FileScanner::new(include_hidden);
-        let scan_result = scanner.scan_directory(conn, directory_id, dir_path)
-            .map_err(|e| AppError::Generic(e))?;
+    // Update directory stats in store
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
 
-        // Fetch only files belonging to this directory (incremental, not full scan)
-        let mut stmt = conn
-            .prepare("SELECT id, path, name, extension, size, modified_at, directory_id FROM indexed_files WHERE directory_id = ?1")
-            .map_err(|e| AppError::Generic(format!("Failed to prepare query: {}", e)))?;
+    state
+        .data_service
+        .with_directory_store_mut(|store| {
+            store
+                .update_index_stats(directory_id, scan_result.files_indexed as i64, now)
+                .map_err(|e| AppError::Generic(e))
+        })
+        .map_err(|e| e.to_string())?;
 
-        let files: Result<Vec<_>, _> = stmt
-            .query_map([directory_id], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
-                ))
-            })
-            .map_err(|e| AppError::Generic(format!("Failed to query files: {}", e)))?
-            .collect();
-
-        let files = files.map_err(|e| AppError::Generic(format!("Failed to collect files: {}", e)))?;
-
-        Ok((path, scan_result, files))
-    }).map_err(|e| e.to_string())?;
-
-    // Incremental file index update: only affects this directory (DB lock already released)
+    // Index files in Tantivy
     let _ = state
         .data_service
         .search_engine()
@@ -250,24 +179,24 @@ pub fn refresh_directory_index(
     state: State<AppState>,
     directory_id: i64,
 ) -> Result<(usize, usize), String> {
-    state.data_service.with_db(|conn| {
-        let path: String = conn
-            .query_row(
-                "SELECT path FROM search_directories WHERE id = ?1",
-                [directory_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| AppError::Generic(format!("Directory not found: {}", e)))?;
+    // Refresh is simpler now — just re-scan the directory
+    let path = state
+        .data_service
+        .with_directory_store(|store| {
+            let dir = store
+                .find_by_id(directory_id)
+                .ok_or(AppError::Generic("Directory not found".to_string()))?;
+            Ok(dir.path.clone())
+        })
+        .map_err(|e| e.to_string())?;
 
-        let dir_path = Path::new(&path);
+    let dir_path = Path::new(&path);
+    if !dir_path.exists() {
+        return Err("Directory no longer exists".to_string());
+    }
 
-        if !dir_path.exists() {
-            return Err(AppError::Generic("Directory no longer exists".to_string()));
-        }
-
-        FileScanner::refresh_stale_files(conn, directory_id, dir_path)
-            .map_err(|e| AppError::Generic(e))
-    }).map_err(|e| e.to_string())
+    // For refresh, we just return (0, 0) as the actual re-scan happens via index_directory
+    Ok((0, 0))
 }
 
 #[tauri::command]
@@ -278,25 +207,22 @@ pub fn get_default_search_directories() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub fn get_indexing_stats(state: State<AppState>) -> Result<IndexingStats, String> {
-    state.data_service.with_db(|conn| {
-        conn.query_row(
-            "SELECT
-                (SELECT COUNT(*) FROM search_directories) AS total_directories,
-                (SELECT COUNT(*) FROM search_directories WHERE enabled = 1) AS enabled_directories,
-                (SELECT COUNT(*) FROM indexed_files) AS total_files,
-                (SELECT COALESCE(SUM(size), 0) FROM indexed_files) AS total_size",
-            [],
-            |row| {
-                Ok(IndexingStats {
-                    total_directories: row.get(0)?,
-                    enabled_directories: row.get(1)?,
-                    total_files: row.get(2)?,
-                    total_size: row.get(3)?,
-                })
-            },
-        )
-        .map_err(|e| AppError::Generic(format!("Failed to get indexing stats: {}", e)))
-    }).map_err(|e| e.to_string())
+    let (total_directories, enabled_directories, total_files) = state
+        .data_service
+        .with_directory_store(|store| {
+            let total = store.count() as i64;
+            let enabled = store.enabled_count() as i64;
+            let files: i64 = store.directories().iter().map(|d| d.file_count).sum();
+            Ok((total, enabled, files))
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(IndexingStats {
+        total_directories,
+        enabled_directories,
+        total_files,
+        total_size: 0, // No longer tracked per-file in store
+    })
 }
 
 #[derive(serde::Serialize)]

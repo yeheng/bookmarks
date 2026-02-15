@@ -8,7 +8,7 @@ Desktop productivity launcher application that provides instant access to bookma
 
 - **Frontend**: Vue.js 3, TypeScript, HeadlessUI/Vue, Tailwind CSS
 - **Backend**: Rust (via Tauri 2.x)
-- **Database**: SQLite (data storage) + Tantivy (full-text search)
+- **Database**: JSON files (structured data) + Tantivy (full-text search & indexing)
 - **Desktop Framework**: Tauri 2.x
 - **Build Tools**: Vite, pnpm
 - **Platforms**: macOS, Windows, Linux
@@ -36,7 +36,7 @@ Desktop productivity launcher application that provides instant access to bookma
 
 - **Frontend-Backend Communication**: Tauri commands (type-safe IPC)
 - **State Management**: Vue 3 reactivity (ref, reactive, computed)
-- **Data Access**: Repository pattern in Rust for database operations
+- **Data Access**: JSON file stores with atomic writes (tmp+rename) in Rust; Tantivy for search indexing
 - **Search**: Hybrid Tantivy BM25 + frecency scoring algorithm
 - **File Organization**:
   - `/src-tauri/` - Rust backend code
@@ -112,9 +112,9 @@ Frecency combines **frequency** and **recency** to rank search results:
 ### Rust Crates
 
 - `tauri` - Core framework
-- `rusqlite` - SQLite bindings
 - `tantivy` - Full-text search engine
-- `serde` - Serialization
+- `serde` / `serde_json` - Serialization (JSON file persistence)
+- `rusqlite` - SQLite bindings (migration from old DB + Firefox bookmark import only)
 - `tokio` - Async runtime
 - `notify` - File system watcher
 - `global-hotkey` - Global keyboard shortcuts
