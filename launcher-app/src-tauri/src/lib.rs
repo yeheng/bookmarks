@@ -19,7 +19,7 @@ use services::data_service::DataService;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -203,12 +203,44 @@ pub fn run() {
                     .build(),
             )?;
 
+            // Try to read shortcut from settings, fallback to default
             #[cfg(target_os = "macos")]
-            let shortcut = "Cmd+F1";
+            let default_shortcut = "Cmd+F1";
             #[cfg(not(target_os = "macos"))]
-            let shortcut = "Ctrl+F1";
+            let default_shortcut = "Ctrl+F1";
 
-            app.global_shortcut().register(shortcut)?;
+            let shortcut = data_service
+                .with_db(|conn| {
+                    Ok(conn
+                        .query_row(
+                            "SELECT value FROM settings WHERE key = 'hotkey.toggle'",
+                            [],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .ok())
+                })
+                .unwrap_or_else(|_: crate::error::AppError| None)
+                .unwrap_or_else(|| default_shortcut.to_string());
+
+            println!("[Startup] Registering global shortcut: {}", shortcut);
+
+            let shortcut_parsed: Shortcut = match shortcut.parse() {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("[Startup] Failed to parse shortcut '{}': {}", shortcut, e);
+                    eprintln!("[Startup] Using default shortcut: {}", default_shortcut);
+                    default_shortcut.parse().unwrap()
+                }
+            };
+
+            match app.global_shortcut().register(shortcut_parsed) {
+                Ok(_) => println!("[Startup] Global shortcut registered successfully"),
+                Err(e) => {
+                    eprintln!("[Startup] Failed to register global shortcut: {}", e);
+                    eprintln!("[Startup] On macOS, ensure the app has Accessibility permissions:");
+                    eprintln!("[Startup] System Preferences > Privacy & Security > Accessibility");
+                }
+            }
 
             if let Some(window) = app.get_webview_window("main") {
                 let window_clone = window.clone();

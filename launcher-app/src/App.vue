@@ -325,7 +325,17 @@ const handleSelect = async (result: SearchResult) => {
   }
 
   try {
-    const resourceId = parseInt(result.id.split("-")[1], 10);
+    // 对于书签和文件，id 直接是数字；对于其他类型可能是 "type-id" 格式
+    const resourceId = result.id.includes("-")
+      ? parseInt(result.id.split("-")[1], 10)
+      : parseInt(result.id, 10);
+
+    if (isNaN(resourceId)) {
+      console.error("Invalid resource ID:", result.id);
+      error('Invalid resource', 'Could not determine resource ID');
+      return;
+    }
+
     const res = await invoke<OpenResult>("open_resource", {
       resourceType: result.type,
       resourceId: resourceId,
