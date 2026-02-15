@@ -40,8 +40,7 @@ const ariaLabel = computed(() => {
 
 <template>
   <div
-    class="group-header"
-    :class="{ 'group-header--first': isFirst }"
+    class="flex items-center gap-1.5 px-3 pt-1.5 pb-1 mt-1 cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-[-2px] rounded first:mt-0 group"
     role="button"
     tabindex="0"
     :aria-expanded="!group.collapsed"
@@ -49,9 +48,13 @@ const ariaLabel = computed(() => {
     @click="handleClick"
     @keydown="handleKeydown"
   >
-    <span class="group-label">{{ group.label }}</span>
-    <span class="group-count">{{ group.results.length }}</span>
-    <div class="group-chevron" :class="{ 'group-chevron--collapsed': group.collapsed }" aria-hidden="true">
+    <span class="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary opacity-70">{{ group.label }}</span>
+    <span class="text-[10px] font-medium text-text-tertiary opacity-50">{{ group.results.length }}</span>
+    <div 
+      class="text-text-tertiary opacity-40 transition-transform duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] flex items-center motion-reduce:transition-none" 
+      :class="{ '-rotate-90': group.collapsed }" 
+      aria-hidden="true"
+    >
       <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
@@ -59,59 +62,3 @@ const ariaLabel = computed(() => {
   </div>
 </template>
 
-<style scoped>
-.group-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px 4px;
-  margin-top: 4px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.group-header--first {
-  margin-top: 0;
-}
-
-.group-header:focus-visible {
-  outline: 2px solid var(--accent-color);
-  outline-offset: -2px;
-  border-radius: 4px;
-}
-
-.group-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-tertiary);
-  opacity: 0.7;
-}
-
-.group-count {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--color-text-tertiary);
-  opacity: 0.5;
-}
-
-.group-chevron {
-  color: var(--color-text-tertiary);
-  opacity: 0.4;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  align-items: center;
-}
-
-.group-chevron--collapsed {
-  transform: rotate(-90deg);
-}
-
-/* Reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  .group-chevron {
-    transition: none;
-  }
-}
-</style>

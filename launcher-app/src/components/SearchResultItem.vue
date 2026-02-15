@@ -85,26 +85,27 @@ const adaptiveMetadata = computed(() => {
 
 <template>
   <div
-    class="result-item"
-    :class="{ 'result-item--selected': isSelected }"
+    class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer text-text-primary transition-colors duration-100 min-h-[40px] hover:bg-white/10 group motion-reduce:transition-none"
+    :class="{ 'bg-accent text-white hover:bg-accent animate-[select-pulse_0.2s_ease-out] motion-reduce:animate-none': isSelected }"
     role="option"
     :aria-selected="isSelected"
     :aria-label="`${result.title}, ${result.type === 'bookmark' ? 'Bookmark' : result.type === 'file' ? 'File' : 'Plugin Result'}, ${result.subtitle}`"
+    :data-selected="isSelected"
   >
     <!-- Icon -->
-    <div class="result-icon" aria-hidden="true">
+    <div class="shrink-0 w-8 h-8 flex items-center justify-center self-center transition-transform duration-150 group-hover:scale-105 motion-reduce:transition-none motion-reduce:transform-none" aria-hidden="true">
       <!-- Plugin icons -->
-      <div v-if="isPlugin && pluginIconEmoji" class="icon-plugin-emoji">
+      <div v-if="isPlugin && pluginIconEmoji" class="text-lg leading-none flex items-center justify-center">
         {{ pluginIconEmoji }}
       </div>
       <img
         v-else-if="isPlugin && pluginIconUrl"
         :src="pluginIconUrl"
-        class="favicon-img"
+        class="w-[18px] h-[18px] rounded object-contain"
         alt=""
         loading="lazy"
       />
-      <div v-else-if="isPlugin" class="icon-plugin" :class="{ 'icon-plugin--selected': isSelected }">
+      <div v-else-if="isPlugin" class="w-7 h-7 rounded-[7px] bg-white/10 flex items-center justify-center text-text-tertiary group-data-[selected=true]:bg-white/20 group-data-[selected=true]:text-white/80">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M9.5 1a1.5 1.5 0 0 1 1.5 1.5V4h1a2 2 0 0 1 2 2v1.5h-1.5a1.5 1.5 0 0 0 0 3H14V12a2 2 0 0 1-2 2H6v-1.5a1.5 1.5 0 0 0-3 0V14H2a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1.5V2.5a1.5 1.5 0 0 1 3 0V4H9.5V2.5A1.5 1.5 0 0 1 9.5 1Z" fill="currentColor" opacity="0.7"/>
         </svg>
@@ -113,20 +114,19 @@ const adaptiveMetadata = computed(() => {
       <img
         v-else-if="hasFavicon"
         :src="result.icon"
-        class="favicon-img"
+        class="w-[18px] h-[18px] rounded object-contain"
         alt=""
         @error="handleFaviconError"
         loading="lazy"
       />
       <div
         v-else-if="result.type === 'bookmark'"
-        class="icon-placeholder"
-        :class="{ 'icon-placeholder--selected': isSelected }"
+        class="w-7 h-7 rounded-[7px] bg-white/10 flex items-center justify-center group-data-[selected=true]:bg-white/20"
       >
-        <span class="icon-letter">{{ faviconFallbackLetter }}</span>
+        <span class="text-[11px] font-semibold text-text-secondary group-data-[selected=true]:text-white">{{ faviconFallbackLetter }}</span>
       </div>
       <!-- File icons -->
-      <div v-else class="icon-file" :class="{ 'icon-file--selected': isSelected }">
+      <div v-else class="text-text-tertiary group-data-[selected=true]:text-white/80">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M4 1.5h5.172a2 2 0 0 1 1.414.586l2.828 2.828A2 2 0 0 1 14 6.328V12.5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" fill="currentColor" opacity="0.7"/>
         </svg>
@@ -134,57 +134,43 @@ const adaptiveMetadata = computed(() => {
     </div>
 
     <!-- Content -->
-    <div class="result-body">
-      <div class="result-title"><template v-for="(part, i) in titleParts" :key="i"><mark v-if="part.highlight" class="search-highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></div>
-      <div v-if="adaptiveMetadata" class="result-meta">{{ adaptiveMetadata }}</div>
-      <div v-else class="result-subtitle"><template v-for="(part, i) in subtitleParts" :key="i"><mark v-if="part.highlight" class="search-highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></div>
+    <div class="flex-1 min-w-0 flex flex-col gap-[1px]">
+      <div class="text-[13px] font-medium whitespace-nowrap text-text-primary overflow-hidden text-ellipsis leading-tight group-data-[selected=true]:text-white">
+        <template v-for="(part, i) in titleParts" :key="i"><mark v-if="part.highlight" class="bg-accent/15 text-inherit rounded-[3px] px-[3px] mx-[-1px] group-data-[selected=true]:bg-white/30 group-data-[selected=true]:text-white group-data-[selected=true]:font-semibold">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template>
+      </div>
+      <div v-if="adaptiveMetadata" class="text-[11px] font-normal text-text-tertiary whitespace-nowrap overflow-hidden text-ellipsis leading-tight tabular-nums group-data-[selected=true]:text-white/70">{{ adaptiveMetadata }}</div>
+      <div v-else class="text-[11px] font-normal text-text-tertiary whitespace-nowrap overflow-hidden text-ellipsis leading-tight group-data-[selected=true]:text-white/70">
+        <template v-for="(part, i) in subtitleParts" :key="i"><mark v-if="part.highlight" class="bg-accent/15 text-inherit rounded-[3px] px-[3px] mx-[-1px] group-data-[selected=true]:bg-white/30 group-data-[selected=true]:text-white group-data-[selected=true]:font-semibold">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template>
+      </div>
     </div>
 
     <!-- Plugin badge -->
-    <span v-if="result.pluginBadge" class="plugin-badge" :class="{ 'plugin-badge--selected': isSelected }">
+    <span v-if="result.pluginBadge" class="shrink-0 text-[10px] font-medium px-1.5 py-[1px] rounded bg-white/10 text-text-tertiary leading-tight group-data-[selected=true]:bg-white/20 group-data-[selected=true]:text-white/70">
       {{ result.pluginBadge }}
     </span>
 
     <!-- Action hint -->
-    <div v-if="isSelected" class="action-hint" aria-hidden="true">
+    <div v-if="isSelected" class="shrink-0 text-white/50 flex items-center" aria-hidden="true">
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M2.5 6.5h5m0 0L5 9m2.5-2.5L5 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" transform="rotate(-45 6 6)"/>
       </svg>
     </div>
 
     <!-- Keyboard shortcuts hint -->
-    <Transition name="hint-fade">
-      <div v-if="isSelected" class="keyboard-hints" aria-hidden="true">
-        <span class="hint-key">↵</span>
+    <Transition 
+      enter-active-class="transition-opacity duration-150 ease-out"
+      enter-from-class="opacity-0"
+      leave-active-class="transition-opacity duration-100 ease-in"
+      leave-to-class="opacity-0"
+    >
+      <div v-if="isSelected" class="shrink-0 flex items-center gap-1 ml-1 motion-reduce:transition-none" aria-hidden="true">
+        <span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-medium text-white/60 bg-white/10 rounded leading-none">↵</span>
       </div>
     </Transition>
   </div>
 </template>
 
 <style scoped>
-.result-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  color: var(--text-color);
-  transition: background-color 0.1s ease;
-  min-height: 40px;
-}
-
-.result-item:hover:not(.result-item--selected) {
-  background-color: rgba(128, 128, 128, 0.08);
-}
-
-/* ===== Spotlight-style selected state: accent fill + white text ===== */
-.result-item--selected {
-  background: var(--accent-color, #007AFF);
-  color: #ffffff;
-  animation: select-pulse 0.2s ease-out;
-}
-
 @keyframes select-pulse {
   0% {
     transform: scale(1);
@@ -199,235 +185,5 @@ const adaptiveMetadata = computed(() => {
     box-shadow: none;
   }
 }
-
-.result-item--selected .result-title {
-  color: #ffffff;
-}
-
-.result-item--selected .result-subtitle,
-.result-item--selected .result-meta {
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.result-item--selected .action-hint {
-  color: rgba(255, 255, 255, 0.6);
-}
-
-/* ===== Icon ===== */
-.result-icon {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  align-self: center;
-  transition: transform 0.15s ease;
-}
-
-.result-item:hover .result-icon {
-  transform: scale(1.05);
-}
-
-.favicon-img {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  object-fit: contain;
-}
-
-.icon-placeholder {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: rgba(128, 128, 128, 0.12);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.icon-placeholder--selected {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.icon-letter {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-
-.result-item--selected .icon-letter {
-  color: #ffffff;
-}
-
-.icon-file {
-  color: var(--color-text-tertiary);
-}
-
-.icon-file--selected {
-  color: rgba(255, 255, 255, 0.8);
-}
-
-/* ===== Content ===== */
-.result-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.result-title {
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  color: var(--color-text-primary, var(--text-color));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3;
-}
-
-.result-subtitle {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3;
-}
-
-.result-meta {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3;
-  font-feature-settings: 'tnum';
-}
-
-/* Search highlight marks - Spotlight style */
-.search-highlight {
-  background: rgba(0, 122, 255, 0.15);
-  color: inherit;
-  border-radius: 3px;
-  padding: 1px 3px;
-  margin: 0 -1px;
-}
-
-.result-item--selected .search-highlight {
-  background: rgba(255, 255, 255, 0.3);
-  color: #ffffff;
-  font-weight: 600;
-}
-
-/* ===== Action hint ===== */
-.action-hint {
-  flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.5);
-  display: flex;
-  align-items: center;
-}
-
-/* ===== Keyboard hints ===== */
-.keyboard-hints {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 4px;
-}
-
-.hint-key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  font-size: 10px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-  line-height: 1;
-}
-
-/* Hint fade transition */
-.hint-fade-enter-active {
-  transition: opacity 0.15s ease-out;
-}
-
-.hint-fade-leave-active {
-  transition: opacity 0.1s ease-in;
-}
-
-.hint-fade-enter-from,
-.hint-fade-leave-to {
-  opacity: 0;
-}
-
-/* ===== Plugin icons ===== */
-.icon-plugin-emoji {
-  font-size: 18px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.icon-plugin {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: rgba(128, 128, 128, 0.12);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-}
-
-.icon-plugin--selected {
-  background: rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.8);
-}
-
-/* ===== Plugin badge ===== */
-.plugin-badge {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 500;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(128, 128, 128, 0.12);
-  color: var(--color-text-tertiary);
-  line-height: 1.4;
-}
-
-.plugin-badge--selected {
-  background: rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.7);
-}
-
-/* Reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  .result-item {
-    transition: none;
-  }
-  .result-item--selected {
-    animation: none;
-  }
-  .hint-fade-enter-active,
-  .hint-fade-leave-active {
-    transition: none;
-  }
-  .result-icon {
-    transition: none;
-  }
-  .result-item:hover .result-icon {
-    transform: none;
-  }
-}
 </style>
+

@@ -50,6 +50,8 @@ async function loadPluginKeywords() {
 function mapUnifiedToSearchResult(r: UnifiedSearchResult): SearchResult {
   return {
     id: r.source_type === 'bookmark' ? r.id : r.source_type === 'file' ? r.id : `${r.source_id}-${r.id}`,
+    sourceId: r.source_id,
+    rawId: r.id,
     type: r.source_type,
     title: r.title,
     subtitle: r.subtitle,
@@ -76,6 +78,8 @@ function mapPluginResultToSearchResult(
 ): SearchResult {
   return {
     id: `plugin-${keyword}-${item.uid}`,
+    sourceId: keyword, // Best guess for now
+    rawId: item.uid,
     type: 'plugin',
     title: item.title,
     subtitle: item.subtitle ?? '',
@@ -104,6 +108,11 @@ function onGlobalEscape(e: KeyboardEvent) {
 }
 document.addEventListener('keydown', onGlobalEscape, true);
 
+function hexToRgb(hex: string): string {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? `${parseInt(result[1], 16)} ${parseInt(result[2], 16)} ${parseInt(result[3], 16)}` : '0 0 0';
+}
+
 const themeStyle = computed(() => {
   if (!settings.value) return {};
   const { theme } = settings.value;
@@ -112,6 +121,7 @@ const themeStyle = computed(() => {
 
   return {
     "--accent-color": theme.accent_color,
+    "--color-accent-rgb": hexToRgb(theme.accent_color),
     "--font-size": `${theme.font_size}px`,
     "--window-width": `${theme.window_width}px`,
     "--window-height": `${theme.window_height}px`,
@@ -283,6 +293,16 @@ const handleSelect = async (result: SearchResult) => {
       return;
   }
 
+  // Record usage (fire and forget)
+  if (result.sourceId) {
+      // Use rawId if available (for bookmarks/files), otherwise use id (for plugins/others)
+      const itemId = result.rawId || result.id;
+      invoke("record_usage", {
+          sourceId: result.sourceId,
+          itemId: itemId
+      }).catch(err => console.error("Failed to record usage:", err));
+  }
+
   // ── Plugin result actions ──
   if (result.type === 'plugin' && result.pluginActions && result.pluginActions.length > 0) {
     const action = result.pluginActions[0]; // Execute primary action
@@ -325,7 +345,19 @@ const handleSelect = async (result: SearchResult) => {
   }
 
   try {
-    const resourceId = parseInt(result.id.split("-")[1], 10);
+    let resourceId: number;
+    if (result.rawId) {
+        resourceId = parseInt(result.rawId, 10);
+    } else {
+        // Fallback for legacy ID format
+        const parts = result.id.split("-");
+        resourceId = parts.length > 1 ? parseInt(parts[1], 10) : parseInt(result.id, 10);
+    }
+
+    if (isNaN(resourceId)) {
+         throw new Error(`Invalid resource ID: ${result.id}`);
+    }
+
     const res = await invoke<OpenResult>("open_resource", {
       resourceType: result.type,
       resourceId: resourceId,
@@ -446,7 +478,11 @@ async function repositionWindow() {
     fallback-title="App Error"
     fallback-description="The application encountered an unexpected error."
   >
-    <div class="app-root" :class="{ 'app-root--visible': windowVisible }" :style="themeStyle">
+    <div 
+      class="w-screen h-screen overflow-hidden bg-bg-primary/80 backdrop-blur-xl text-text-primary font-sans text-sm rounded-xl border border-white/10 shadow-2xl transition-all duration-200 ease-out opacity-0 scale-95 -translate-y-2 data-[visible=true]:opacity-100 data-[visible=true]:scale-100 data-[visible=true]:translate-y-0 isolate" 
+      :data-visible="windowVisible" 
+      :style="themeStyle"
+    >
       <!-- Toast Notifications -->
       <Toaster
         position="top-center"
@@ -457,7 +493,7 @@ async function repositionWindow() {
       />
 
       <Transition name="panel-fade" mode="out-in">
-        <div v-if="!showSettings" key="launcher" class="launcher-container">
+        <div v-if="!showSettings" key="launcher" class="w-full h-full flex flex-col p-0">
           <SearchCombobox
             ref="searchComboboxRef"
             :results="searchResults"
@@ -468,7 +504,7 @@ async function repositionWindow() {
             @retry="handleRetry"
           />
         </div>
-        <div v-else key="settings" class="settings-container">
+        <div v-else key="settings" class="w-full h-full bg-bg-primary rounded-xl">
           <SettingsPanel @close="handleSettingsClose" />
         </div>
       </Transition>
@@ -477,48 +513,9 @@ async function repositionWindow() {
 </template>
 
 <style scoped>
-.app-root {
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
-  background: var(--bg-color, rgba(30, 30, 30, 0.78));
-  backdrop-filter: blur(60px) saturate(180%);
-  -webkit-backdrop-filter: blur(60px) saturate(180%);
-  color: var(--text-color, #e0e0e0);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: var(--font-size, 14px);
-  border-radius: var(--border-radius, 12px);
-  border: 0.5px solid var(--border-color, rgba(255, 255, 255, 0.12));
-  box-shadow:
-    0 24px 80px rgba(0, 0, 0, 0.35),
-    0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
-  /* Force WebKit to clip all children to border-radius (fixes macOS corner artifacts) */
+/* Force WebKit to clip all children to border-radius (fixes macOS corner artifacts) */
+.w-screen {
   -webkit-mask-image: -webkit-radial-gradient(white, black);
-  isolation: isolate;
-  /* Initial state for animation */
-  opacity: 0;
-  transform: scale(0.98) translateY(-8px);
-  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
-}
-
-.app-root--visible {
-  opacity: 1;
-  transform: scale(1) translateY(0);
-}
-
-.launcher-container {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-}
-
-.settings-container {
-  width: 100%;
-  height: 100%;
-  background: var(--bg-color);
-  border-radius: var(--border-radius, 12px);
 }
 
 /* Panel switch transition */
@@ -544,11 +541,6 @@ async function repositionWindow() {
 @media (prefers-reduced-motion: reduce) {
   .panel-fade-enter-active,
   .panel-fade-leave-active {
-    transition: none;
-  }
-  .app-root {
-    opacity: 1;
-    transform: none;
     transition: none;
   }
 }
