@@ -2,6 +2,7 @@ use crate::commands::bookmarks::{validate_limit, AppState};
 use crate::models::bookmark::BookmarkSearchResult;
 use crate::search::provider::SourceType;
 use crate::search::{IndexStats, SearchContext};
+use crate::search::query_parser::StructuredQuery;
 use crate::error::AppError;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -131,8 +132,11 @@ pub async fn unified_search(
         Some(enabled)
     };
 
+    let structured_query = StructuredQuery::parse(&query);
+
     let ctx = SearchContext {
         query,
+        structured_query,
         limit: effective_limit,
         fuzzy: fuzzy_matching,
         sources: effective_sources,

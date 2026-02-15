@@ -18,7 +18,7 @@ pub fn search_files(
     state
         .data_service
         .search_engine()
-        .search_files(&query, limit)
+        .search_files(&query, limit, None)
         .map_err(|e| format!("Search failed: {}", e))
 }
 

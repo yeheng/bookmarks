@@ -24,7 +24,7 @@ impl Database {
             "PRAGMA journal_mode=WAL;
              PRAGMA foreign_keys=ON;
              PRAGMA busy_timeout=5000;
-             PRAGMA synchronous=NORMAL;"
+             PRAGMA synchronous=NORMAL;",
         )?;
 
         self.conn.execute_batch(
@@ -184,17 +184,25 @@ mod tests {
         conn.execute(
             "UPDATE bookmarks SET title = ?1 WHERE id = ?2",
             rusqlite::params!["Updated Bookmark", id],
-        ).unwrap();
+        )
+        .unwrap();
 
         let title: String = conn
-            .query_row("SELECT title FROM bookmarks WHERE id = ?1", [id], |row| row.get(0))
+            .query_row("SELECT title FROM bookmarks WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(title, "Updated Bookmark");
 
         // Delete
-        conn.execute("DELETE FROM bookmarks WHERE id = ?1", [id]).unwrap();
+        conn.execute("DELETE FROM bookmarks WHERE id = ?1", [id])
+            .unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM bookmarks WHERE id = ?1", [id], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM bookmarks WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 0);
     }
@@ -209,11 +217,16 @@ mod tests {
         conn.execute(
             "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
             rusqlite::params!["theme.mode", "dark", ts],
-        ).unwrap();
+        )
+        .unwrap();
 
         // Read
         let value: String = conn
-            .query_row("SELECT value FROM settings WHERE key = ?1", ["theme.mode"], |row| row.get(0))
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                ["theme.mode"],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(value, "dark");
 
@@ -221,17 +234,27 @@ mod tests {
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
             rusqlite::params!["theme.mode", "light", ts],
-        ).unwrap();
+        )
+        .unwrap();
 
         let value: String = conn
-            .query_row("SELECT value FROM settings WHERE key = ?1", ["theme.mode"], |row| row.get(0))
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                ["theme.mode"],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(value, "light");
 
         // Delete
-        conn.execute("DELETE FROM settings WHERE key = ?1", ["theme.mode"]).unwrap();
+        conn.execute("DELETE FROM settings WHERE key = ?1", ["theme.mode"])
+            .unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM settings WHERE key = ?1", ["theme.mode"], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = ?1",
+                ["theme.mode"],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 0);
     }
@@ -262,13 +285,21 @@ mod tests {
 
         // Search by extension
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM indexed_files WHERE extension = ?1", ["pdf"], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM indexed_files WHERE extension = ?1",
+                ["pdf"],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
 
         // Verify file exists
         let name: String = conn
-            .query_row("SELECT name FROM indexed_files WHERE extension = ?1", ["pdf"], |row| row.get(0))
+            .query_row(
+                "SELECT name FROM indexed_files WHERE extension = ?1",
+                ["pdf"],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(name, "document.pdf");
     }
@@ -291,12 +322,17 @@ mod tests {
             conn.execute(
                 "INSERT INTO usage_history (bookmark_id, accessed_at) VALUES (?1, ?2)",
                 rusqlite::params![bookmark_id, ts + i],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         // Count usage
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM usage_history WHERE bookmark_id = ?1", [bookmark_id], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM usage_history WHERE bookmark_id = ?1",
+                [bookmark_id],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 3);
     }

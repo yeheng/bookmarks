@@ -11,12 +11,15 @@ pub mod aggregator;
 pub mod bookmark_provider;
 mod engine;
 pub mod file_provider;
+pub mod frecency;
 pub mod plugin_provider;
 pub mod provider;
+pub mod query_parser;
 mod schema;
 mod tantivy_engine;
 
 pub use aggregator::SearchAggregator;
 pub use engine::IndexStats;
-pub use provider::{SearchContext, SearchProvider};
+pub use frecency::FrecencyTracker;
+pub use provider::SearchContext;
 pub use tantivy_engine::TantivySearchEngine;

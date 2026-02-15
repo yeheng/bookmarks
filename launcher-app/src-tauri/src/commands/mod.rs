@@ -1,9 +1,10 @@
 pub mod bookmarks;
-pub mod search;
-pub mod window;
+pub mod directories;
 pub mod favicon;
 pub mod file_search;
-pub mod directories;
 pub mod opener;
-pub mod settings;
 pub mod plugins;
+pub mod ranking;
+pub mod search;
+pub mod settings;
+pub mod window;

@@ -33,6 +33,9 @@ impl SearchProvider for BookmarkSearchProvider {
     }
 
     async fn search(&self, ctx: &SearchContext) -> Result<Vec<ProviderResult>, SearchError> {
+        // Bookmarks currently don't use structured filters, but we could add tag filtering here later.
+        // let _tags = ctx.structured_query.filters.get("tag");
+
         let results = self.engine.search_bookmarks(&ctx.query, ctx.limit)?;
 
         Ok(results
@@ -65,6 +68,7 @@ impl SearchProvider for BookmarkSearchProvider {
 mod tests {
     use super::*;
     use super::super::provider::SearchContext;
+    use super::super::query_parser::StructuredQuery;
     use tempfile::TempDir;
 
     fn create_test_engine() -> (TempDir, Arc<TantivySearchEngine>) {
@@ -116,6 +120,7 @@ mod tests {
         let provider = BookmarkSearchProvider::new(engine);
         let ctx = SearchContext {
             query: "Rust".to_string(),
+            structured_query: StructuredQuery::parse("Rust"),
             limit: 10,
             fuzzy: true,
             sources: None,
@@ -141,6 +146,7 @@ mod tests {
         let provider = BookmarkSearchProvider::new(engine);
         let ctx = SearchContext {
             query: "".to_string(),
+            structured_query: StructuredQuery::parse(""),
             limit: 10,
             fuzzy: true,
             sources: None,
@@ -162,6 +168,7 @@ mod tests {
         let provider = BookmarkSearchProvider::new(engine);
         let ctx = SearchContext {
             query: "zzzznonexistent".to_string(),
+            structured_query: StructuredQuery::parse("zzzznonexistent"),
             limit: 10,
             fuzzy: true,
             sources: None,

@@ -1,45 +1,39 @@
-# Capability: Ranking Engine
+# Capability: Ranking Strategy
 
 ## Status
 
-Proposed
+Existing - No Changes
 
 ## Summary
 
-A pluggable ranking system that orders search results based on flexible strategies, including context awareness (app usage, time) and machine learning relevance.
+Keep the existing `Score*0.7 + Frecency*0.3` ranking formula. No separate RankingEngine abstraction needed.
 
 ## Motivation
 
-Current ranking uses a static formula (Frecency + BM25). While effective, it cannot adapt to different user needs (e.g., prioritizing coding documents while VS Code is open). Pluggable ranking allows smarter, context-aware results.
+The current approach is simple, fast, and effective. Adding a separate `RankingEngine` trait with pluggable strategies is over-abstraction for a single weighted formula.
 
 ## Requirements
 
-### ADDED Context Awareness
+### EXISTING Score + Frecency
 
-The system MUST allow boosting results based on the active application or environment context.
+The system MUST continue using the proven weighted ranking.
 
-#### Scenario: Code Context
+```rust
+const SCORE_WEIGHT: f64 = 0.7;
+const FRECENCY_WEIGHT: f64 = 0.3;
 
-Given the user is currently focused on "VS Code"
-When searching for "config"
-Then file results with extension ".json" or ".toml" should receive a score boost
+global_score = norm_score * SCORE_WEIGHT + norm_frecency * FRECENCY_WEIGHT;
+```
 
-### ADDED Pluggable Strategies
+### EXISTING Per-Provider Normalization
 
-The system MUST allow swapping the ranking algorithm at runtime.
+The system MUST normalize scores per-provider using min-max before combining.
 
-#### Scenario: AI Reranking
+## Rejected Enhancements
 
-Given a plugin that provides an AI ranking model
-When the user enables "AI Ranking" in settings
-Then the system should forward top results to the AI model for re-scoring before display
-
-### MODIFIED Normalize Scores
-
-The system MUST normalize scores across disparate providers fairly.
-
-#### Scenario: Variable Ranges
-
-Given provider A returns scores [0-100] and provider B [0-1]
-Then the ranking engine should normalize both to a [0-1] scale before merging
-To prevent one provider from dominating results
+| Idea | Why Rejected |
+|------|--------------|
+| ContextAware Ranking | Requires tracking active app/window, OS permissions, unclear benefit |
+| AI Re-ranking | Adds 50-200ms latency, conflicts with fast search goal |
+| Pluggable Strategies | Over-abstraction for single formula |
+| Boosting Map | Can be added later if needed, not v1 requirement |

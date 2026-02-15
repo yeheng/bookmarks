@@ -12,7 +12,7 @@ use plugins::executor::PluginExecutor;
 use plugins::registry::PluginRegistry;
 use search::bookmark_provider::BookmarkSearchProvider;
 use search::file_provider::FileSearchProvider;
-use search::plugin_provider::PluginSearchProvider;
+use search::FrecencyTracker;
 use search::SearchAggregator;
 use search::TantivySearchEngine;
 use services::data_service::DataService;
@@ -94,6 +94,7 @@ pub fn run() {
             commands::plugins::get_plugin_log,
             commands::plugins::get_plugin_keywords,
             commands::plugins::get_plugin_manifest_preferences,
+            commands::ranking::record_usage,
         ])
         .setup(|app| {
             let app_dir = app
@@ -120,6 +121,7 @@ pub fn run() {
 
             // Initialize DataService for atomic DB + Index operations
             let data_service = Arc::new(DataService::new(db, search_engine));
+            let frecency_tracker = Arc::new(FrecencyTracker::new(data_service.clone()));
 
             // Check index integrity and rebuild if needed (simple, Linus-style)
             let data_service_clone = data_service.clone();
@@ -129,75 +131,53 @@ pub fn run() {
                 Err(e) => eprintln!("[Startup] Index check failed: {}", e),
             });
 
-            // Initialize Plugin System
-            let plugins_dir = app_dir.join("plugins");
-            let (plugin_registry, plugin_executor) = match PluginRegistry::new(plugins_dir) {
-                Ok(registry) => {
-                    // Discover plugins on startup
-                    let registry = Arc::new(registry);
-                    let executor = Arc::new(PluginExecutor::new());
-
-                    let reg_clone = registry.clone();
-                    let ds_clone = data_service.clone();
-                    std::thread::spawn(move || {
-                        match ds_clone.with_db(|conn| {
-                            reg_clone
-                                .discover(conn)
-                                .map_err(|e| crate::error::AppError::Generic(e.to_string()))
-                        }) {
-                            Ok(discovered) => {
-                                if !discovered.is_empty() {
-                                    println!(
-                                        "[Startup] Discovered {} new plugin(s): {:?}",
-                                        discovered.len(),
-                                        discovered
-                                    );
-                                } else {
-                                    println!("[Startup] Plugin system ready (no new plugins)");
-                                }
-                            }
-                            Err(e) => eprintln!("[Startup] Plugin discovery failed: {}", e),
-                        }
-                    });
-
-                    (Some(registry), Some(executor))
-                }
-                Err(e) => {
-                    eprintln!("[Startup] Plugin system initialization failed: {}", e);
-                    (None, None)
-                }
-            };
-
-            // AppState now uses DataService for all DB access (no duplicate connections)
-            let http_client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
             // Initialize SearchAggregator with built-in providers
             let search_engine_arc = data_service.search_engine().clone();
-            let mut aggregator = SearchAggregator::new();
-            aggregator.register(Box::new(BookmarkSearchProvider::new(
-                search_engine_arc.clone(),
-            )));
-            aggregator.register(Box::new(FileSearchProvider::new(search_engine_arc)));
-
-            // Register plugin provider if plugin system initialized successfully
-            if let (Some(ref reg), Some(ref exec)) = (&plugin_registry, &plugin_executor) {
-                aggregator.register(Box::new(PluginSearchProvider::new(
-                    reg.clone(),
-                    exec.clone(),
-                    data_service.clone(),
-                )));
-            }
-
+            let aggregator = SearchAggregator::new(frecency_tracker.clone());
+            aggregator.register(
+                "bookmarks".to_string(),
+                Box::new(BookmarkSearchProvider::new(search_engine_arc.clone())),
+            );
+            aggregator.register(
+                "files".to_string(),
+                Box::new(FileSearchProvider::new(search_engine_arc)),
+            );
             let search_aggregator = Arc::new(aggregator);
+
+            // Initialize HTTP client for favicon fetching etc.
+            let http_client = reqwest::Client::new();
+
+            // Initialize Plugin System
+            let plugin_executor = Arc::new(PluginExecutor::new());
+            let plugins_dir = app_dir.join("plugins");
+            let plugin_registry = match PluginRegistry::new(
+                plugins_dir,
+                search_aggregator.clone(),
+                data_service.clone(),
+                plugin_executor.clone(),
+            ) {
+                Ok(registry) => {
+                    let registry = Arc::new(registry);
+                    // Discover plugins from disk
+                    if let Err(e) = data_service.with_db(|conn| {
+                        registry.discover(conn)?;
+                        Ok(())
+                    }) {
+                        eprintln!("[Startup] Plugin discovery failed: {}", e);
+                    }
+                    Some(registry)
+                }
+                Err(e) => {
+                    eprintln!("[Startup] Plugin registry init failed: {}", e);
+                    None
+                }
+            };
 
             app.manage(AppState {
                 data_service: data_service.clone(),
                 http_client,
                 plugin_registry,
-                plugin_executor,
+                plugin_executor: Some(plugin_executor),
                 search_aggregator,
                 settings_cache: std::sync::RwLock::new(HashMap::new()),
             });

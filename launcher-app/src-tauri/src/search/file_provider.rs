@@ -33,7 +33,17 @@ impl SearchProvider for FileSearchProvider {
     }
 
     async fn search(&self, ctx: &SearchContext) -> Result<Vec<ProviderResult>, SearchError> {
-        let results = self.engine.search_files(&ctx.query, ctx.limit)?;
+        let extension_filter = ctx
+            .structured_query
+            .filters
+            .get("type")
+            .or_else(|| ctx.structured_query.filters.get("ext"))
+            .map(|s| s.as_str());
+
+        let results = self
+            .engine
+            .search_files(&ctx.query, ctx.limit, extension_filter)
+            .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         Ok(results
             .into_iter()
@@ -45,7 +55,7 @@ impl SearchProvider for FileSearchProvider {
                 source_id: "files".to_string(),
                 score: r.score,
                 frecency_score: r.frecency_score,
-                icon: None,
+                icon: Some("file".to_string()),
                 url: None,
                 path: Some(r.path),
                 favicon_url: None,
@@ -65,6 +75,7 @@ impl SearchProvider for FileSearchProvider {
 mod tests {
     use super::*;
     use super::super::provider::SearchContext;
+    use super::super::query_parser::StructuredQuery;
     use tempfile::TempDir;
 
     fn create_test_engine() -> (TempDir, Arc<TantivySearchEngine>) {
@@ -107,6 +118,7 @@ mod tests {
         let provider = FileSearchProvider::new(engine);
         let ctx = SearchContext {
             query: "document".to_string(),
+            structured_query: StructuredQuery::parse("document"),
             limit: 10,
             fuzzy: true,
             sources: None,
@@ -133,6 +145,7 @@ mod tests {
         let provider = FileSearchProvider::new(engine);
         let ctx = SearchContext {
             query: "".to_string(),
+            structured_query: StructuredQuery::parse(""),
             limit: 10,
             fuzzy: true,
             sources: None,
@@ -153,6 +166,7 @@ mod tests {
         let provider = FileSearchProvider::new(engine);
         let ctx = SearchContext {
             query: "zzzznonexistent".to_string(),
+            structured_query: StructuredQuery::parse("zzzznonexistent"),
             limit: 10,
             fuzzy: true,
             sources: None,

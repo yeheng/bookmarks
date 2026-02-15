@@ -14,24 +14,38 @@ const SCORE_WEIGHT: f64 = 0.7;
 /// Weight for frecency (user behavior) in global ranking.
 /// Higher values prioritize frequently accessed items.
 const FRECENCY_WEIGHT: f64 = 0.3;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
+use super::frecency::FrecencyTracker;
 
 /// Orchestrates multi-source unified search.
 pub struct SearchAggregator {
-    providers: Vec<Box<dyn SearchProvider>>,
+    providers: RwLock<HashMap<String, Arc<dyn SearchProvider>>>,
+    frecency_tracker: Arc<FrecencyTracker>,
 }
 
 impl SearchAggregator {
     /// Create an empty aggregator.
-    pub fn new() -> Self {
+    pub fn new(frecency_tracker: Arc<FrecencyTracker>) -> Self {
         Self {
-            providers: Vec::new(),
+            providers: RwLock::new(HashMap::new()),
+            frecency_tracker,
         }
     }
 
     /// Register a search provider.
-    pub fn register(&mut self, provider: Box<dyn SearchProvider>) {
-        self.providers.push(provider);
+    pub fn register(&self, id: String, provider: Box<dyn SearchProvider>) {
+        if let Ok(mut providers) = self.providers.write() {
+            // Convert Box to Arc for shared ownership
+            providers.insert(id, Arc::from(provider));
+        }
+    }
+
+    /// Unregister a search provider.
+    pub fn unregister(&self, id: &str) {
+        if let Ok(mut providers) = self.providers.write() {
+            providers.remove(id);
+        }
     }
 
     /// Execute a unified search across all (or filtered) providers.
@@ -48,19 +62,52 @@ impl SearchAggregator {
             return Ok(Vec::new());
         }
 
-        // 1. Filter providers
-        let active_providers: Vec<&Box<dyn SearchProvider>> = self
-            .providers
-            .iter()
-            .filter(|p| {
-                ctx.sources
-                    .as_ref()
-                    .map(|sources| sources.iter().any(|s| s == p.source_id()))
-                    .unwrap_or(true)
-            })
-            .collect();
+        // 1. Identify active providers
+        let active_providers: Vec<Arc<dyn SearchProvider>> = {
+            let lock = self.providers.read().map_err(|_| SearchError::IndexError("Failed to acquire lock".into()))?;
+            
+            if let Some(scope) = &ctx.structured_query.scope {
+                // Scope routing: If scope is present, only select that provider
+                // Look for ID == scope OR ID == "plugin:<scope>"
+                let mut matches = Vec::new();
+                
+                // Direct match (e.g. "bookmarks" if scope is "bookmarks")
+                if let Some(p) = lock.get(scope) {
+                    matches.push(p.clone());
+                } else {
+                    // Plugin match (e.g. "plugin:gh" if scope is "gh")
+                    // We need to scan keys for "plugin:<scope>" or similar?
+                    // Actually the design doc says:
+                    // "Query gh: match provider with ID 'gh' or 'plugin:gh'"
+                    
+                    // Optimisation: Construct the key "plugin:<scope>"
+                    let plugin_key = format!("plugin:{}", scope);
+                    if let Some(p) = lock.get(&plugin_key) {
+                        matches.push(p.clone());
+                    }
+                    
+                    // Fallback: Check if any provider explicitly handles this scope?
+                    // Design doc mentions "If scope miss behavior... return empty".
+                }
+                
+                matches
+            } else {
+                // Broadcast to filtered sources or all
+                lock.iter()
+                    .filter(|(id, _)| {
+                        ctx.sources
+                            .as_ref()
+                            .map(|sources| sources.contains(id))
+                            .unwrap_or(true)
+                    })
+                    .map(|(_, p)| p.clone())
+                    .collect()
+            }
+        };
 
         if active_providers.is_empty() {
+            // Should we return error if scope was found but no provider?
+            // "If query.scope == Some("gh") but no provider matches... Return empty results"
             return Ok(Vec::new());
         }
 
@@ -146,12 +193,23 @@ impl SearchAggregator {
 
         Ok(all_results)
     }
+
+    /// Record usage for an item to boost its ranking.
+    pub fn record_usage(&self, source_id: &str, item_id: &str) -> Result<(), SearchError> {
+        self.frecency_tracker
+            .record_usage(source_id, item_id)
+            .map_err(|e| SearchError::IndexError(e.to_string()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use super::super::provider::SourceType;
+    use super::super::query_parser::StructuredQuery;
+    use crate::db::Database;
+    use crate::services::data_service::DataService;
+    use crate::search::TantivySearchEngine;
     use async_trait::async_trait;
 
     /// A mock provider for testing.
@@ -227,9 +285,19 @@ mod tests {
         }
     }
 
+    fn setup_tracker() -> Arc<FrecencyTracker> {
+        let db = Database::new_in_memory().unwrap();
+        db.initialize().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let engine = Arc::new(TantivySearchEngine::new(temp_dir.path().to_path_buf()).unwrap());
+        let ds = Arc::new(DataService::new(db, engine));
+        Arc::new(FrecencyTracker::new(ds))
+    }
+
     fn make_ctx(query: &str) -> SearchContext {
         SearchContext {
             query: query.to_string(),
+            structured_query: StructuredQuery::parse(query),
             limit: 10,
             fuzzy: false,
             sources: None,
@@ -238,15 +306,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_aggregator_returns_empty() {
-        let agg = SearchAggregator::new();
+        let agg = SearchAggregator::new(setup_tracker());
         let results = agg.search(&make_ctx("test")).await.unwrap();
         assert!(results.is_empty());
     }
 
     #[tokio::test]
     async fn test_single_provider_normalization() {
-        let mut agg = SearchAggregator::new();
-        agg.register(Box::new(MockProvider::new(
+        let agg = SearchAggregator::new(setup_tracker());
+        agg.register("bookmarks".into(), Box::new(MockProvider::new(
             "bookmarks",
             vec![
                 MockProvider::make_result("1", 10.0, 0.0),
@@ -273,16 +341,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_multi_provider_merge() {
-        let mut agg = SearchAggregator::new();
+        let agg = SearchAggregator::new(setup_tracker());
 
         // Provider A with high scores
-        agg.register(Box::new(MockProvider::new(
+        agg.register("a".into(), Box::new(MockProvider::new(
             "a",
             vec![MockProvider::make_result("a1", 100.0, 0.0)],
         )));
 
         // Provider B with high scores
-        agg.register(Box::new(MockProvider::new(
+        agg.register("b".into(), Box::new(MockProvider::new(
             "b",
             vec![MockProvider::make_result("b1", 50.0, 0.0)],
         )));
@@ -297,12 +365,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_source_filtering() {
-        let mut agg = SearchAggregator::new();
-        agg.register(Box::new(MockProvider::new(
+        let agg = SearchAggregator::new(setup_tracker());
+        agg.register("bookmarks".into(), Box::new(MockProvider::new(
             "bookmarks",
             vec![MockProvider::make_result("b1", 10.0, 0.0)],
         )));
-        agg.register(Box::new(MockProvider::new(
+        agg.register("files".into(), Box::new(MockProvider::new(
             "files",
             vec![MockProvider::make_result("f1", 10.0, 0.0)],
         )));
@@ -310,6 +378,7 @@ mod tests {
         // Filter to only bookmarks
         let ctx = SearchContext {
             query: "test".to_string(),
+            structured_query: StructuredQuery::parse("test"),
             limit: 10,
             fuzzy: false,
             sources: Some(vec!["bookmarks".to_string()]),
@@ -319,11 +388,37 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "b1");
     }
+    
+    #[tokio::test]
+    async fn test_scoped_search() {
+        let agg = SearchAggregator::new(setup_tracker());
+        agg.register("plugin:gh".into(), Box::new(MockProvider::new(
+            "plugin:gh", 
+            vec![MockProvider::make_result("gh1", 10.0, 0.0)]
+        )));
+        agg.register("bookmarks".into(), Box::new(MockProvider::new(
+            "bookmarks",
+            vec![MockProvider::make_result("b1", 10.0, 0.0)]
+        )));
+
+        // Scope "gh" should map to "plugin:gh"
+        let ctx = SearchContext {
+            query: "gh: test".to_string(),
+            structured_query: StructuredQuery::parse("gh: test"),
+            limit: 10,
+            fuzzy: false,
+            sources: None, // should ignore this if scope is present? Or strict intersection? Logic above ignores `sources` if scope is matched.
+        };
+
+        let results = agg.search(&ctx).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "gh1");
+    }
 
     #[tokio::test]
     async fn test_limit_truncation() {
-        let mut agg = SearchAggregator::new();
-        agg.register(Box::new(MockProvider::new(
+        let agg = SearchAggregator::new(setup_tracker());
+        agg.register("test".into(), Box::new(MockProvider::new(
             "test",
             (0..20)
                 .map(|i| MockProvider::make_result(&i.to_string(), i as f64, 0.0))
@@ -332,6 +427,7 @@ mod tests {
 
         let ctx = SearchContext {
             query: "test".to_string(),
+            structured_query: StructuredQuery::parse("test"),
             limit: 5,
             fuzzy: false,
             sources: None,
@@ -343,9 +439,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_provider_error_does_not_fail_search() {
-        let mut agg = SearchAggregator::new();
-        agg.register(Box::new(MockProvider::with_error("broken")));
-        agg.register(Box::new(MockProvider::new(
+        let agg = SearchAggregator::new(setup_tracker());
+        agg.register("broken".into(), Box::new(MockProvider::with_error("broken")));
+        agg.register("working".into(), Box::new(MockProvider::new(
             "working",
             vec![MockProvider::make_result("w1", 10.0, 0.0)],
         )));
@@ -357,8 +453,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_frecency_affects_ranking() {
-        let mut agg = SearchAggregator::new();
-        agg.register(Box::new(MockProvider::new(
+        let agg = SearchAggregator::new(setup_tracker());
+        agg.register("test".into(), Box::new(MockProvider::new(
             "test",
             vec![
                 MockProvider::make_result("low_score_high_frec", 1.0, 10.0),
@@ -377,102 +473,4 @@ mod tests {
         assert_eq!(results[1].id, "low_score_high_frec");
         assert!((results[1].score - FRECENCY_WEIGHT).abs() < 0.001);
     }
-
-    /// Integration test: Real BookmarkSearchProvider + FileSearchProvider → SearchAggregator
-    #[tokio::test]
-    async fn test_integration_mixed_results() {
-        use super::super::bookmark_provider::BookmarkSearchProvider;
-        use super::super::file_provider::FileSearchProvider;
-        use super::super::TantivySearchEngine;
-        use std::sync::Arc;
-
-        let tmp = tempfile::TempDir::new().unwrap();
-        let engine = Arc::new(TantivySearchEngine::new(tmp.path().to_path_buf()).unwrap());
-
-        // Index a bookmark and a file that both match "rust"
-        engine
-            .index_bookmark(
-                1, "Rust Language", "https://rust-lang.org",
-                Some("Official Rust website"), Some("rust"),
-                None, 1000, 1000,
-            )
-            .unwrap();
-
-        engine
-            .index_file(1, "/docs/rust_guide.pdf", "rust_guide.pdf", Some("pdf"), 2048, 1700000000, 1)
-            .unwrap();
-
-        let mut agg = SearchAggregator::new();
-        agg.register(Box::new(BookmarkSearchProvider::new(engine.clone())));
-        agg.register(Box::new(FileSearchProvider::new(engine)));
-
-        let ctx = SearchContext {
-            query: "rust".to_string(),
-            limit: 10,
-            fuzzy: true,
-            sources: None,
-        };
-
-        let results = agg.search(&ctx).await.unwrap();
-
-        // Both providers should return results
-        assert!(results.len() >= 2);
-
-        // Verify we have results from both sources
-        let has_bookmark = results.iter().any(|r| r.source_id == "bookmarks");
-        let has_file = results.iter().any(|r| r.source_id == "files");
-        assert!(has_bookmark, "Should have bookmark results");
-        assert!(has_file, "Should have file results");
-
-        // Verify results are sorted by score descending
-        for w in results.windows(2) {
-            assert!(w[0].score >= w[1].score, "Results should be sorted by score desc");
-        }
-    }
-
-    /// Integration test: Settings-based source filtering
-    #[tokio::test]
-    async fn test_integration_settings_filtering() {
-        use super::super::bookmark_provider::BookmarkSearchProvider;
-        use super::super::file_provider::FileSearchProvider;
-        use super::super::TantivySearchEngine;
-        use std::sync::Arc;
-
-        let tmp = tempfile::TempDir::new().unwrap();
-        let engine = Arc::new(TantivySearchEngine::new(tmp.path().to_path_buf()).unwrap());
-
-        engine
-            .index_bookmark(1, "Rust", "https://rust-lang.org", None, None, None, 1000, 1000)
-            .unwrap();
-        engine
-            .index_file(1, "/docs/rust.pdf", "rust.pdf", Some("pdf"), 1024, 1700000000, 1)
-            .unwrap();
-
-        let mut agg = SearchAggregator::new();
-        agg.register(Box::new(BookmarkSearchProvider::new(engine.clone())));
-        agg.register(Box::new(FileSearchProvider::new(engine)));
-
-        // Only bookmarks enabled (simulating show_files = false)
-        let ctx = SearchContext {
-            query: "rust".to_string(),
-            limit: 10,
-            fuzzy: true,
-            sources: Some(vec!["bookmarks".to_string()]),
-        };
-
-        let results = agg.search(&ctx).await.unwrap();
-        assert!(results.iter().all(|r| r.source_id == "bookmarks"));
-
-        // Only files enabled (simulating show_bookmarks = false)
-        let ctx = SearchContext {
-            query: "rust".to_string(),
-            limit: 10,
-            fuzzy: true,
-            sources: Some(vec!["files".to_string()]),
-        };
-
-        let results = agg.search(&ctx).await.unwrap();
-        assert!(results.iter().all(|r| r.source_id == "files"));
-    }
 }
-

@@ -89,14 +89,14 @@ pub struct TantivySearchEngine {
     bookmark_writer: Arc<Mutex<IndexWriter>>,
     bookmark_reader: IndexReader,
     bookmark_schema: Schema,
-    bookmark_fields: BookmarkFields,  // Cached fields
+    bookmark_fields: BookmarkFields, // Cached fields
 
     // File index components
     file_index: Index,
     file_writer: Arc<Mutex<IndexWriter>>,
     file_reader: IndexReader,
     file_schema: Schema,
-    file_fields: FileFields,  // Cached fields
+    file_fields: FileFields, // Cached fields
 
     // Index directory for stats
     index_dir: PathBuf,
@@ -127,8 +127,7 @@ impl TantivySearchEngine {
         .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         // Register ngram tokenizer for CJK support
-        register_tokenizers(&bookmark_index)
-            .map_err(|e| SearchError::IndexError(e.to_string()))?;
+        register_tokenizers(&bookmark_index).map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         let bookmark_writer = bookmark_index
             .writer(INDEX_WRITER_HEAP_SIZE)
@@ -153,8 +152,7 @@ impl TantivySearchEngine {
         .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         // Register ngram tokenizer for CJK support
-        register_tokenizers(&file_index)
-            .map_err(|e| SearchError::IndexError(e.to_string()))?;
+        register_tokenizers(&file_index).map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         let file_writer = file_index
             .writer(INDEX_WRITER_HEAP_SIZE)
@@ -172,29 +170,67 @@ impl TantivySearchEngine {
 
         // Cache bookmark schema fields for fast access
         let bookmark_fields = BookmarkFields {
-            id: bookmark_schema.get_field("id").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            title: bookmark_schema.get_field("title").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            url: bookmark_schema.get_field("url").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            description: bookmark_schema.get_field("description").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            tags: bookmark_schema.get_field("tags").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            last_accessed: bookmark_schema.get_field("last_accessed").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            created_at: bookmark_schema.get_field("created_at").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            updated_at: bookmark_schema.get_field("updated_at").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            access_count: bookmark_schema.get_field("access_count").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            access_timestamp: bookmark_schema.get_field("access_timestamp").map_err(|e| SearchError::IndexError(e.to_string()))?,
+            id: bookmark_schema
+                .get_field("id")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            title: bookmark_schema
+                .get_field("title")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            url: bookmark_schema
+                .get_field("url")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            description: bookmark_schema
+                .get_field("description")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            tags: bookmark_schema
+                .get_field("tags")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            last_accessed: bookmark_schema
+                .get_field("last_accessed")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            created_at: bookmark_schema
+                .get_field("created_at")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            updated_at: bookmark_schema
+                .get_field("updated_at")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            access_count: bookmark_schema
+                .get_field("access_count")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            access_timestamp: bookmark_schema
+                .get_field("access_timestamp")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
         };
 
         // Cache file schema fields for fast access
         let file_fields = FileFields {
-            id: file_schema.get_field("id").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            path: file_schema.get_field("path").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            name: file_schema.get_field("name").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            extension: file_schema.get_field("extension").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            size: file_schema.get_field("size").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            modified_at: file_schema.get_field("modified_at").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            directory_id: file_schema.get_field("directory_id").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            access_count: file_schema.get_field("access_count").map_err(|e| SearchError::IndexError(e.to_string()))?,
-            access_timestamp: file_schema.get_field("access_timestamp").map_err(|e| SearchError::IndexError(e.to_string()))?,
+            id: file_schema
+                .get_field("id")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            path: file_schema
+                .get_field("path")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            name: file_schema
+                .get_field("name")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            extension: file_schema
+                .get_field("extension")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            size: file_schema
+                .get_field("size")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            modified_at: file_schema
+                .get_field("modified_at")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            directory_id: file_schema
+                .get_field("directory_id")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            access_count: file_schema
+                .get_field("access_count")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
+            access_timestamp: file_schema
+                .get_field("access_timestamp")
+                .map_err(|e| SearchError::IndexError(e.to_string()))?,
         };
 
         Ok(Self {
@@ -243,7 +279,8 @@ impl TantivySearchEngine {
         let top_docs = searcher
             .search(
                 &all_query,
-                &TopDocs::with_limit(limit).order_by_fast_field::<i64>("access_timestamp", tantivy::Order::Desc),
+                &TopDocs::with_limit(limit)
+                    .order_by_fast_field::<i64>("access_timestamp", tantivy::Order::Desc),
             )
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
@@ -254,15 +291,39 @@ impl TantivySearchEngine {
                 .doc(doc_address)
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-            let id = doc.get_first(fields.id).and_then(|v| v.as_i64()).unwrap_or(0);
-            let title = doc.get_first(fields.title).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let url = doc.get_first(fields.url).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let description = doc.get_first(fields.description).and_then(|v| v.as_str()).map(|s| s.to_string());
-            let access_count = doc.get_first(fields.access_count).and_then(|v| v.as_i64()).unwrap_or(0);
-            let access_ts = doc.get_first(fields.access_timestamp).and_then(|v| v.as_i64()).unwrap_or(0);
+            let id = doc
+                .get_first(fields.id)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let title = doc
+                .get_first(fields.title)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let url = doc
+                .get_first(fields.url)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let description = doc
+                .get_first(fields.description)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let access_count = doc
+                .get_first(fields.access_count)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let access_ts = doc
+                .get_first(fields.access_timestamp)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
 
             // Skip items that have never been accessed (access_timestamp == 0) unless we need more
-            let frecency = if access_count > 0 { access_count as f64 } else { 0.0 };
+            let frecency = if access_count > 0 {
+                access_count as f64
+            } else {
+                0.0
+            };
 
             results.push(BookmarkSearchResult {
                 id,
@@ -290,7 +351,8 @@ impl TantivySearchEngine {
         let top_docs = searcher
             .search(
                 &all_query,
-                &TopDocs::with_limit(limit).order_by_fast_field::<i64>("access_timestamp", tantivy::Order::Desc),
+                &TopDocs::with_limit(limit)
+                    .order_by_fast_field::<i64>("access_timestamp", tantivy::Order::Desc),
             )
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
@@ -300,16 +362,46 @@ impl TantivySearchEngine {
                 .doc(doc_address)
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-            let id = doc.get_first(fields.id).and_then(|v| v.as_i64()).unwrap_or(0);
-            let path = doc.get_first(fields.path).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let name = doc.get_first(fields.name).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let extension = doc.get_first(fields.extension).and_then(|v| v.as_str()).map(|s| s.to_string());
-            let size = doc.get_first(fields.size).and_then(|v| v.as_i64()).unwrap_or(0);
-            let modified_at = doc.get_first(fields.modified_at).and_then(|v| v.as_i64()).unwrap_or(0);
-            let access_count = doc.get_first(fields.access_count).and_then(|v| v.as_i64()).unwrap_or(0);
-            let access_ts = doc.get_first(fields.access_timestamp).and_then(|v| v.as_i64()).unwrap_or(0);
+            let id = doc
+                .get_first(fields.id)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let path = doc
+                .get_first(fields.path)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = doc
+                .get_first(fields.name)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let extension = doc
+                .get_first(fields.extension)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let size = doc
+                .get_first(fields.size)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let modified_at = doc
+                .get_first(fields.modified_at)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let access_count = doc
+                .get_first(fields.access_count)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let access_ts = doc
+                .get_first(fields.access_timestamp)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
 
-            let frecency = if access_count > 0 { access_count as f64 } else { 0.0 };
+            let frecency = if access_count > 0 {
+                access_count as f64
+            } else {
+                0.0
+            };
 
             results.push(FileSearchResult {
                 id,
@@ -354,7 +446,10 @@ impl TantivySearchEngine {
             .map_err(|e| SearchError::QueryError(e.to_string()))?;
 
         let top_docs = searcher
-            .search(&parsed_query, &TopDocs::with_limit(limit * SEARCH_RESULT_MULTIPLIER))
+            .search(
+                &parsed_query,
+                &TopDocs::with_limit(limit * SEARCH_RESULT_MULTIPLIER),
+            )
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         // Phase 2: Extract all data from Tantivy + compute frecency (ZERO DB lock)
@@ -370,14 +465,34 @@ impl TantivySearchEngine {
                 .doc(doc_address)
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-            let id = doc.get_first(fields.id).and_then(|v| v.as_i64()).unwrap_or(0);
-            let title = doc.get_first(fields.title).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let url = doc.get_first(fields.url).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let description = doc.get_first(fields.description).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let id = doc
+                .get_first(fields.id)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let title = doc
+                .get_first(fields.title)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let url = doc
+                .get_first(fields.url)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let description = doc
+                .get_first(fields.description)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             // Read frecency data directly from index FastFields
-            let access_count = doc.get_first(fields.access_count).and_then(|v| v.as_i64()).unwrap_or(0);
-            let access_ts = doc.get_first(fields.access_timestamp).and_then(|v| v.as_i64()).unwrap_or(0);
+            let access_count = doc
+                .get_first(fields.access_count)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let access_ts = doc
+                .get_first(fields.access_timestamp)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
 
             // Frecency formula: log(count+1) * decay(timestamp)
             let frecency = if access_count > 0 {
@@ -419,10 +534,16 @@ impl TantivySearchEngine {
         &self,
         query: &str,
         limit: usize,
+        extension_filter: Option<&str>,
     ) -> Result<Vec<FileSearchResult>, SearchError> {
         // Handle empty query - return recently accessed files from index
         if query.trim().is_empty() {
-            return self.get_recent_files_from_index(limit);
+            // Note: get_recent_files_from_index doesn't support filtering yet.
+            // For now, if filtered, we might need to actually search *everything* or just ignore recent optimization?
+            // If we have a filter but no query, we should probably search using the filter.
+            if extension_filter.is_none() {
+                return self.get_recent_files_from_index(limit);
+            }
         }
 
         // Phase 1: Tantivy search (ZERO DB interaction)
@@ -431,12 +552,32 @@ impl TantivySearchEngine {
 
         let query_parser = QueryParser::for_index(&self.file_index, vec![fields.name, fields.path]);
 
-        let parsed_query = query_parser
-            .parse_query(query)
-            .map_err(|e| SearchError::QueryError(e.to_string()))?;
+        let user_query = if query.trim().is_empty() {
+            // If query is empty but we have a filter, we match all docs (and then filter)
+            Box::new(tantivy::query::AllQuery) as Box<dyn tantivy::query::Query>
+        } else {
+            query_parser
+                .parse_query(query)
+                .map_err(|e| SearchError::QueryError(e.to_string()))?
+        };
+
+        let final_query = if let Some(ext) = extension_filter {
+            let term = Term::from_field_text(fields.extension, ext);
+            let filter_query = tantivy::query::TermQuery::new(term, IndexRecordOption::Basic);
+
+            Box::new(tantivy::query::BooleanQuery::new(vec![
+                (tantivy::query::Occur::Must, user_query),
+                (tantivy::query::Occur::Must, Box::new(filter_query)),
+            ])) as Box<dyn tantivy::query::Query>
+        } else {
+            user_query
+        };
 
         let top_docs = searcher
-            .search(&parsed_query, &TopDocs::with_limit(limit * SEARCH_RESULT_MULTIPLIER))
+            .search(
+                &final_query,
+                &TopDocs::with_limit(limit * SEARCH_RESULT_MULTIPLIER),
+            )
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         // Phase 2: Extract all data + compute frecency (ZERO DB lock)
@@ -452,16 +593,42 @@ impl TantivySearchEngine {
                 .doc(doc_address)
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-            let id = doc.get_first(fields.id).and_then(|v| v.as_i64()).unwrap_or(0);
-            let path = doc.get_first(fields.path).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let name = doc.get_first(fields.name).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let extension = doc.get_first(fields.extension).and_then(|v| v.as_str()).map(|s| s.to_string());
-            let size = doc.get_first(fields.size).and_then(|v| v.as_i64()).unwrap_or(0);
-            let modified_at = doc.get_first(fields.modified_at).and_then(|v| v.as_i64()).unwrap_or(0);
+            let id = doc
+                .get_first(fields.id)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let path = doc
+                .get_first(fields.path)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = doc
+                .get_first(fields.name)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let extension = doc
+                .get_first(fields.extension)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let size = doc
+                .get_first(fields.size)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let modified_at = doc
+                .get_first(fields.modified_at)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
 
             // Read frecency from index FastFields
-            let access_count = doc.get_first(fields.access_count).and_then(|v| v.as_i64()).unwrap_or(0);
-            let access_ts = doc.get_first(fields.access_timestamp).and_then(|v| v.as_i64()).unwrap_or(0);
+            let access_count = doc
+                .get_first(fields.access_count)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let access_ts = doc
+                .get_first(fields.access_timestamp)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
 
             let frecency = if access_count > 0 {
                 let age_days = (now - access_ts as f64) / 86400.0;
@@ -513,9 +680,10 @@ impl TantivySearchEngine {
         created_at: i64,
         updated_at: i64,
     ) -> Result<(), SearchError> {
-        let mut writer = self.bookmark_writer.lock().map_err(|_| {
-            SearchError::LockError("bookmark writer lock poisoned")
-        })?;
+        let mut writer = self
+            .bookmark_writer
+            .lock()
+            .map_err(|_| SearchError::LockError("bookmark writer lock poisoned"))?;
 
         let fields = &self.bookmark_fields;
 
@@ -609,9 +777,10 @@ impl TantivySearchEngine {
 
     /// Delete a bookmark from the index.
     pub fn delete_bookmark(&self, id: i64) -> Result<(), SearchError> {
-        let mut writer = self.bookmark_writer.lock().map_err(|_| {
-            SearchError::LockError("bookmark writer lock poisoned")
-        })?;
+        let mut writer = self
+            .bookmark_writer
+            .lock()
+            .map_err(|_| SearchError::LockError("bookmark writer lock poisoned"))?;
         let term = Term::from_field_i64(self.bookmark_fields.id, id);
         writer.delete_term(term);
         writer
@@ -666,17 +835,28 @@ impl TantivySearchEngine {
     /// Use this for post-import indexing where only newly imported bookmarks need indexing.
     pub fn batch_index_bookmarks(
         &self,
-        bookmarks: Vec<(i64, String, String, Option<String>, Option<String>, Option<i64>, i64, i64)>,
+        bookmarks: Vec<(
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            i64,
+            i64,
+        )>,
     ) -> Result<usize, SearchError> {
-        let mut writer = self.bookmark_writer.lock().map_err(|_| {
-            SearchError::LockError("bookmark writer lock poisoned")
-        })?;
+        let mut writer = self
+            .bookmark_writer
+            .lock()
+            .map_err(|_| SearchError::LockError("bookmark writer lock poisoned"))?;
 
         let count = bookmarks.len();
         let fields = &self.bookmark_fields;
 
         // For each bookmark: delete existing (if any) then add
-        for (id, title, url, description, tags, last_accessed, created_at, updated_at) in bookmarks {
+        for (id, title, url, description, tags, last_accessed, created_at, updated_at) in bookmarks
+        {
             let term = Term::from_field_i64(fields.id, id);
             writer.delete_term(term);
 
@@ -718,11 +898,23 @@ impl TantivySearchEngine {
     /// Accepts any `IntoIterator` — callers can pass `Vec`, slices, or custom iterators.
     pub fn rebuild_bookmark_index_from_data(
         &self,
-        bookmarks: impl IntoIterator<Item = (i64, String, String, Option<String>, Option<String>, Option<i64>, i64, i64)>,
+        bookmarks: impl IntoIterator<
+            Item = (
+                i64,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+                i64,
+                i64,
+            ),
+        >,
     ) -> Result<usize, SearchError> {
-        let mut writer = self.bookmark_writer.lock().map_err(|_| {
-            SearchError::LockError("bookmark writer lock poisoned")
-        })?;
+        let mut writer = self
+            .bookmark_writer
+            .lock()
+            .map_err(|_| SearchError::LockError("bookmark writer lock poisoned"))?;
 
         // Clear existing index
         writer
@@ -736,7 +928,8 @@ impl TantivySearchEngine {
         let fields = &self.bookmark_fields;
 
         // Batch add all documents without committing
-        for (id, title, url, description, tags, last_accessed, created_at, updated_at) in bookmarks {
+        for (id, title, url, description, tags, last_accessed, created_at, updated_at) in bookmarks
+        {
             let doc = doc!(
                 fields.id => id,
                 fields.title => title.as_str(),
@@ -784,9 +977,10 @@ impl TantivySearchEngine {
         directory_id: i64,
         files: impl IntoIterator<Item = (i64, String, String, Option<String>, i64, i64, i64)>,
     ) -> Result<usize, SearchError> {
-        let mut writer = self.file_writer.lock().map_err(|_| {
-            SearchError::LockError("file writer lock poisoned")
-        })?;
+        let mut writer = self
+            .file_writer
+            .lock()
+            .map_err(|_| SearchError::LockError("file writer lock poisoned"))?;
 
         let fields = &self.file_fields;
 
@@ -839,9 +1033,10 @@ impl TantivySearchEngine {
         &self,
         files: impl IntoIterator<Item = (i64, String, String, Option<String>, i64, i64, i64)>,
     ) -> Result<usize, SearchError> {
-        let mut writer = self.file_writer.lock().map_err(|_| {
-            SearchError::LockError("file writer lock poisoned")
-        })?;
+        let mut writer = self
+            .file_writer
+            .lock()
+            .map_err(|_| SearchError::LockError("file writer lock poisoned"))?;
 
         // Clear existing index
         writer
@@ -908,9 +1103,10 @@ impl TantivySearchEngine {
     /// Commit any pending changes to the index.
     pub fn commit(&self) -> Result<(), SearchError> {
         {
-            let mut writer = self.bookmark_writer.lock().map_err(|_| {
-                SearchError::LockError("bookmark writer lock poisoned")
-            })?;
+            let mut writer = self
+                .bookmark_writer
+                .lock()
+                .map_err(|_| SearchError::LockError("bookmark writer lock poisoned"))?;
             writer
                 .commit()
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
@@ -919,9 +1115,10 @@ impl TantivySearchEngine {
             .reload()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
         {
-            let mut writer = self.file_writer.lock().map_err(|_| {
-                SearchError::LockError("file writer lock poisoned")
-            })?;
+            let mut writer = self
+                .file_writer
+                .lock()
+                .map_err(|_| SearchError::LockError("file writer lock poisoned"))?;
             writer
                 .commit()
                 .map_err(|e| SearchError::IndexError(e.to_string()))?;
@@ -955,28 +1152,61 @@ impl TantivySearchEngine {
 
         // Find existing document by id
         let term = Term::from_field_i64(fields.id, id);
-        let term_query = tantivy::query::TermQuery::new(term.clone(), tantivy::schema::IndexRecordOption::Basic);
-        let top_docs = searcher.search(&term_query, &tantivy::collector::TopDocs::with_limit(1))
+        let term_query =
+            tantivy::query::TermQuery::new(term.clone(), tantivy::schema::IndexRecordOption::Basic);
+        let top_docs = searcher
+            .search(&term_query, &tantivy::collector::TopDocs::with_limit(1))
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         if top_docs.is_empty() {
-            return Err(SearchError::IndexError(format!("Bookmark {} not found in index", id)));
+            return Err(SearchError::IndexError(format!(
+                "Bookmark {} not found in index",
+                id
+            )));
         }
 
-        let doc: TantivyDocument = searcher.doc(top_docs[0].1)
+        let doc: TantivyDocument = searcher
+            .doc(top_docs[0].1)
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         // Extract existing values
-        let title = doc.get_first(fields.title).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let url = doc.get_first(fields.url).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let description = doc.get_first(fields.description).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let tags = doc.get_first(fields.tags).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let last_accessed = doc.get_first(fields.last_accessed).and_then(|v| v.as_i64()).unwrap_or(0);
-        let created_at = doc.get_first(fields.created_at).and_then(|v| v.as_i64()).unwrap_or(0);
-        let updated_at = doc.get_first(fields.updated_at).and_then(|v| v.as_i64()).unwrap_or(0);
+        let title = doc
+            .get_first(fields.title)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let url = doc
+            .get_first(fields.url)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let description = doc
+            .get_first(fields.description)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let tags = doc
+            .get_first(fields.tags)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let last_accessed = doc
+            .get_first(fields.last_accessed)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let created_at = doc
+            .get_first(fields.created_at)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let updated_at = doc
+            .get_first(fields.updated_at)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
 
         // Delete and re-add with updated frecency
-        let mut writer = self.bookmark_writer.lock()
+        let mut writer = self
+            .bookmark_writer
+            .lock()
             .map_err(|_| SearchError::LockError("bookmark writer lock poisoned"))?;
 
         writer.delete_term(term);
@@ -994,15 +1224,18 @@ impl TantivySearchEngine {
             fields.access_timestamp => access_timestamp
         );
 
-        writer.add_document(new_doc)
+        writer
+            .add_document(new_doc)
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-        writer.commit()
+        writer
+            .commit()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         drop(writer);
 
-        self.bookmark_reader.reload()
+        self.bookmark_reader
+            .reload()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         Ok(())
@@ -1026,27 +1259,56 @@ impl TantivySearchEngine {
 
         // Find existing document by id
         let term = Term::from_field_i64(fields.id, id);
-        let term_query = tantivy::query::TermQuery::new(term.clone(), tantivy::schema::IndexRecordOption::Basic);
-        let top_docs = searcher.search(&term_query, &tantivy::collector::TopDocs::with_limit(1))
+        let term_query =
+            tantivy::query::TermQuery::new(term.clone(), tantivy::schema::IndexRecordOption::Basic);
+        let top_docs = searcher
+            .search(&term_query, &tantivy::collector::TopDocs::with_limit(1))
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         if top_docs.is_empty() {
-            return Err(SearchError::IndexError(format!("File {} not found in index", id)));
+            return Err(SearchError::IndexError(format!(
+                "File {} not found in index",
+                id
+            )));
         }
 
-        let doc: TantivyDocument = searcher.doc(top_docs[0].1)
+        let doc: TantivyDocument = searcher
+            .doc(top_docs[0].1)
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         // Extract existing values
-        let path = doc.get_first(fields.path).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let name = doc.get_first(fields.name).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let extension = doc.get_first(fields.extension).and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let size = doc.get_first(fields.size).and_then(|v| v.as_i64()).unwrap_or(0);
-        let modified_at = doc.get_first(fields.modified_at).and_then(|v| v.as_i64()).unwrap_or(0);
-        let directory_id = doc.get_first(fields.directory_id).and_then(|v| v.as_i64()).unwrap_or(0);
+        let path = doc
+            .get_first(fields.path)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let name = doc
+            .get_first(fields.name)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let extension = doc
+            .get_first(fields.extension)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let size = doc
+            .get_first(fields.size)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let modified_at = doc
+            .get_first(fields.modified_at)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let directory_id = doc
+            .get_first(fields.directory_id)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
 
         // Delete and re-add with updated frecency
-        let mut writer = self.file_writer.lock()
+        let mut writer = self
+            .file_writer
+            .lock()
             .map_err(|_| SearchError::LockError("file writer lock poisoned"))?;
 
         writer.delete_term(term);
@@ -1063,15 +1325,18 @@ impl TantivySearchEngine {
             fields.access_timestamp => access_timestamp
         );
 
-        writer.add_document(new_doc)
+        writer
+            .add_document(new_doc)
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
-        writer.commit()
+        writer
+            .commit()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         drop(writer);
 
-        self.file_reader.reload()
+        self.file_reader
+            .reload()
             .map_err(|e| SearchError::IndexError(e.to_string()))?;
 
         Ok(())
@@ -1131,7 +1396,7 @@ mod tests {
             .unwrap();
 
         // Search for it
-        let results = engine.search_files("document", 10).unwrap();
+        let results = engine.search_files("document", 10, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "document.pdf");
     }
@@ -1335,7 +1600,7 @@ mod tests {
             handles.push(thread::spawn(move || {
                 for _ in 0..20 {
                     let _ = engine_clone.search_bookmarks("concurrent", 10);
-                    let _ = engine_clone.search_files("test", 10);
+                    let _ = engine_clone.search_files("test", 10, None);
                     thread::sleep(std::time::Duration::from_millis(1));
                 }
             }));
@@ -1364,12 +1629,17 @@ mod tests {
 
         // Wait for all threads to complete (if no deadlock, this will succeed)
         for handle in handles {
-            handle.join().expect("Thread panicked - potential deadlock?");
+            handle
+                .join()
+                .expect("Thread panicked - potential deadlock?");
         }
 
         // Final verification - search should still work
         let results = engine.search_bookmarks("concurrent", 50).unwrap();
-        assert!(!results.is_empty(), "Search should return results after concurrent operations");
+        assert!(
+            !results.is_empty(),
+            "Search should return results after concurrent operations"
+        );
     }
 
     /// Test zero-lock search: verify search works entirely from index without DB dependency
@@ -1395,7 +1665,10 @@ mod tests {
         // 2. Search without any frecency - should work
         let results1 = engine.search_bookmarks("zerolock", 10).unwrap();
         assert_eq!(results1.len(), 1);
-        assert_eq!(results1[0].frecency_score, 0.0, "Initial frecency should be 0");
+        assert_eq!(
+            results1[0].frecency_score, 0.0,
+            "Initial frecency should be 0"
+        );
 
         // 3. Update frecency via update_bookmark_frecency (simulates access tracking)
         let now = std::time::SystemTime::now()
@@ -1448,7 +1721,7 @@ mod tests {
             .unwrap();
 
         // Initial search
-        let results1 = engine.search_files("main", 10).unwrap();
+        let results1 = engine.search_files("main", 10, None).unwrap();
         assert_eq!(results1.len(), 1);
         assert_eq!(results1[0].frecency_score, 0.0);
 
@@ -1460,7 +1733,7 @@ mod tests {
         engine.update_file_frecency(1, 10, now).unwrap();
 
         // Search again
-        let results2 = engine.search_files("main", 10).unwrap();
+        let results2 = engine.search_files("main", 10, None).unwrap();
         assert!(
             results2[0].frecency_score > 0.0,
             "File frecency should be positive after update"
@@ -1473,8 +1746,30 @@ mod tests {
         let (engine, _temp_dir) = setup_test_engine();
 
         // Index two bookmarks
-        engine.index_bookmark(1, "First", "https://first.com", None, None, None, 1000, 1000).unwrap();
-        engine.index_bookmark(2, "Second", "https://second.com", None, None, None, 1000, 1000).unwrap();
+        engine
+            .index_bookmark(
+                1,
+                "First",
+                "https://first.com",
+                None,
+                None,
+                None,
+                1000,
+                1000,
+            )
+            .unwrap();
+        engine
+            .index_bookmark(
+                2,
+                "Second",
+                "https://second.com",
+                None,
+                None,
+                None,
+                1000,
+                1000,
+            )
+            .unwrap();
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1489,7 +1784,10 @@ mod tests {
         // Empty query should return "Second" first (higher access_timestamp)
         let results = engine.search_bookmarks("", 10).unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].title, "Second", "More recently accessed should be first");
+        assert_eq!(
+            results[0].title, "Second",
+            "More recently accessed should be first"
+        );
         assert_eq!(results[1].title, "First");
     }
 
@@ -1497,15 +1795,51 @@ mod tests {
     fn test_search_info_keyword_debug() {
         let (engine, _temp_dir) = setup_test_engine();
 
-        engine.index_bookmark(1, "System Information", "https://info.example.com", Some("system info page"), None, None, 1000, 1000).unwrap();
-        engine.index_bookmark(2, "GitHub", "https://github.com", Some("Code hosting"), None, None, 1000, 1000).unwrap();
-        engine.index_bookmark(3, "InfoQ", "https://infoq.com", Some("技术新闻"), None, None, 1000, 1000).unwrap();
+        engine
+            .index_bookmark(
+                1,
+                "System Information",
+                "https://info.example.com",
+                Some("system info page"),
+                None,
+                None,
+                1000,
+                1000,
+            )
+            .unwrap();
+        engine
+            .index_bookmark(
+                2,
+                "GitHub",
+                "https://github.com",
+                Some("Code hosting"),
+                None,
+                None,
+                1000,
+                1000,
+            )
+            .unwrap();
+        engine
+            .index_bookmark(
+                3,
+                "InfoQ",
+                "https://infoq.com",
+                Some("技术新闻"),
+                None,
+                None,
+                1000,
+                1000,
+            )
+            .unwrap();
 
         let results = engine.search_bookmarks("info", 10).unwrap();
         println!("Search 'info' returned {} results:", results.len());
         for r in &results {
             println!("  - [{}] {} (score: {:.3})", r.id, r.title, r.score);
         }
-        assert!(!results.is_empty(), "Should find bookmarks containing 'info'");
+        assert!(
+            !results.is_empty(),
+            "Should find bookmarks containing 'info'"
+        );
     }
 }

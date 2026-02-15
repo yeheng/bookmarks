@@ -22,6 +22,8 @@ const MAX_CACHE_SIZE: usize = 1000;
 pub struct PluginRequest {
     pub command: String,
     pub query: String,
+    #[serde(default)]
+    pub filters: HashMap<String, String>,
     pub preferences: HashMap<String, String>,
 }
 
@@ -131,10 +133,19 @@ impl PluginExecutor {
         plugin_dir: &Path,
         command: &PluginCommand,
         query: &str,
+        filters: HashMap<String, String>,
         preferences: HashMap<String, String>,
         api_version: &str,
     ) -> Result<PluginResponse, AppError> {
-        let cache_key = format!("{}:{}:{}", plugin_dir.display(), command.name, query);
+        // Include filters in cache key
+        let filters_key = serde_json::to_string(&filters).unwrap_or_default();
+        let cache_key = format!(
+            "{}:{}:{}:{}",
+            plugin_dir.display(),
+            command.name,
+            query,
+            filters_key
+        );
 
         // Check cache
         if let Some(cached) = self.check_cache(&cache_key) {
@@ -148,6 +159,7 @@ impl PluginExecutor {
         let request = PluginRequest {
             command: command.name.clone(),
             query: query.to_string(),
+            filters,
             preferences: preferences.clone(),
         };
         let request_json = serde_json::to_string(&request)
@@ -158,7 +170,8 @@ impl PluginExecutor {
 
         // Spawn subprocess
         let timeout = Duration::from_secs(command.timeout.unwrap_or(DEFAULT_TIMEOUT_SECS));
-        let result = self.run_subprocess(&program, &args, plugin_dir, &request_json, &env, timeout)?;
+        let result =
+            self.run_subprocess(&program, &args, plugin_dir, &request_json, &env, timeout)?;
 
         // Log stderr if any
         if !result.stderr.is_empty() {
@@ -166,12 +179,13 @@ impl PluginExecutor {
         }
 
         // Parse response
-        let response: PluginResponse = serde_json::from_str(&result.stdout)
-            .map_err(|e| AppError::Generic(format!(
+        let response: PluginResponse = serde_json::from_str(&result.stdout).map_err(|e| {
+            AppError::Generic(format!(
                 "Plugin returned invalid JSON: {}. Output: {}",
                 e,
                 &result.stdout[..result.stdout.len().min(200)]
-            )))?;
+            ))
+        })?;
 
         // Store in cache if plugin requests it
         if let Some(ref cache) = response.cache {
@@ -206,10 +220,13 @@ impl PluginExecutor {
                 }
             }
 
-            cache.insert(key, CacheEntry {
-                response: response.clone(),
-                expires_at: Instant::now() + Duration::from_secs(ttl_secs),
-            });
+            cache.insert(
+                key,
+                CacheEntry {
+                    response: response.clone(),
+                    expires_at: Instant::now() + Duration::from_secs(ttl_secs),
+                },
+            );
         }
     }
 
@@ -230,7 +247,12 @@ impl PluginExecutor {
             .stderr(Stdio::piped())
             .envs(env)
             .spawn()
-            .map_err(|e| AppError::Generic(format!("Failed to spawn plugin process '{}': {}", program, e)))?;
+            .map_err(|e| {
+                AppError::Generic(format!(
+                    "Failed to spawn plugin process '{}': {}",
+                    program, e
+                ))
+            })?;
 
         // Write stdin
         if let Some(mut stdin) = child.stdin.take() {
@@ -243,8 +265,9 @@ impl PluginExecutor {
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    let output = child.wait_with_output()
-                        .map_err(|e| AppError::Generic(format!("Failed to read process output: {}", e)))?;
+                    let output = child.wait_with_output().map_err(|e| {
+                        AppError::Generic(format!("Failed to read process output: {}", e))
+                    })?;
 
                     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -270,7 +293,10 @@ impl PluginExecutor {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 Err(e) => {
-                    return Err(AppError::Generic(format!("Failed to check process status: {}", e)));
+                    return Err(AppError::Generic(format!(
+                        "Failed to check process status: {}",
+                        e
+                    )));
                 }
             }
         }
@@ -293,31 +319,52 @@ struct SubprocessResult {
 }
 
 /// Resolve the runtime command and arguments.
-fn resolve_runtime(runtime: &str, script: &str, plugin_dir: &Path) -> Result<(String, Vec<String>), AppError> {
+fn resolve_runtime(
+    runtime: &str,
+    script: &str,
+    plugin_dir: &Path,
+) -> Result<(String, Vec<String>), AppError> {
     let script_path = plugin_dir.join(script);
 
     match runtime {
         "node" => {
             check_runtime_available("node")?;
-            Ok(("node".to_string(), vec![script_path.to_string_lossy().to_string()]))
+            Ok((
+                "node".to_string(),
+                vec![script_path.to_string_lossy().to_string()],
+            ))
         }
         "python" => {
             // Try python3 first, then python
             if which("python3") {
-                Ok(("python3".to_string(), vec![script_path.to_string_lossy().to_string()]))
+                Ok((
+                    "python3".to_string(),
+                    vec![script_path.to_string_lossy().to_string()],
+                ))
             } else if which("python") {
-                Ok(("python".to_string(), vec![script_path.to_string_lossy().to_string()]))
+                Ok((
+                    "python".to_string(),
+                    vec![script_path.to_string_lossy().to_string()],
+                ))
             } else {
-                Err(AppError::Generic("Python runtime not found. Please install Python 3.".to_string()))
+                Err(AppError::Generic(
+                    "Python runtime not found. Please install Python 3.".to_string(),
+                ))
             }
         }
         "bash" => {
             check_runtime_available("bash")?;
-            Ok(("bash".to_string(), vec![script_path.to_string_lossy().to_string()]))
+            Ok((
+                "bash".to_string(),
+                vec![script_path.to_string_lossy().to_string()],
+            ))
         }
         "binary" => {
             if !script_path.exists() {
-                return Err(AppError::Generic(format!("Binary not found: {}", script_path.display())));
+                return Err(AppError::Generic(format!(
+                    "Binary not found: {}",
+                    script_path.display()
+                )));
             }
             Ok((script_path.to_string_lossy().to_string(), vec![]))
         }
@@ -348,10 +395,17 @@ fn which(name: &str) -> bool {
 }
 
 /// Build environment variables for plugin subprocess.
-fn build_env(plugin_dir: &Path, api_version: &str, preferences: &HashMap<String, String>) -> HashMap<String, String> {
+fn build_env(
+    plugin_dir: &Path,
+    api_version: &str,
+    preferences: &HashMap<String, String>,
+) -> HashMap<String, String> {
     let mut env = HashMap::new();
 
-    env.insert("LAUNCHER_PLUGIN_DIR".to_string(), plugin_dir.to_string_lossy().to_string());
+    env.insert(
+        "LAUNCHER_PLUGIN_DIR".to_string(),
+        plugin_dir.to_string_lossy().to_string(),
+    );
     env.insert(
         "LAUNCHER_DATA_DIR".to_string(),
         plugin_dir.join("data").to_string_lossy().to_string(),
@@ -434,13 +488,16 @@ echo '{"items":[{"uid":"1","title":"Hello","subtitle":"World"}]}'
         };
 
         let executor = PluginExecutor::new();
-        let response = executor.execute(
-            plugin_dir,
-            &cmd,
-            "test query",
-            HashMap::new(),
-            "0.1",
-        ).unwrap();
+        let response = executor
+            .execute(
+                plugin_dir,
+                &cmd,
+                "test query",
+                HashMap::new(),
+                HashMap::new(),
+                "0.1",
+            )
+            .unwrap();
 
         assert_eq!(response.items.len(), 1);
         assert_eq!(response.items[0].title, "Hello");
@@ -473,13 +530,7 @@ echo '{"items":[]}'
         };
 
         let executor = PluginExecutor::new();
-        let result = executor.execute(
-            plugin_dir,
-            &cmd,
-            "test",
-            HashMap::new(),
-            "0.1",
-        );
+        let result = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), "0.1");
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("timed out"));
@@ -511,13 +562,7 @@ echo 'not valid json'
         };
 
         let executor = PluginExecutor::new();
-        let result = executor.execute(
-            plugin_dir,
-            &cmd,
-            "test",
-            HashMap::new(),
-            "0.1",
-        );
+        let result = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), "0.1");
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid JSON"));
@@ -549,7 +594,14 @@ exit 1
         };
 
         let executor = PluginExecutor::new();
-        let result = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), "0.1");
+        let result = executor.execute(
+            plugin_dir,
+            &cmd,
+            "test",
+            HashMap::new(),
+            HashMap::new(),
+            "0.1",
+        );
 
         assert!(result.is_err());
     }
@@ -583,11 +635,29 @@ echo '{"items":[{"uid":"1","title":"Cached"}],"cache":{"ttl_seconds":300}}'
         let executor = PluginExecutor::new();
 
         // First call — executes script
-        let r1 = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), "0.1").unwrap();
+        let r1 = executor
+            .execute(
+                plugin_dir,
+                &cmd,
+                "test",
+                HashMap::new(),
+                HashMap::new(),
+                "0.1",
+            )
+            .unwrap();
         assert_eq!(r1.items.len(), 1);
 
         // Second call — should hit cache (no subprocess spawned)
-        let r2 = executor.execute(plugin_dir, &cmd, "test", HashMap::new(), "0.1").unwrap();
+        let r2 = executor
+            .execute(
+                plugin_dir,
+                &cmd,
+                "test",
+                HashMap::new(),
+                HashMap::new(),
+                "0.1",
+            )
+            .unwrap();
         assert_eq!(r2.items.len(), 1);
     }
 
@@ -620,9 +690,14 @@ echo "{\"items\":[{\"uid\":\"1\",\"title\":\"$LAUNCHER_PLUGIN_DIR\",\"subtitle\"
         prefs.insert("api_key".to_string(), "secret123".to_string());
 
         let executor = PluginExecutor::new();
-        let result = executor.execute(plugin_dir, &cmd, "test", prefs, "0.1").unwrap();
+        let result = executor
+            .execute(plugin_dir, &cmd, "test", HashMap::new(), prefs, "0.1")
+            .unwrap();
 
-        assert_eq!(result.items[0].title, plugin_dir.to_string_lossy().to_string());
+        assert_eq!(
+            result.items[0].title,
+            plugin_dir.to_string_lossy().to_string()
+        );
         assert_eq!(result.items[0].subtitle.as_deref(), Some("secret123"));
     }
 
@@ -653,7 +728,16 @@ echo '{"items":[]}'
         };
 
         let executor = PluginExecutor::new();
-        executor.execute(plugin_dir, &cmd, "test", HashMap::new(), "0.1").unwrap();
+        executor
+            .execute(
+                plugin_dir,
+                &cmd,
+                "test",
+                HashMap::new(),
+                HashMap::new(),
+                "0.1",
+            )
+            .unwrap();
 
         // Check log file was created
         let log_content = executor.get_log(plugin_dir).unwrap();

@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::engine::SearchError;
+use super::query_parser::StructuredQuery;
 
 /// The type of source a result comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +23,8 @@ pub enum SourceType {
 pub struct SearchContext {
     /// The raw query string.
     pub query: String,
+    /// Parsed structured query.
+    pub structured_query: StructuredQuery,
     /// Maximum results per provider.
     pub limit: usize,
     /// Whether to prefer fuzzy matching.

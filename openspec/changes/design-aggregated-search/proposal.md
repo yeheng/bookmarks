@@ -2,23 +2,60 @@
 
 ## Summary
 
-Design a robust, extensible search aggregation system that allows dynamic registration of search providers (plugins, remote sources), supports advanced query syntax (filters, scopes), and implements context-aware result ranking.
+Upgrade the search system from hardcoded providers to a dynamic ecosystem with structured query syntax, while keeping ranking simple and proven.
 
 ## Motivation
 
-The current search implementation provides a solid foundation but lacks flexibility for power users and developers. Extending search requires modifying core code or adhering to rigid plugin structures. A truly extensible system should allow:
-1.  **Dynamic Providers**: Plugins should be able to register new search sources at runtime without app restarts or core code changes.
-2.  **Advanced Queries**: Users need precise control (e.g., `type:pdf`, `site:github.com`) beyond simple keyword matching.
-3.  **Context Ranking**: Results should be ranked based on current context (e.g., active app, time of day) not just static scores.
+The current search implementation has two key limitations:
+
+1. **Hardcoded Registration**: Providers are registered in `lib.rs` startup code. Plugins cannot participate as first-class search sources.
+2. **Unstructured Queries**: Input is treated as raw strings. Advanced filtering (e.g., `type:pdf`) requires per-provider hacks.
 
 ## Goals
 
-1.  **Dynamic Registry**: Create a `SearchRegistry` that allows adding/removing providers on the fly.
-2.  **Query Language**: Define a syntax for filters, scopes, and commands within the search bar.
-3.  **Pluggable Ranking**: Allow different ranking strategies (e.g., frecency, relevance, AI-based) to be swapped or combined.
-4.   **Result Actions**: Standardize how results expose actions (open, copy, run script) across all providers.
+1. **Structured Query Parser**: Implement `scope:` and `type:` syntax for precise search control.
+2. **Dynamic Provider Registry**: Refactor `SearchAggregator` to use `HashMap` for runtime add/remove.
+3. **Manifest-Based Plugin Registration**: Auto-register plugins as search providers when loading `plugin.toml`.
 
 ## Non-Goals
 
--   Implementing a full SQL engine.
--   Replacing Tantivy (we build *on top* of it).
+- **Runtime Plugin FFI Registration**: Plugins are subprocesses - they cannot directly register Rust trait objects. Registration must be Host-driven based on Manifest.
+- **Context-Aware Ranking**: Tracking active apps/windows requires OS permissions and adds complexity with unclear benefit.
+- **AI Re-ranking**: Adds latency (50-200ms), conflicts with fast search goal.
+- **Separate RankingEngine**: Over-abstraction for a single weighted formula.
+
+## Key Design Decisions
+
+### Plugin Registration Architecture
+
+**Wrong**: "Plugins register themselves via IPC/FFI at runtime"
+**Correct**: "Host scans `plugin.toml`, creates `PluginSearchProvider` proxy, registers with Aggregator"
+
+```toml
+# plugin.toml
+[plugin]
+name = "github-search"
+title = "GitHub Search"
+
+[[commands]]
+name = "search-repos"
+mode = "search"  # Host detects this and auto-registers
+keyword = "gh"
+script = "dist/index.js"
+runtime = "node"
+```
+
+### Aggregator Refactor
+
+```rust
+// Before: Vec-based, append-only
+providers: Vec<Box<dyn SearchProvider>>
+
+// After: HashMap with RwLock for dynamic access
+providers: RwLock<HashMap<String, Box<dyn SearchProvider>>>
+```
+
+### Scope Routing
+
+- Query `gh: react` → Only dispatch to provider with ID `"gh"` or `"plugin:gh"`
+- Query `rust type:pdf` → Broadcast to all, `FileSearchProvider` applies filter

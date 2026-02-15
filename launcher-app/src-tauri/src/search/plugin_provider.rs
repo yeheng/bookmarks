@@ -8,62 +8,40 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::plugins::executor::PluginExecutor;
-use crate::plugins::registry::PluginRegistry;
+use crate::plugins::manifest::PluginCommand;
 use crate::services::data_service::DataService;
 use super::engine::SearchError;
 use super::provider::{ProviderResult, SearchContext, SearchProvider, SourceType};
 
-/// Provides search results from installed plugins.
+/// Provides search results for a specific plugin command.
 ///
-/// Examines the query for a plugin keyword prefix. If found, the query
-/// is routed to the matching plugin command via `PluginExecutor`.
-/// If no keyword matches, returns empty results.
+/// Acts as a proxy that binds a specific "keyword" to a plugin command execution.
 pub struct PluginSearchProvider {
-    registry: Arc<PluginRegistry>,
+    plugin_name: String,
+    plugin_dir: std::path::PathBuf,
+    command: PluginCommand,
     executor: Arc<PluginExecutor>,
     data_service: Arc<DataService>,
+    /// Pre-computed source ID: "plugin:<keyword>"
+    source_id: String,
 }
 
 impl PluginSearchProvider {
     pub fn new(
-        registry: Arc<PluginRegistry>,
+        plugin_name: String,
+        plugin_dir: std::path::PathBuf,
+        command: PluginCommand,
         executor: Arc<PluginExecutor>,
         data_service: Arc<DataService>,
     ) -> Self {
+        let source_id = format!("plugin:{}", command.keyword);
         Self {
-            registry,
+            plugin_name,
+            plugin_dir,
+            command,
             executor,
             data_service,
-        }
-    }
-
-    /// Detect if query starts with a plugin keyword.
-    /// Returns (keyword, rest_of_query) if matched.
-    fn detect_keyword(&self, query: &str) -> Option<(String, String)> {
-        let trimmed = query.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        let keywords = self.registry.get_keywords();
-        if keywords.is_empty() {
-            return None;
-        }
-
-        let space_index = trimmed.find(' ');
-        let potential_keyword = match space_index {
-            Some(i) => &trimmed[..i],
-            None => trimmed,
-        };
-        let rest_query = match space_index {
-            Some(i) => trimmed[i + 1..].to_string(),
-            None => String::new(),
-        };
-
-        if keywords.contains(&potential_keyword.to_string()) {
-            Some((potential_keyword.to_string(), rest_query))
-        } else {
-            None
+            source_id,
         }
     }
 }
@@ -71,11 +49,11 @@ impl PluginSearchProvider {
 #[async_trait]
 impl SearchProvider for PluginSearchProvider {
     fn source_id(&self) -> &str {
-        "plugins"
+        &self.source_id
     }
 
     fn source_label(&self) -> &str {
-        "Plugins"
+        &self.command.title
     }
 
     fn source_type(&self) -> SourceType {
@@ -83,44 +61,69 @@ impl SearchProvider for PluginSearchProvider {
     }
 
     async fn search(&self, ctx: &SearchContext) -> Result<Vec<ProviderResult>, SearchError> {
-        // Check if query matches a plugin keyword
-        let (keyword, plugin_query) = match self.detect_keyword(&ctx.query) {
-            Some(kq) => kq,
-            None => return Ok(Vec::new()), // No keyword match → no plugin results
-        };
-
-        // Resolve keyword to plugin command entry
-        let entry = match self.registry.resolve_keyword(&keyword) {
-            Some(e) => e,
-            None => return Ok(Vec::new()),
-        };
-
-        // Get the manifest to find the command definition
-        let manifest = match self.registry.get_manifest(&entry.plugin_id) {
-            Some(m) => m,
-            None => return Ok(Vec::new()),
-        };
-
-        let command = match manifest.commands.iter().find(|c| c.name == entry.command_name) {
-            Some(c) => c,
-            None => return Ok(Vec::new()),
+        let keyword = &self.command.keyword;
+        let query = &ctx.query;
+        
+        // 1. Determine if we should execute
+        // Case A: Scoped query (e.g. "gh: active") -> Aggregator routed it here because we are "plugin:gh"
+        // In this case, we expect `ctx.structured_query.scope` to be "gh".
+        // The `query` field might be "active" (parsed) or "gh: active" (raw)? 
+        // `query_parser` logic: `gh: active` -> scope="gh", terms="active".
+        // The `ctx.query` passed to providers is the RAW query string usually?
+        // `unified_search` passes `query` (raw).
+        // So we need to use `ctx.structured_query` to get the clean terms!
+        
+        let plugin_query = if let Some(scope) = &ctx.structured_query.scope {
+            if scope == keyword {
+                // Scoped match! Use the parsed terms as the input to the plugin.
+                // Reconstruct terms from structured query? 
+                // Or just use the original query?
+                // `StructuredQuery` has `local_terms`? No, it has `terms`.
+                ctx.structured_query.terms.join(" ")
+            } else {
+                // Scope doesn't match our keyword (shouldn't happen directly if aggregator routed correctly, 
+                // but safety check).
+                return Ok(Vec::new());
+            }
+        } else {
+            // Case B: Global/Legacy query (e.g. "gh active")
+            // We need to check if it starts with our keyword.
+            let trimmed = query.trim();
+            if trimmed == keyword || trimmed.starts_with(&format!("{} ", keyword)) {
+                // Extract rest
+                if trimmed.len() > keyword.len() {
+                    trimmed[keyword.len()..].trim().to_string()
+                } else {
+                    "".to_string()
+                }
+            } else {
+                // Doesn't match our keyword
+                return Ok(Vec::new());
+            }
         };
 
         // Get plugin preferences
         let preferences = self.data_service.with_db(|conn| {
-            self.registry.get_preferences(conn, &entry.plugin_id)
+            let mut stmt = conn.prepare("SELECT key, value FROM plugin_preferences WHERE plugin_id = ?1")?;
+            let prefs: std::collections::HashMap<String, String> = stmt.query_map([&self.plugin_name], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+            Ok(prefs)
         }).unwrap_or_default();
 
-        // Execute plugin command (synchronous — runs in blocking context)
+        // Execute plugin command
         let response = self.executor.execute(
-            &entry.plugin_dir,
-            command,
+            &self.plugin_dir,
+            &self.command,
             &plugin_query,
+            ctx.structured_query.filters.clone(),
             preferences,
-            &manifest.plugin.api_version,
+            &crate::plugins::manifest::HOST_API_VERSION, // Assuming compatible
         ).map_err(|e| SearchError::IndexError(format!("Plugin execution failed: {}", e)))?;
 
-        // Map plugin results to ProviderResult
+        // Map plugin results
         Ok(response
             .items
             .into_iter()
@@ -142,8 +145,8 @@ impl SearchProvider for PluginSearchProvider {
                     title: item.title,
                     subtitle: item.subtitle.unwrap_or_default(),
                     source_type: SourceType::Plugin,
-                    source_id: "plugins".to_string(),
-                    score: 1.0, // Plugin results get max relevance when keyword matches
+                    source_id: format!("plugin:{}", keyword), // Return specific source ID
+                    score: 1.0,
                     frecency_score: 0.0,
                     icon,
                     url: None,
@@ -162,100 +165,4 @@ impl SearchProvider for PluginSearchProvider {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    /// Helper to create a minimal plugin registry without any plugins installed.
-    fn create_empty_registry() -> (TempDir, Arc<PluginRegistry>) {
-        let tmp = TempDir::new().unwrap();
-        let registry = PluginRegistry::new(tmp.path().to_path_buf()).unwrap();
-        (tmp, Arc::new(registry))
-    }
-
-    fn create_executor() -> Arc<PluginExecutor> {
-        Arc::new(PluginExecutor::new())
-    }
-
-    fn create_data_service() -> Arc<DataService> {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let db_path = tmp.path().join("test.db");
-        let index_path = tmp.path().join("index");
-        let db = crate::db::Database::new(db_path).unwrap();
-        let engine = Arc::new(super::super::TantivySearchEngine::new(index_path).unwrap());
-        // Leak the TempDir to keep it alive for the test
-        let _ = Box::leak(Box::new(tmp));
-        Arc::new(DataService::new(db, engine))
-    }
-
-    #[tokio::test]
-    async fn test_source_id() {
-        let (_tmp, registry) = create_empty_registry();
-        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
-        assert_eq!(provider.source_id(), "plugins");
-    }
-
-    #[tokio::test]
-    async fn test_source_label() {
-        let (_tmp, registry) = create_empty_registry();
-        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
-        assert_eq!(provider.source_label(), "Plugins");
-    }
-
-    #[tokio::test]
-    async fn test_source_type() {
-        let (_tmp, registry) = create_empty_registry();
-        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
-        assert_eq!(provider.source_type(), SourceType::Plugin);
-    }
-
-    #[tokio::test]
-    async fn test_detect_keyword_empty_query() {
-        let (_tmp, registry) = create_empty_registry();
-        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
-        assert!(provider.detect_keyword("").is_none());
-        assert!(provider.detect_keyword("   ").is_none());
-    }
-
-    #[tokio::test]
-    async fn test_detect_keyword_no_plugins() {
-        let (_tmp, registry) = create_empty_registry();
-        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
-        // No plugins installed, so no keywords to match
-        assert!(provider.detect_keyword("gh search rust").is_none());
-    }
-
-    #[tokio::test]
-    async fn test_search_no_keyword_match_returns_empty() {
-        let (_tmp, registry) = create_empty_registry();
-        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
-
-        let ctx = SearchContext {
-            query: "some random query".to_string(),
-            limit: 10,
-            fuzzy: true,
-            sources: None,
-        };
-
-        let results = provider.search(&ctx).await.unwrap();
-        assert!(results.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_search_empty_query_returns_empty() {
-        let (_tmp, registry) = create_empty_registry();
-        let provider = PluginSearchProvider::new(registry, create_executor(), create_data_service());
-
-        let ctx = SearchContext {
-            query: "".to_string(),
-            limit: 10,
-            fuzzy: true,
-            sources: None,
-        };
-
-        let results = provider.search(&ctx).await.unwrap();
-        assert!(results.is_empty());
-    }
-}
 

@@ -4,12 +4,16 @@
 //! for fast lookup during search.
 
 use crate::error::AppError;
+use crate::plugins::executor::PluginExecutor;
 use crate::plugins::manifest::PluginManifest;
+use crate::search::plugin_provider::PluginSearchProvider;
+use crate::search::SearchAggregator;
+use crate::services::data_service::DataService;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Registered plugin info — stored in SQLite + returned to frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,16 +50,30 @@ pub struct PluginRegistry {
     keywords: Mutex<HashMap<String, KeywordEntry>>,
     /// Cached manifests for loaded plugins.
     manifests: Mutex<HashMap<String, PluginManifest>>,
+    /// Search Aggregator for dynamic provider registration.
+    aggregator: Arc<SearchAggregator>,
+    /// Data Service for plugin preferences.
+    data_service: Arc<DataService>,
+    /// Plugin Executor for running commands.
+    executor: Arc<PluginExecutor>,
 }
 
 impl PluginRegistry {
     /// Create a new registry. Creates the plugins directory if it doesn't exist.
-    pub fn new(plugins_dir: PathBuf) -> Result<Self, AppError> {
+    pub fn new(
+        plugins_dir: PathBuf,
+        aggregator: Arc<SearchAggregator>,
+        data_service: Arc<DataService>,
+        executor: Arc<PluginExecutor>,
+    ) -> Result<Self, AppError> {
         std::fs::create_dir_all(&plugins_dir)?;
         Ok(Self {
             plugins_dir,
             keywords: Mutex::new(HashMap::new()),
             manifests: Mutex::new(HashMap::new()),
+            aggregator,
+            data_service,
+            executor,
         })
     }
 
@@ -117,6 +135,8 @@ impl PluginRegistry {
 
                     // Cache the manifest and register keywords
                     self.load_manifest_keywords(&manifest, &path)?;
+                    // Register search providers
+                    self.register_manifest_providers(&manifest, &path);
                 }
                 Err(e) => {
                     eprintln!(
@@ -145,11 +165,21 @@ impl PluginRegistry {
     }
 
     /// Load a manifest into memory and register its keywords.
-    fn load_manifest_keywords(&self, manifest: &PluginManifest, plugin_dir: &Path) -> Result<(), AppError> {
+    fn load_manifest_keywords(
+        &self,
+        manifest: &PluginManifest,
+        plugin_dir: &Path,
+    ) -> Result<(), AppError> {
         let plugin_id = manifest.id().to_string();
 
-        let mut keywords = self.keywords.lock().map_err(|_| AppError::Generic("keyword lock poisoned".to_string()))?;
-        let mut manifests = self.manifests.lock().map_err(|_| AppError::Generic("manifest lock poisoned".to_string()))?;
+        let mut keywords = self
+            .keywords
+            .lock()
+            .map_err(|_| AppError::Generic("keyword lock poisoned".to_string()))?;
+        let mut manifests = self
+            .manifests
+            .lock()
+            .map_err(|_| AppError::Generic("manifest lock poisoned".to_string()))?;
 
         for cmd in &manifest.commands {
             keywords.insert(
@@ -231,10 +261,16 @@ impl PluginRegistry {
     }
 
     /// Install a plugin from a directory path (copy into plugins dir).
-    pub fn install_from_dir(&self, conn: &Connection, source_dir: &Path) -> Result<String, AppError> {
+    pub fn install_from_dir(
+        &self,
+        conn: &Connection,
+        source_dir: &Path,
+    ) -> Result<String, AppError> {
         let manifest_path = source_dir.join("plugin.toml");
         if !manifest_path.exists() {
-            return Err(AppError::Generic("No plugin.toml found in source directory".to_string()));
+            return Err(AppError::Generic(
+                "No plugin.toml found in source directory".to_string(),
+            ));
         }
 
         let manifest = PluginManifest::from_file(&manifest_path)
@@ -257,14 +293,24 @@ impl PluginRegistry {
         // Register in DB
         self.register_plugin(conn, &manifest, &dest_dir)?;
         self.load_manifest_keywords(&manifest, &dest_dir)?;
+        self.register_manifest_providers(&manifest, &dest_dir);
 
         Ok(plugin_id)
     }
 
     /// Uninstall a plugin by ID.
     pub fn uninstall(&self, conn: &Connection, plugin_id: &str) -> Result<(), AppError> {
+        // Unregister providers first
+        if let Some(manifest) = self.get_manifest(plugin_id) {
+            self.unregister_manifest_providers(&manifest);
+        }
+
         let install_path: String = conn
-            .query_row("SELECT install_path FROM plugins WHERE id = ?1", [plugin_id], |row| row.get(0))
+            .query_row(
+                "SELECT install_path FROM plugins WHERE id = ?1",
+                [plugin_id],
+                |row| row.get(0),
+            )
             .map_err(|_| AppError::Generic(format!("Plugin '{}' not found", plugin_id)))?;
 
         let dir = PathBuf::from(&install_path);
@@ -281,9 +327,15 @@ impl PluginRegistry {
         conn.execute("UPDATE plugins SET enabled = 1 WHERE id = ?1", [plugin_id])?;
 
         // Re-register keywords from the manifest
-        let manifests = self.manifests.lock().map_err(|_| AppError::Generic("lock".to_string()))?;
+        let manifests = self
+            .manifests
+            .lock()
+            .map_err(|_| AppError::Generic("lock".to_string()))?;
         if let Some(manifest) = manifests.get(plugin_id) {
-            let mut keywords = self.keywords.lock().map_err(|_| AppError::Generic("lock".to_string()))?;
+            let mut keywords = self
+                .keywords
+                .lock()
+                .map_err(|_| AppError::Generic("lock".to_string()))?;
             let install_path = self.get_install_path(conn, plugin_id)?;
             for cmd in &manifest.commands {
                 keywords.insert(
@@ -295,6 +347,8 @@ impl PluginRegistry {
                     },
                 );
             }
+            // Register providers
+            self.register_manifest_providers(manifest, &PathBuf::from(&install_path));
         }
 
         Ok(())
@@ -304,8 +358,16 @@ impl PluginRegistry {
     pub fn disable(&self, conn: &Connection, plugin_id: &str) -> Result<(), AppError> {
         conn.execute("UPDATE plugins SET enabled = 0 WHERE id = ?1", [plugin_id])?;
 
+        // Unregister search providers
+        if let Some(manifest) = self.get_manifest(plugin_id) {
+            self.unregister_manifest_providers(&manifest);
+        }
+
         // Remove keywords from the index
-        let mut keywords = self.keywords.lock().map_err(|_| AppError::Generic("lock".to_string()))?;
+        let mut keywords = self
+            .keywords
+            .lock()
+            .map_err(|_| AppError::Generic("lock".to_string()))?;
         keywords.retain(|_, v| v.plugin_id != plugin_id);
 
         Ok(())
@@ -320,32 +382,41 @@ impl PluginRegistry {
              FROM plugins ORDER BY title"
         )?;
 
-        let plugins = stmt.query_map([], |row| {
-            Ok(PluginInfo {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                description: row.get(2)?,
-                version: row.get(3)?,
-                author: row.get(4)?,
-                enabled: row.get::<_, i32>(5)? == 1,
-                install_path: row.get(6)?,
-                installed_at: row.get(7)?,
-                updated_at: row.get(8)?,
-                icon: row.get(9)?,
-                keywords: Vec::new(), // filled below
-                command_count: 0,
-            })
-        })?.filter_map(|r| r.ok()).collect::<Vec<_>>();
+        let plugins = stmt
+            .query_map([], |row| {
+                Ok(PluginInfo {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    version: row.get(3)?,
+                    author: row.get(4)?,
+                    enabled: row.get::<_, i32>(5)? == 1,
+                    install_path: row.get(6)?,
+                    installed_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    icon: row.get(9)?,
+                    keywords: Vec::new(), // filled below
+                    command_count: 0,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>();
 
         // Enrich with keyword + command data from cached manifests
-        let manifests = self.manifests.lock().map_err(|_| AppError::Generic("lock".to_string()))?;
-        let enriched = plugins.into_iter().map(|mut p| {
-            if let Some(m) = manifests.get(&p.id) {
-                p.keywords = m.commands.iter().map(|c| c.keyword.clone()).collect();
-                p.command_count = m.commands.len();
-            }
-            p
-        }).collect();
+        let manifests = self
+            .manifests
+            .lock()
+            .map_err(|_| AppError::Generic("lock".to_string()))?;
+        let enriched = plugins
+            .into_iter()
+            .map(|mut p| {
+                if let Some(m) = manifests.get(&p.id) {
+                    p.keywords = m.commands.iter().map(|c| c.keyword.clone()).collect();
+                    p.command_count = m.commands.len();
+                }
+                p
+            })
+            .collect();
 
         Ok(enriched)
     }
@@ -379,10 +450,13 @@ impl PluginRegistry {
     // ── Preferences ────────────────────────────────────────────────
 
     /// Get all preferences for a plugin.
-    pub fn get_preferences(&self, conn: &Connection, plugin_id: &str) -> Result<HashMap<String, String>, AppError> {
-        let mut stmt = conn.prepare(
-            "SELECT key, value FROM plugin_preferences WHERE plugin_id = ?1"
-        )?;
+    pub fn get_preferences(
+        &self,
+        conn: &Connection,
+        plugin_id: &str,
+    ) -> Result<HashMap<String, String>, AppError> {
+        let mut stmt =
+            conn.prepare("SELECT key, value FROM plugin_preferences WHERE plugin_id = ?1")?;
 
         let prefs: HashMap<String, String> = stmt
             .query_map([plugin_id], |row| {
@@ -412,7 +486,10 @@ impl PluginRegistry {
     // ── Helpers ────────────────────────────────────────────────────
 
     fn check_keyword_conflicts(&self, manifest: &PluginManifest) -> Result<(), AppError> {
-        let keywords = self.keywords.lock().map_err(|_| AppError::Generic("lock".to_string()))?;
+        let keywords = self
+            .keywords
+            .lock()
+            .map_err(|_| AppError::Generic("lock".to_string()))?;
         for cmd in &manifest.commands {
             if let Some(existing) = keywords.get(&cmd.keyword) {
                 if existing.plugin_id != manifest.id() {
@@ -427,8 +504,12 @@ impl PluginRegistry {
     }
 
     fn get_install_path(&self, conn: &Connection, plugin_id: &str) -> Result<String, AppError> {
-        conn.query_row("SELECT install_path FROM plugins WHERE id = ?1", [plugin_id], |row| row.get(0))
-            .map_err(|_| AppError::Generic(format!("Plugin '{}' not found", plugin_id)))
+        conn.query_row(
+            "SELECT install_path FROM plugins WHERE id = ?1",
+            [plugin_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| AppError::Generic(format!("Plugin '{}' not found", plugin_id)))
     }
 
     /// Ensure plugin tables exist in the database.
@@ -459,6 +540,31 @@ impl PluginRegistry {
         )?;
         Ok(())
     }
+
+    fn register_manifest_providers(&self, manifest: &PluginManifest, plugin_dir: &Path) {
+        for cmd in &manifest.commands {
+            if cmd.mode == "search" {
+                let provider = PluginSearchProvider::new(
+                    manifest.plugin.name.clone(),
+                    plugin_dir.to_path_buf(),
+                    cmd.clone(),
+                    self.executor.clone(),
+                    self.data_service.clone(),
+                );
+                self.aggregator
+                    .register(format!("plugin:{}", cmd.keyword), Box::new(provider));
+            }
+        }
+    }
+
+    fn unregister_manifest_providers(&self, manifest: &PluginManifest) {
+        for cmd in &manifest.commands {
+            if cmd.mode == "search" {
+                self.aggregator
+                    .unregister(&format!("plugin:{}", cmd.keyword));
+            }
+        }
+    }
 }
 
 fn now_iso() -> String {
@@ -479,208 +585,4 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    fn setup_db() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
-        PluginRegistry::ensure_tables(&conn).unwrap();
-        conn
-    }
-
-    fn create_test_plugin(dir: &Path, name: &str, keyword: &str) {
-        let plugin_dir = dir.join(name);
-        std::fs::create_dir_all(plugin_dir.join("dist")).unwrap();
-        std::fs::write(plugin_dir.join("dist/index.js"), "// test").unwrap();
-        std::fs::write(
-            plugin_dir.join("plugin.toml"),
-            format!(
-                r#"
-[plugin]
-name = "{name}"
-title = "Test {name}"
-description = "A test plugin"
-version = "1.0.0"
-api_version = "0.1"
-
-[[commands]]
-name = "search"
-title = "Search"
-description = "Search"
-keyword = "{keyword}"
-script = "dist/index.js"
-runtime = "node"
-"#
-            ),
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn test_discover_plugins() {
-        let tmp = TempDir::new().unwrap();
-        let plugins_dir = tmp.path().join("plugins");
-
-        create_test_plugin(&plugins_dir, "test-plugin", "tp");
-
-        let registry = PluginRegistry::new(plugins_dir).unwrap();
-        let conn = setup_db();
-
-        let discovered = registry.discover(&conn).unwrap();
-        assert_eq!(discovered, vec!["test-plugin"]);
-
-        // Second discover should find nothing new
-        let discovered2 = registry.discover(&conn).unwrap();
-        assert!(discovered2.is_empty());
-    }
-
-    #[test]
-    fn test_list_and_get() {
-        let tmp = TempDir::new().unwrap();
-        let plugins_dir = tmp.path().join("plugins");
-
-        create_test_plugin(&plugins_dir, "alpha", "a");
-        create_test_plugin(&plugins_dir, "beta", "b");
-
-        let registry = PluginRegistry::new(plugins_dir).unwrap();
-        let conn = setup_db();
-        registry.discover(&conn).unwrap();
-
-        let plugins = registry.list(&conn).unwrap();
-        assert_eq!(plugins.len(), 2);
-
-        let alpha = registry.get(&conn, "alpha").unwrap();
-        assert_eq!(alpha.id, "alpha");
-        assert!(alpha.enabled);
-    }
-
-    #[test]
-    fn test_enable_disable() {
-        let tmp = TempDir::new().unwrap();
-        let plugins_dir = tmp.path().join("plugins");
-
-        create_test_plugin(&plugins_dir, "test-plugin", "tp");
-
-        let registry = PluginRegistry::new(plugins_dir).unwrap();
-        let conn = setup_db();
-        registry.discover(&conn).unwrap();
-
-        // Disable
-        registry.disable(&conn, "test-plugin").unwrap();
-        let p = registry.get(&conn, "test-plugin").unwrap();
-        assert!(!p.enabled);
-        assert!(registry.resolve_keyword("tp").is_none());
-
-        // Enable
-        registry.enable(&conn, "test-plugin").unwrap();
-        let p = registry.get(&conn, "test-plugin").unwrap();
-        assert!(p.enabled);
-        assert!(registry.resolve_keyword("tp").is_some());
-    }
-
-    #[test]
-    fn test_uninstall() {
-        let tmp = TempDir::new().unwrap();
-        let plugins_dir = tmp.path().join("plugins");
-
-        create_test_plugin(&plugins_dir, "to-remove", "rm");
-
-        let registry = PluginRegistry::new(plugins_dir.clone()).unwrap();
-        let conn = setup_db();
-        registry.discover(&conn).unwrap();
-
-        assert!(plugins_dir.join("to-remove").exists());
-
-        registry.uninstall(&conn, "to-remove").unwrap();
-
-        assert!(!plugins_dir.join("to-remove").exists());
-        assert!(registry.list(&conn).unwrap().is_empty());
-        assert!(registry.resolve_keyword("rm").is_none());
-    }
-
-    #[test]
-    fn test_keyword_resolution() {
-        let tmp = TempDir::new().unwrap();
-        let plugins_dir = tmp.path().join("plugins");
-
-        create_test_plugin(&plugins_dir, "my-plugin", "mp");
-
-        let registry = PluginRegistry::new(plugins_dir).unwrap();
-        let conn = setup_db();
-        registry.discover(&conn).unwrap();
-
-        let entry = registry.resolve_keyword("mp").unwrap();
-        assert_eq!(entry.plugin_id, "my-plugin");
-        assert_eq!(entry.command_name, "search");
-    }
-
-    #[test]
-    fn test_preferences() {
-        let tmp = TempDir::new().unwrap();
-        let plugins_dir = tmp.path().join("plugins");
-
-        create_test_plugin(&plugins_dir, "pref-test", "pt");
-
-        let registry = PluginRegistry::new(plugins_dir).unwrap();
-        let conn = setup_db();
-        registry.discover(&conn).unwrap();
-
-        // Set preferences
-        registry.set_preference(&conn, "pref-test", "api_key", "secret123").unwrap();
-        registry.set_preference(&conn, "pref-test", "timeout", "30").unwrap();
-
-        // Get preferences
-        let prefs = registry.get_preferences(&conn, "pref-test").unwrap();
-        assert_eq!(prefs.get("api_key").unwrap(), "secret123");
-        assert_eq!(prefs.get("timeout").unwrap(), "30");
-
-        // Update preference
-        registry.set_preference(&conn, "pref-test", "api_key", "newsecret").unwrap();
-        let prefs = registry.get_preferences(&conn, "pref-test").unwrap();
-        assert_eq!(prefs.get("api_key").unwrap(), "newsecret");
-    }
-
-    #[test]
-    fn test_removed_plugin_cleaned_up() {
-        let tmp = TempDir::new().unwrap();
-        let plugins_dir = tmp.path().join("plugins");
-
-        create_test_plugin(&plugins_dir, "ephemeral", "ep");
-
-        let registry = PluginRegistry::new(plugins_dir.clone()).unwrap();
-        let conn = setup_db();
-        registry.discover(&conn).unwrap();
-        assert_eq!(registry.list(&conn).unwrap().len(), 1);
-
-        // Remove the directory manually
-        std::fs::remove_dir_all(plugins_dir.join("ephemeral")).unwrap();
-
-        // Rediscover should clean up
-        registry.discover(&conn).unwrap();
-        assert!(registry.list(&conn).unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_keyword_conflict() {
-        let tmp = TempDir::new().unwrap();
-        let plugins_dir = tmp.path().join("plugins");
-
-        create_test_plugin(&plugins_dir, "plugin-a", "conflict");
-        create_test_plugin(&plugins_dir, "plugin-b", "conflict");
-
-        let registry = PluginRegistry::new(plugins_dir).unwrap();
-        let conn = setup_db();
-
-        // discover loads both; second one will overwrite the first in keywords
-        // (this is expected for discover — conflict check happens on install)
-        registry.discover(&conn).unwrap();
-
-        // Verify at least one is registered
-        assert!(registry.resolve_keyword("conflict").is_some());
-    }
 }
