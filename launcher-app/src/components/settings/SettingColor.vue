@@ -41,43 +41,98 @@ const handleColorChange = (e: Event) => {
 </script>
 
 <template>
-  <div class="flex items-center justify-between py-2" role="group" :aria-labelledby="`${fieldId}-label`">
-    <label :id="`${fieldId}-label`" class="text-xs font-medium text-text-primary select-none">
+  <div class="setting-color" role="group" :aria-labelledby="`${fieldId}-label`">
+    <label :id="`${fieldId}-label`" class="setting-color__label">
       {{ label }}
     </label>
-    <div class="flex items-center gap-2">
+    <div class="setting-color__control">
       <input
         v-if="optional"
         type="checkbox"
         :checked="isEnabled"
         :aria-label="`Enable custom ${label.toLowerCase()}`"
-        class="w-4 h-4 rounded border-border-default text-accent focus:ring-accent cursor-pointer"
+        class="setting-color__checkbox"
         @change="handleToggle"
       />
-      <div class="relative flex items-center">
-        <input
-          v-if="!optional || modelValue"
-          :id="fieldId"
-          type="color"
-          class="w-9 h-7 p-0 bg-transparent border-2 border-border-default rounded-md cursor-pointer overflow-hidden transition-colors hover:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:border-accent"
-          :value="modelValue || defaultColor"
-          :aria-label="`${label} color`"
-          @input="handleColorChange"
-        />
-        <span v-if="modelValue" class="ml-2 text-[10px] font-mono text-text-tertiary min-w-[60px]" aria-hidden="true">
-          {{ modelValue }}
-        </span>
-      </div>
+      <input
+        v-if="!optional || modelValue"
+        :id="fieldId"
+        type="color"
+        class="setting-color__picker"
+        :value="modelValue || defaultColor"
+        :aria-label="`${label} color`"
+        @input="handleColorChange"
+      />
+      <span v-if="modelValue" class="setting-color__hex" aria-hidden="true">
+        {{ modelValue }}
+      </span>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Color input styling */
-input[type="color"]::-webkit-color-swatch-wrapper {
-  padding: 0;
+.setting-color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
 }
-input[type="color"]::-webkit-color-swatch {
-  border: none;
+
+.setting-color__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.setting-color__control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-color__checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent, #ff6b6b);
+  cursor: pointer;
+}
+
+.setting-color__picker {
+  width: 36px;
+  height: 28px;
+  border: 2px solid var(--color-border-default, #3a3a3a);
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+  padding: 0;
+  overflow: hidden;
+}
+
+.setting-color__picker:hover {
+  border-color: var(--color-accent, #ff6b6b);
+}
+
+.setting-color__picker:focus-visible {
+  outline: 2px solid var(--color-accent, #ff6b6b);
+  outline-offset: 2px;
+}
+
+.setting-color__hex {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--color-text-tertiary, #a3a3a3);
+  min-width: 62px;
+}
+
+@media (prefers-color-scheme: light) {
+  .setting-color__label {
+    color: var(--color-text-primary, #1a1a1a);
+  }
+  .setting-color__picker {
+    border-color: var(--color-border-default, #e0e0e0);
+  }
+  .setting-color__hex {
+    color: var(--color-text-tertiary, #6b6b6b);
+  }
 }
 </style>

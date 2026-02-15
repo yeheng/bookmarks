@@ -15,7 +15,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="animate-in fade-in duration-150">
+  <div class="settings-tab-content">
     <SettingSection title="Theme" id="theme" icon="🎨">
       <SettingSelect
         v-model="settings.theme.mode"
@@ -26,7 +26,7 @@ defineProps<{
     </SettingSection>
 
     <SettingSection title="Colors" id="colors" icon="🖌️">
-      <div class="grid grid-cols-2 gap-2">
+      <div class="color-grid">
         <SettingColor
           v-model="settings.theme.accent_color"
           label="Accent"
@@ -54,7 +54,7 @@ defineProps<{
     </SettingSection>
 
     <SettingSection title="Layout" id="layout" icon="📐">
-      <div class="grid grid-cols-2 gap-4 mb-2">
+      <div class="layout-grid">
         <SettingNumber
           v-model="settings.theme.font_size"
           label="Font Size"
@@ -70,7 +70,7 @@ defineProps<{
           width="small"
         />
       </div>
-      <div class="grid grid-cols-2 gap-4 mb-2">
+      <div class="layout-grid">
         <SettingNumber
           v-model="settings.theme.window_width"
           label="Window Width"
@@ -88,7 +88,7 @@ defineProps<{
           width="medium"
         />
       </div>
-      <div class="grid grid-cols-2 gap-4 mb-2">
+      <div class="layout-grid">
         <SettingNumber
           v-model="settings.theme.input_height"
           label="Input Height"
@@ -108,3 +108,32 @@ defineProps<{
   </div>
 </template>
 
+<style scoped>
+.settings-tab-content {
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.layout-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-tab-content {
+    animation: none;
+  }
+}
+</style>

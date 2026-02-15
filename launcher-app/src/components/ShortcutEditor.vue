@@ -64,15 +64,15 @@ function cancelRecording() {
 </script>
 
 <template>
-  <div class="flex items-center justify-between py-3 border-b border-border-default last:border-b-0" role="group" :aria-labelledby="`shortcut-label-${actionId}`">
-    <div class="flex-1">
-      <div :id="`shortcut-label-${actionId}`" class="text-sm font-medium text-text-primary mb-1">{{ label }}</div>
-      <div v-if="description" :id="`shortcut-desc-${actionId}`" class="text-xs text-text-secondary">{{ description }}</div>
+  <div class="shortcut-editor" role="group" :aria-labelledby="`shortcut-label-${actionId}`">
+    <div class="shortcut-info">
+      <div :id="`shortcut-label-${actionId}`" class="shortcut-label">{{ label }}</div>
+      <div v-if="description" :id="`shortcut-desc-${actionId}`" class="shortcut-description">{{ description }}</div>
     </div>
-    <div class="min-w-[140px]">
+    <div class="shortcut-input-container">
       <button
         v-if="!isRecording"
-        class="w-full px-3 py-2 text-xs font-mono bg-bg-secondary border border-border-default rounded-md text-text-primary cursor-pointer transition-colors hover:bg-hover-bg hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent"
+        class="shortcut-display"
         @click="startRecording"
         :aria-label="`Edit shortcut for ${label}. Current shortcut: ${currentShortcut}`"
         :aria-describedby="description ? `shortcut-desc-${actionId}` : undefined"
@@ -81,7 +81,7 @@ function cancelRecording() {
       </button>
       <input
         v-else
-        class="w-full px-3 py-2 text-xs font-mono bg-bg-secondary border border-accent rounded-md text-text-primary cursor-text outline-none animate-pulse-border"
+        class="shortcut-recording"
         :value="tempShortcut"
         @keydown="handleKeyDown"
         @blur="cancelRecording"
@@ -96,16 +96,83 @@ function cancelRecording() {
 </template>
 
 <style scoped>
-.animate-pulse-border {
+.shortcut-editor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color, #3a3a3a);
+}
+
+.shortcut-info {
+  flex: 1;
+}
+
+.shortcut-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-color, #e0e0e0);
+  margin-bottom: 4px;
+}
+
+.shortcut-description {
+  font-size: 12px;
+  color: var(--color-text-secondary, #b3b3b3);
+}
+
+.shortcut-input-container {
+  min-width: 140px;
+}
+
+.shortcut-display,
+.shortcut-recording {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: monospace;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.shortcut-display:hover {
+  background: #3a3a3a;
+  border-color: var(--accent-color, #ff6b6b);
+}
+
+.shortcut-recording {
+  cursor: text;
+  border-color: var(--accent-color, #ff6b6b);
+  background: #1a1a1a;
   animation: pulse 1.5s infinite;
 }
 
 @keyframes pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(var(--color-accent-rgb), 0.4);
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.4);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(var(--color-accent-rgb), 0);
+    box-shadow: 0 0 0 4px rgba(255, 107, 107, 0);
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  .shortcut-display,
+  .shortcut-recording {
+    background: #f5f5f5;
+    border-color: #e0e0e0;
+    color: #1a1a1a;
+  }
+  
+  .shortcut-display:hover {
+    background: #e0e0e0;
+  }
+  
+  .shortcut-recording {
+    background: #fff;
   }
 }
 </style>

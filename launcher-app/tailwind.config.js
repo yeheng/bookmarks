@@ -32,7 +32,7 @@ export default {
         'border-subtle': tokens.colors.semantic.light.border.subtle,
         'border-focus': tokens.colors.semantic.light.border.focus,
 
-        'accent': 'rgb(var(--color-accent-rgb) / <alpha-value>)',
+        'accent': tokens.colors.semantic.light.accent,
         'success': tokens.colors.semantic.light.success,
         'warning': tokens.colors.semantic.light.warning,
         'error': tokens.colors.semantic.light.error,

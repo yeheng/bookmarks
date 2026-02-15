@@ -13,7 +13,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="animate-in fade-in duration-150">
+  <div class="settings-tab-content">
     <SettingSection title="Startup" id="startup" icon="🚀">
       <SettingToggle
         v-model="settings.general.launch_at_startup"
@@ -63,3 +63,19 @@ defineProps<{
   </div>
 </template>
 
+<style scoped>
+.settings-tab-content {
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-tab-content {
+    animation: none;
+  }
+}
+</style>

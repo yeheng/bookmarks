@@ -1,7 +1,5 @@
 export interface SearchResult {
   id: string;
-  sourceId?: string;
-  rawId?: string;
   type: 'bookmark' | 'file' | 'plugin';
   title: string;
   subtitle: string;

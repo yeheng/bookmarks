@@ -1,9 +1,8 @@
 <script setup lang="ts">
 /**
  * SettingSelect - Select dropdown component for settings
- * Combines SettingItem layout with a Headless UI Listbox
+ * Combines SettingItem layout with a styled select control
  */
-import { Listbox, ListboxButton, ListboxOptions, ListboxOption, ListboxLabel } from '@headlessui/vue';
 
 interface Option {
   value: string;
@@ -28,64 +27,161 @@ const props = withDefaults(defineProps<Props>(), {
 });
 const emit = defineEmits<Emits>();
 
-const getLabel = (value: string) => {
-  return props.options.find(opt => opt.value === value)?.label || value;
+const fieldId = props.id || `select-${Math.random().toString(36).substr(2, 9)}`;
+const descriptionId = `${fieldId}-desc`;
+
+const handleChange = (e: Event) => {
+  const target = e.target as HTMLSelectElement;
+  emit('update:modelValue', target.value);
 };
 </script>
 
 <template>
-  <div class="flex items-start justify-between gap-4 py-3 border-b border-border-default last:border-b-0" :class="{ 'opacity-50 pointer-events-none': disabled }">
-    <div class="flex flex-col flex-1 min-w-0">
-      <Listbox :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" :disabled="disabled">
-        <ListboxLabel class="text-sm font-medium text-text-primary cursor-pointer select-none">
-          {{ label }}
-        </ListboxLabel>
-        <p v-if="description" class="mt-1 text-xs text-text-secondary leading-snug">
-          {{ description }}
-        </p>
-        
-        <div class="relative mt-2 sm:mt-0 sm:ml-auto">
-          <ListboxButton class="relative w-full sm:w-auto min-w-[140px] cursor-pointer rounded-md bg-bg-secondary py-2 pl-3 pr-10 text-left text-sm border border-border-default focus:outline-none focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent transition-colors hover:border-accent">
-            <span class="block truncate text-text-primary">{{ getLabel(modelValue) }}</span>
-            <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" class="text-text-secondary">
-                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </span>
-          </ListboxButton>
-
-          <transition
-            leave-active-class="transition duration-100 ease-in"
-            leave-from-class="opacity-100"
-            leave-to-class="opacity-0"
-          >
-            <ListboxOptions class="absolute right-0 mt-1 max-h-60 w-full min-w-[140px] overflow-auto rounded-md bg-bg-elevated py-1 text-base shadow-lg ring-1 ring-black/5 focus:outline-none sm:text-sm z-50">
-              <ListboxOption
-                v-for="option in options"
-                :key="option.value"
-                :value="option.value"
-                as="template"
-                v-slot="{ active, selected }"
-              >
-                <li
-                  :class="[
-                    active ? 'bg-hover-bg text-text-primary' : 'text-text-primary',
-                    'relative cursor-pointer select-none py-2 pl-3 pr-9'
-                  ]"
-                >
-                  <span :class="[selected ? 'font-medium' : 'font-normal', 'block truncate']">{{ option.label }}</span>
-                  <span v-if="selected" class="absolute inset-y-0 right-0 flex items-center pr-3 text-accent">
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2.5 6L4.5 8L9.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                  </span>
-                </li>
-              </ListboxOption>
-            </ListboxOptions>
-          </transition>
-        </div>
-      </Listbox>
+  <div
+    class="setting-select"
+    :class="{ 'setting-select--disabled': disabled }"
+    role="group"
+    :aria-labelledby="`${fieldId}-label`"
+  >
+    <div class="setting-select__header">
+      <label
+        :id="`${fieldId}-label`"
+        :for="fieldId"
+        class="setting-select__label"
+      >
+        {{ label }}
+      </label>
+      <p
+        v-if="description"
+        :id="descriptionId"
+        class="setting-select__description"
+      >
+        {{ description }}
+      </p>
+    </div>
+    <div class="setting-select__control">
+      <select
+        :id="fieldId"
+        class="setting-select__input"
+        :value="modelValue"
+        :aria-describedby="description ? descriptionId : undefined"
+        :disabled="disabled"
+        @change="handleChange"
+      >
+        <option
+          v-for="option in options"
+          :key="option.value"
+          :value="option.value"
+        >
+          {{ option.label }}
+        </option>
+      </select>
+      <span class="setting-select__chevron" aria-hidden="true">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
     </div>
   </div>
 </template>
 
+<style scoped>
+.setting-select {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border-default, #3a3a3a);
+}
+
+.setting-select:last-child {
+  border-bottom: none;
+}
+
+.setting-select--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.setting-select__header {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-select__label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #e0e0e0);
+  cursor: pointer;
+}
+
+.setting-select__description {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #b3b3b3);
+  line-height: 1.4;
+}
+
+.setting-select__control {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.setting-select__input {
+  appearance: none;
+  min-width: 140px;
+  padding: 8px 32px 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-primary, #e0e0e0);
+  background: var(--color-bg-secondary, #2a2a2a);
+  border: 1px solid var(--color-border-default, #3a3a3a);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.setting-select__input:hover {
+  border-color: var(--color-accent, #ff6b6b);
+}
+
+.setting-select__input:focus {
+  outline: none;
+  border-color: var(--color-accent, #ff6b6b);
+  box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.2);
+}
+
+.setting-select__chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--color-text-secondary, #b3b3b3);
+}
+
+@media (prefers-color-scheme: light) {
+  .setting-select {
+    border-bottom-color: var(--color-border-default, #e0e0e0);
+  }
+  .setting-select__label {
+    color: var(--color-text-primary, #1a1a1a);
+  }
+  .setting-select__description {
+    color: var(--color-text-secondary, #525252);
+  }
+  .setting-select__input {
+    color: var(--color-text-primary, #1a1a1a);
+    background: var(--color-bg-secondary, #f5f5f5);
+    border-color: var(--color-border-default, #e0e0e0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setting-select__input {
+    transition: none;
+  }
+}
+</style>
